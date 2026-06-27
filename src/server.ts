@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage } from "node:http";
+import { createHash } from "node:crypto";
 
 import { pool } from "./db.ts";
 
@@ -9,6 +10,13 @@ async function readJSONBody(req: IncomingMessage): Promise<any> {
   for await (const chunk of req) chunks.push(chunk);
   const raw = Buffer.concat(chunks).toString("utf-8");
   return JSON.parse(raw);
+}
+
+// Fingerprint a transaction by its identifying fields, so re-imports can be deduped.
+// Same fields -> same hash, every time (deterministic). Paired with a UNIQUE constraint.
+function transactionHash(accountId: number, t: any): string {
+  const key = [accountId, t.txn_date, t.txn_time ?? "", t.amount_paise, t.narration ?? ""].join("|");
+  return createHash("sha256").update(key).digest("hex");
 }
 
 // createServer takes ONE function that runs on every incoming request.
@@ -80,20 +88,29 @@ const server = createServer(async (req, res) => {
     }
 
     // Step 4: insert the whole batch in ONE transaction (all-or-nothing).
+    // ON CONFLICT (import_hash) DO NOTHING makes re-import idempotent: a row we've
+    // already seen is silently skipped instead of erroring or double-counting.
     const client = await pool.connect(); // one connection, held for the transaction
     try {
       await client.query("BEGIN");
+      let inserted = 0;
       for (const t of body.transactions) {
-        await client.query(
+        const result = await client.query(
           `INSERT INTO transactions
-             (account_id, txn_date, txn_time, amount_paise, type, narration)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [accountId, t.txn_date, t.txn_time ?? null, t.amount_paise, t.type, t.narration ?? null],
+             (account_id, txn_date, txn_time, amount_paise, type, narration, import_hash)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           ON CONFLICT (import_hash) DO NOTHING`,
+          [
+            accountId, t.txn_date, t.txn_time ?? null, t.amount_paise,
+            t.type, t.narration ?? null, transactionHash(accountId, t),
+          ],
         );
+        if (result.rowCount && result.rowCount > 0) inserted++; // rowCount 0 = skipped dupe
       }
-      await client.query("COMMIT"); // every row inserted -> make it all permanent
+      await client.query("COMMIT");
+      const skipped = body.transactions.length - inserted;
       res.writeHead(201, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ inserted: body.transactions.length }));
+      res.end(JSON.stringify({ inserted, skipped }));
     } catch (err) {
       await client.query("ROLLBACK"); // anything failed -> undo the WHOLE batch
       console.error("import failed:", err);

@@ -41,6 +41,6 @@ CREATE TABLE transactions (
   counterparty_raw  TEXT,
   counterparty_account_id BIGINT REFERENCES accounts(id),
   bank_balance_paise  BIGINT,
-  import_hash       TEXT,
+  import_hash       TEXT UNIQUE,
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
