@@ -1,0 +1,4 @@
+node_modules/
+.env
+data/private/
+.DS_Store
