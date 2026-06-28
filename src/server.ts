@@ -106,6 +106,10 @@ app.post("/accounts/:id/transactions", async (req, res) => {
     if (!ALLOWED_TYPES.includes(t.type)) {
       errors.push(`row ${i}: type must be one of ${ALLOWED_TYPES.join(", ")}`);
     }
+    // bank_balance_paise is optional, but if present it must be an integer (paise).
+    if (t.bank_balance_paise != null && !Number.isInteger(t.bank_balance_paise)) {
+      errors.push(`row ${i}: bank_balance_paise must be an integer if provided`);
+    }
   });
   if (errors.length > 0) {
     res.status(400).json({ errors });
@@ -113,32 +117,54 @@ app.post("/accounts/:id/transactions", async (req, res) => {
   }
 
   // Insert the whole batch in ONE transaction. ON CONFLICT DO NOTHING makes it idempotent.
+  const stmt = body.statement ?? {}; // optional import metadata
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+
+    // Record this import as a statement — carries the ordering/coverage metadata.
+    const stmtResult = await client.query(
+      `INSERT INTO statements (account_id, source, period_start, period_end, declared_count)
+       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      [
+        accountId,
+        stmt.source ?? null,
+        stmt.period_start ?? null,
+        stmt.period_end ?? null,
+        stmt.declared_count ?? null,
+      ],
+    );
+    const statementId = stmtResult.rows[0].id;
+
     let inserted = 0;
-    for (const t of body.transactions) {
+    for (const [i, t] of body.transactions.entries()) {
       const result = await client.query(
         `INSERT INTO transactions
-           (account_id, txn_date, txn_time, amount_paise, type, narration, import_hash)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+           (account_id, statement_id, statement_seq, txn_date, txn_time,
+            amount_paise, type, narration, bank_balance_paise, import_hash)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          ON CONFLICT (import_hash) DO NOTHING`,
         [
           accountId,
+          statementId,
+          i, // statement_seq = row position within this import (parse order)
           t.txn_date,
           t.txn_time ?? null,
           t.amount_paise,
           t.type,
           t.narration ?? null,
+          t.bank_balance_paise ?? null,
           transactionHash(accountId, t),
         ],
       );
       if (result.rowCount && result.rowCount > 0) inserted++;
     }
     await client.query("COMMIT");
-    res
-      .status(201)
-      .json({ inserted, skipped: body.transactions.length - inserted });
+    res.status(201).json({
+      statement_id: statementId,
+      inserted,
+      skipped: body.transactions.length - inserted,
+    });
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("import failed:", err);
