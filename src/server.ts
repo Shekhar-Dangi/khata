@@ -13,8 +13,21 @@ app.use(express.json());
 // Fingerprint a transaction by its identifying fields, for dedup on re-import.
 // Same fields -> same hash, every time (deterministic). Paired with a UNIQUE constraint.
 function transactionHash(accountId: number, t: any): string {
-  const key = [accountId, t.txn_date, t.txn_time ?? "", t.amount_paise, t.narration ?? ""].join("|");
+  const key = [
+    accountId,
+    t.txn_date,
+    t.txn_time ?? "",
+    t.amount_paise,
+    t.narration ?? "",
+  ].join("|");
   return createHash("sha256").update(key).digest("hex");
+}
+
+async function accountExists(accountId: number): Promise<boolean> {
+  const r = await pool.query("SELECT 1 FROM accounts WHERE id = $1", [
+    accountId,
+  ]);
+  return r.rowCount !== 0;
 }
 
 const ALLOWED_TYPES = ["opening_balance", "transfer", "regular"];
@@ -28,11 +41,23 @@ app.get("/health", (_req, res) => {
 app.get("/accounts/:id/balance", async (req, res) => {
   const accountId = Number(req.params.id); // Express extracts :id into req.params
   try {
+    if (!(await accountExists(accountId))) {
+      return res.status(404).json({ error: "account id does not exist" });
+    }
+  } catch (error) {
+    console.error("balance query failed:", error);
+    return res.status(500).json({ error: "internal error" });
+  }
+
+  try {
     const result = await pool.query(
       "SELECT COALESCE(SUM(amount_paise), 0) AS balance_paise FROM transactions WHERE account_id = $1",
       [accountId],
     );
-    res.json({ account_id: accountId, balance_paise: Number(result.rows[0].balance_paise) });
+    res.json({
+      account_id: accountId,
+      balance_paise: Number(result.rows[0].balance_paise),
+    });
   } catch (err) {
     console.error("balance query failed:", err);
     res.status(500).json({ error: "internal error" });
@@ -43,6 +68,15 @@ app.get("/accounts/:id/balance", async (req, res) => {
 app.post("/accounts/:id/transactions", async (req, res) => {
   const accountId = Number(req.params.id);
   const body = req.body; // already parsed by express.json()
+
+  try {
+    if (!(await accountExists(accountId))) {
+      return res.status(404).json({ error: "account id does not exist" });
+    }
+  } catch (error) {
+    console.error("balance query failed:", error);
+    return res.status(500).json({ error: "internal error" });
+  }
 
   // Validate the WHOLE batch before touching the DB (all-or-nothing).
   if (!Array.isArray(body?.transactions) || body.transactions.length === 0) {
@@ -61,8 +95,13 @@ app.post("/accounts/:id/transactions", async (req, res) => {
     } else if (t.amount_paise === 0) {
       errors.push(`row ${i}: amount_paise must not be zero`);
     }
-    if (typeof t.txn_date !== "string" || Number.isNaN(Date.parse(t.txn_date))) {
-      errors.push(`row ${i}: txn_date must be a valid date string (YYYY-MM-DD)`);
+    if (
+      typeof t.txn_date !== "string" ||
+      Number.isNaN(Date.parse(t.txn_date))
+    ) {
+      errors.push(
+        `row ${i}: txn_date must be a valid date string (YYYY-MM-DD)`,
+      );
     }
     if (!ALLOWED_TYPES.includes(t.type)) {
       errors.push(`row ${i}: type must be one of ${ALLOWED_TYPES.join(", ")}`);
@@ -85,14 +124,21 @@ app.post("/accounts/:id/transactions", async (req, res) => {
          VALUES ($1, $2, $3, $4, $5, $6, $7)
          ON CONFLICT (import_hash) DO NOTHING`,
         [
-          accountId, t.txn_date, t.txn_time ?? null, t.amount_paise,
-          t.type, t.narration ?? null, transactionHash(accountId, t),
+          accountId,
+          t.txn_date,
+          t.txn_time ?? null,
+          t.amount_paise,
+          t.type,
+          t.narration ?? null,
+          transactionHash(accountId, t),
         ],
       );
       if (result.rowCount && result.rowCount > 0) inserted++;
     }
     await client.query("COMMIT");
-    res.status(201).json({ inserted, skipped: body.transactions.length - inserted });
+    res
+      .status(201)
+      .json({ inserted, skipped: body.transactions.length - inserted });
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("import failed:", err);
