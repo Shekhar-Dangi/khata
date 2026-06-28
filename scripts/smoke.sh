@@ -19,6 +19,8 @@ req() {
 echo "health:                 ";  req GET  /health
 echo "balance acct 1:         ";  req GET  /accounts/1/balance
 echo "balance 999 (expect 404):"; req GET  /accounts/999/balance
+echo "reconcile acct 1:       ";  req GET  /accounts/1/reconcile
+echo "reconcile 999 (404):    ";  req GET  /accounts/999/reconcile
 echo "import good (201):      ";  req POST /accounts/1/transactions '{"transactions":[{"txn_date":"2026-07-01","amount_paise":-12300,"type":"regular","narration":"Smoke"}]}'
 echo "import re-run (skip):   ";  req POST /accounts/1/transactions '{"transactions":[{"txn_date":"2026-07-01","amount_paise":-12300,"type":"regular","narration":"Smoke"}]}'
 echo "import to 999 (404):    ";  req POST /accounts/999/transactions '{"transactions":[{"txn_date":"2026-07-01","amount_paise":100,"type":"regular"}]}'

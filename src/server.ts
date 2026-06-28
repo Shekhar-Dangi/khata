@@ -30,7 +30,24 @@ async function accountExists(accountId: number): Promise<boolean> {
   return r.rowCount !== 0;
 }
 
+async function fetchTransactions(accountId: number) {
+  const result = await pool.query(
+    "SELECT * FROM transactions WHERE account_id = $1 ORDER BY txn_date, statement_id, statement_seq",
+    [accountId],
+  );
+  return result;
+}
+
 const ALLOWED_TYPES = ["opening_balance", "transfer", "regular"];
+
+type Discrepancy = {
+  transaction_id: string; // our BIGINT PK — kept as a string to avoid JS precision loss past 2^53
+  txn_date: string;
+  narration: string;
+  expected_paise: number;
+  stated_paise: number;
+  difference_paise: number;
+};
 
 // Health check.
 app.get("/health", (_req, res) => {
@@ -74,7 +91,7 @@ app.post("/accounts/:id/transactions", async (req, res) => {
       return res.status(404).json({ error: "account id does not exist" });
     }
   } catch (error) {
-    console.error("balance query failed:", error);
+    console.error("transactions query failed:", error);
     return res.status(500).json({ error: "internal error" });
   }
 
@@ -107,8 +124,13 @@ app.post("/accounts/:id/transactions", async (req, res) => {
       errors.push(`row ${i}: type must be one of ${ALLOWED_TYPES.join(", ")}`);
     }
     // bank_balance_paise is optional, but if present it must be an integer (paise).
-    if (t.bank_balance_paise != null && !Number.isInteger(t.bank_balance_paise)) {
-      errors.push(`row ${i}: bank_balance_paise must be an integer if provided`);
+    if (
+      t.bank_balance_paise != null &&
+      !Number.isInteger(t.bank_balance_paise)
+    ) {
+      errors.push(
+        `row ${i}: bank_balance_paise must be an integer if provided`,
+      );
     }
   });
   if (errors.length > 0) {
@@ -171,6 +193,77 @@ app.post("/accounts/:id/transactions", async (req, res) => {
     res.status(500).json({ error: "import failed" });
   } finally {
     client.release();
+  }
+});
+
+app.get("/accounts/:id/reconcile", async (req, res) => {
+  const accountId = Number(req.params.id);
+
+  try {
+    if (!(await accountExists(accountId))) {
+      return res.status(404).json({ error: "account does not exit" });
+    }
+  } catch (error) {
+    console.error("accounts query failed : ", error);
+    return res.status(500).json({ error: "internal error" });
+  }
+
+  try {
+    const result = await fetchTransactions(accountId);
+
+    // Our independent ledger total (sum of amounts) — computed separately so it
+    // cross-checks the walk rather than being derived from it.
+    const ledgerSum = await pool.query(
+      "SELECT COALESCE(SUM(amount_paise), 0) AS total FROM transactions WHERE account_id = $1",
+      [accountId],
+    );
+
+    const response = {
+      account_id: accountId,
+      reconciled: true,
+      checkpoints_checked: 0,
+      transactions_considered: result.rowCount,
+      ledger_balance_paise: Number(ledgerSum.rows[0].total),
+      bank_last_stated_paise: null as number | null,
+      total_difference_paise: null as number | null,
+      discrepancies: [] as Discrepancy[],
+    };
+
+    let computed = 0;
+    for (const t of result.rows) {
+      computed += Number(t.amount_paise);
+
+      // Only rows carrying the bank's balance are checkpoints we can verify.
+      // Guard on the RAW value: Number(null) is 0, which would treat a real 0 as "no checkpoint".
+      if (t.bank_balance_paise != null) {
+        const stated = Number(t.bank_balance_paise);
+        response.checkpoints_checked += 1;
+        response.bank_last_stated_paise = stated; // the bank's most recent stated balance
+
+        if (computed !== stated) {
+          response.reconciled = false;
+          response.discrepancies.push({
+            transaction_id: t.id,
+            txn_date: t.txn_date,
+            narration: t.narration,
+            expected_paise: computed,
+            stated_paise: stated,
+            difference_paise: stated - computed, // per-segment error
+          });
+          computed = stated; // reset to the bank's truth, then keep walking
+        }
+      }
+    }
+
+    if (response.bank_last_stated_paise != null) {
+      response.total_difference_paise =
+        response.bank_last_stated_paise - response.ledger_balance_paise;
+    }
+
+    return res.status(200).json(response);
+  } catch (error) {
+    console.error("error reconciling transactions:", error);
+    res.status(500).json({ error: "internal error" });
   }
 });
 
