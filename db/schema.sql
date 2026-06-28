@@ -37,5 +37,20 @@ CREATE TABLE transactions (
   counterparty_account_id BIGINT REFERENCES accounts(id),    -- set when matched to YOUR account
   bank_balance_paise      BIGINT,                            -- bank's stated balance AFTER this row (evidence)
   import_hash             TEXT UNIQUE,                       -- dedup fingerprint
+  -- transfer detection (filled in by detect-transfers, not at import):
+  transfer_status         TEXT CHECK (transfer_status IN ('pending', 'resolved', 'suspected')),
+  transfer_group_id       BIGINT,                            -- shared by the two paired legs
   created_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- account_keywords: identifiers that let us recognize one of your accounts in another
+-- account's narration (account numbers, UPI handles, your name). One account has MANY,
+-- so it's its own table (one-to-many), not columns on `accounts`.
+CREATE TABLE account_keywords (
+  id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  account_id  BIGINT NOT NULL REFERENCES accounts(id),
+  keyword     TEXT NOT NULL,
+  kind        TEXT NOT NULL CHECK (kind IN ('account_number', 'upi_handle', 'name')),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (account_id, keyword)
 );
