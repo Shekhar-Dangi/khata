@@ -39,6 +39,7 @@ async function fetchTransactions(accountId: number) {
 }
 
 const ALLOWED_TYPES = ["opening_balance", "transfer", "regular"];
+const KEYWORD_KINDS = ["account_number", "upi_handle", "name"];
 
 type Discrepancy = {
   transaction_id: string; // our BIGINT PK — kept as a string to avoid JS precision loss past 2^53
@@ -263,6 +264,65 @@ app.get("/accounts/:id/reconcile", async (req, res) => {
     return res.status(200).json(response);
   } catch (error) {
     console.error("error reconciling transactions:", error);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+// POST /accounts/:id/keywords — register an identifier used to recognize this account
+// in another account's narration (account number, UPI handle, or name).
+app.post("/accounts/:id/keywords", async (req, res) => {
+  const accountId = Number(req.params.id);
+  const { keyword, kind } = req.body ?? {};
+
+  try {
+    if (!(await accountExists(accountId))) {
+      return res.status(404).json({ error: "account id does not exist" });
+    }
+  } catch (error) {
+    console.error("keyword insert failed:", error);
+    return res.status(500).json({ error: "internal error" });
+  }
+
+  // Validate before touching the DB — clear 400s instead of a raw constraint error.
+  if (typeof keyword !== "string" || keyword.trim() === "") {
+    return res.status(400).json({ error: "keyword must be a non-empty string" });
+  }
+  if (!KEYWORD_KINDS.includes(kind)) {
+    return res.status(400).json({ error: `kind must be one of ${KEYWORD_KINDS.join(", ")}` });
+  }
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO account_keywords (account_id, keyword, kind)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (account_id, keyword) DO NOTHING
+       RETURNING id`,
+      [accountId, keyword.trim(), kind],
+    );
+    if (result.rowCount === 0) {
+      return res.status(200).json({ status: "already exists" });
+    }
+    return res.status(201).json({ id: result.rows[0].id });
+  } catch (error) {
+    console.error("keyword insert failed:", error);
+    return res.status(500).json({ error: "internal error" });
+  }
+});
+
+// GET /accounts/:id/keywords — list an account's registered identifiers.
+app.get("/accounts/:id/keywords", async (req, res) => {
+  const accountId = Number(req.params.id);
+  try {
+    if (!(await accountExists(accountId))) {
+      return res.status(404).json({ error: "account id does not exist" });
+    }
+    const result = await pool.query(
+      "SELECT id, keyword, kind FROM account_keywords WHERE account_id = $1 ORDER BY id",
+      [accountId],
+    );
+    res.json({ account_id: accountId, keywords: result.rows });
+  } catch (error) {
+    console.error("keyword fetch failed:", error);
     res.status(500).json({ error: "internal error" });
   }
 });
