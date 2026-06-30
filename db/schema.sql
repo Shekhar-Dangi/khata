@@ -54,3 +54,6 @@ CREATE TABLE account_keywords (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (account_id, keyword)
 );
+
+-- Shared id stamped on the two legs of a detected transfer (its own identity, not a txn id).
+CREATE SEQUENCE IF NOT EXISTS transfer_group_seq;

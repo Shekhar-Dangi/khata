@@ -327,6 +327,115 @@ app.get("/accounts/:id/keywords", async (req, res) => {
   }
 });
 
+// POST /accounts/:id/detect-transfers — find internal transfers FROM this account's legs
+// to your other accounts. Idempotent and re-runnable (only non-resolved legs are touched).
+app.post("/accounts/:id/detect-transfers", async (req, res) => {
+  const accountId = Number(req.params.id);
+
+  try {
+    if (!(await accountExists(accountId))) {
+      return res.status(404).json({ error: "account id does not exist" });
+    }
+  } catch (error) {
+    console.error("detect-transfers failed:", error);
+    return res.status(500).json({ error: "internal error" });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // This account's candidate legs (anything not already resolved, with a narration to scan).
+    // IS DISTINCT FROM handles NULL correctly: null/pending/suspected are all re-evaluated.
+    const legs = (
+      await client.query(
+        `SELECT id, amount_paise, txn_date, narration
+           FROM transactions
+          WHERE account_id = $1 AND narration IS NOT NULL
+            AND transfer_status IS DISTINCT FROM 'resolved'`,
+        [accountId],
+      )
+    ).rows;
+
+    // STRONG identifiers of your OTHER accounts (account number / UPI handle), lowercased
+    // once so the narration scan is a cheap case-insensitive substring check.
+    const keywords = (
+      await client.query(
+        `SELECT account_id, lower(keyword) AS keyword
+           FROM account_keywords
+          WHERE account_id <> $1 AND kind IN ('account_number', 'upi_handle')`,
+        [accountId],
+      )
+    ).rows;
+
+    let resolved = 0;
+    let pending = 0;
+    let suspected = 0;
+
+    for (const leg of legs) {
+      const narration = String(leg.narration).toLowerCase();
+      // Which other account does this leg strongly identify? (first strong keyword found)
+      const match = keywords.find((k) => narration.includes(k.keyword));
+      if (!match) continue; // v1: act only on legs with a strong identifier (high precision)
+
+      const counterpartyId = match.account_id;
+
+      // Same-day, opposite-sign, equal-magnitude partner in that account, not already resolved.
+      const partners = (
+        await client.query(
+          `SELECT id FROM transactions
+            WHERE account_id = $1 AND txn_date = $2 AND amount_paise = $3
+              AND transfer_status IS DISTINCT FROM 'resolved'`,
+          [counterpartyId, leg.txn_date, -Number(leg.amount_paise)],
+        )
+      ).rows;
+
+      if (partners.length === 1) {
+        // Confident pair → resolve BOTH legs together with a shared group id.
+        const groupId = (
+          await client.query("SELECT nextval('transfer_group_seq') AS g")
+        ).rows[0].g;
+        await client.query(
+          `UPDATE transactions SET transfer_status = 'resolved',
+             transfer_group_id = $1, counterparty_account_id = $2 WHERE id = $3`,
+          [groupId, counterpartyId, leg.id],
+        );
+        await client.query(
+          `UPDATE transactions SET transfer_status = 'resolved',
+             transfer_group_id = $1, counterparty_account_id = $2 WHERE id = $3`,
+          [groupId, accountId, partners[0].id],
+        );
+        resolved++;
+      } else if (partners.length === 0) {
+        // Strong identifier but no partner yet (other sheet not imported) → pending.
+        await client.query(
+          `UPDATE transactions SET transfer_status = 'pending',
+             counterparty_account_id = $1 WHERE id = $2`,
+          [counterpartyId, leg.id],
+        );
+        pending++;
+      } else {
+        // Multiple candidates → ambiguous which one → flag for the user, don't guess.
+        await client.query(
+          `UPDATE transactions SET transfer_status = 'suspected',
+             counterparty_account_id = $1 WHERE id = $2`,
+          [counterpartyId, leg.id],
+        );
+        suspected++;
+      }
+    }
+
+    await client.query("COMMIT");
+    res.json({ account_id: accountId, resolved, pending, suspected });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("detect-transfers failed:", error);
+    res.status(500).json({ error: "internal error" });
+  } finally {
+    client.release();
+  }
+});
+
 // Fallback: anything unmatched -> 404.
 app.use((_req, res) => {
   res.status(404).json({ error: "not found" });
