@@ -55,6 +55,32 @@ app.get("/health", (_req, res) => {
   res.json({ ok: true });
 });
 
+// GET /accounts — list every account with its computed balance in ONE aggregate query.
+// LEFT JOIN (not INNER) so accounts with zero transactions still appear, with balance 0.
+// GROUP BY a.id is enough because id is the PK — name/bank are functionally dependent on it.
+app.get("/accounts", async (_req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT a.id, a.name, a.bank,
+              COALESCE(SUM(t.amount_paise), 0) AS balance_paise
+         FROM accounts a
+         LEFT JOIN transactions t ON t.account_id = a.id
+        GROUP BY a.id
+        ORDER BY a.id`,
+    );
+    const accounts = result.rows.map((r) => ({
+      id: Number(r.id), // pg returns BIGINT as a string; account ids are small, safe to Number()
+      name: r.name,
+      bank: r.bank,
+      balance_paise: Number(r.balance_paise),
+    }));
+    res.json({ accounts });
+  } catch (error) {
+    console.error("accounts list failed:", error);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
 // GET /accounts/:id/balance — compute the account's balance from its transactions.
 app.get("/accounts/:id/balance", async (req, res) => {
   const accountId = Number(req.params.id); // Express extracts :id into req.params
