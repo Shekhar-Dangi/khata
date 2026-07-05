@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import TransactionList from "./TransactionList";
 
 type Account = {
   id: number;
@@ -11,6 +12,10 @@ function App() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const [selectedAccountId, setSelectedAccountId] = useState<number | null>(
+    null,
+  );
 
   useEffect(() => {
     async function fetchAccounts() {
@@ -34,23 +39,28 @@ function App() {
   return (
     <main>
       <h1>Accounts</h1>
-      {loading
-        ? "Loading..."
-        : error
-          ? error
-          : (
-              <ul>
-                {accounts.map((account) => (
-                  <li key={account.id}>
-                    {account.name} :{" "}
-                    {(account.balance_paise / 100).toLocaleString("en-IN", {
-                      style: "currency",
-                      currency: "INR",
-                    })}
-                  </li>
-                ))}
-              </ul>
-            )}
+      {loading ? (
+        "Loading..."
+      ) : error ? (
+        error
+      ) : (
+        <ul>
+          {accounts.map((account) => (
+            <li key={account.id}>
+              <button onClick={() => setSelectedAccountId(account.id)}>
+                {account.name} :{" "}
+                {(account.balance_paise / 100).toLocaleString("en-IN", {
+                  style: "currency",
+                  currency: "INR",
+                })}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {selectedAccountId != null && (
+        <TransactionList accountId={selectedAccountId} />
+      )}
     </main>
   );
 }
