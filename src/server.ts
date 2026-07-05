@@ -108,6 +108,40 @@ app.get("/accounts/:id/balance", async (req, res) => {
   }
 });
 
+// GET /accounts/:id/transactions — an account's transactions, oldest first (drill-in view).
+app.get("/accounts/:id/transactions", async (req, res) => {
+  const accountId = Number(req.params.id);
+  try {
+    if (!(await accountExists(accountId))) {
+      return res.status(404).json({ error: "account id does not exist" });
+    }
+    const result = await pool.query(
+      `SELECT id, txn_date, txn_time, amount_paise, type, narration,
+              transfer_status, counterparty_account_id, bank_balance_paise
+         FROM transactions
+        WHERE account_id = $1
+        ORDER BY txn_date, statement_id, statement_seq`,
+      [accountId],
+    );
+    const transactions = result.rows.map((r) => ({
+      id: r.id, // BIGINT PK — keep as STRING (JS loses precision past 2^53)
+      txn_date: r.txn_date,
+      txn_time: r.txn_time,
+      amount_paise: Number(r.amount_paise), // safe: one txn won't exceed 2^53 paise
+      type: r.type,
+      narration: r.narration,
+      transfer_status: r.transfer_status,
+      counterparty_account_id: r.counterparty_account_id, // BIGINT|null — leave as string|null
+      bank_balance_paise:
+        r.bank_balance_paise == null ? null : Number(r.bank_balance_paise),
+    }));
+    res.json({ account_id: accountId, transactions });
+  } catch (error) {
+    console.error("transactions list failed:", error);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
 // POST /accounts/:id/transactions — batch import: validated, all-or-nothing, idempotent.
 app.post("/accounts/:id/transactions", async (req, res) => {
   const accountId = Number(req.params.id);
