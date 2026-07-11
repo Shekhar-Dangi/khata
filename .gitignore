@@ -2,3 +2,6 @@ node_modules/
 .env
 data/private/
 .DS_Store
+ingest/.venv/
+__pycache__/
+*.pyc
