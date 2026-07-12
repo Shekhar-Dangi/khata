@@ -113,6 +113,12 @@ def parse_transactions(pdf):
     return txns
 
 
+def parse(path):
+    """Uniform entry point (matches parse_xlsx.parse): -> (bank, canonical_txns)."""
+    with pdfplumber.open(path) as pdf:
+        return "slice", parse_transactions(pdf)
+
+
 def check_running_balance(txns):
     """Statement self-consistency: prev_balance + amount == this_balance.
     Validates signs, amounts, and balances end-to-end using the bank's own math."""
