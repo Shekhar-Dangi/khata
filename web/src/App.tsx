@@ -1,66 +1,40 @@
-import { useEffect, useState } from "react";
-import TransactionList from "./TransactionList";
+import { useState } from "react";
 
-type Account = {
-  id: number;
-  name: string;
-  bank: string;
-  balance_paise: number;
-};
+import AccountsView from "./AccountsView";
+import ConsolidatedView from "./ConsolidatedView";
+import TransfersView from "./TransfersView";
+import AnomaliesView from "./AnomaliesView";
+
+type View = "accounts" | "transactions" | "transfers" | "anomalies";
+
+const TABS: { key: View; label: string }[] = [
+  { key: "accounts", label: "Accounts" },
+  { key: "transactions", label: "All transactions" },
+  { key: "transfers", label: "Internal transfers" },
+  { key: "anomalies", label: "Anomalies" },
+];
 
 function App() {
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [view, setView] = useState<View>("accounts");
 
-  const [selectedAccountId, setSelectedAccountId] = useState<number | null>(
-    null,
-  );
-
-  useEffect(() => {
-    async function fetchAccounts() {
-      try {
-        const res = await fetch("/accounts");
-        if (!res.ok) {
-          throw new Error(`Request failed : ${res.status}`);
-        }
-        const data = await res.json();
-        const accounts = data.accounts;
-        setAccounts(accounts);
-      } catch (error: unknown) {
-        setError(error instanceof Error ? error.message : "Unknown error");
-        console.log(error);
-      } finally {
-        setLoading(false);
-      }
-    }
-    fetchAccounts();
-  }, []);
   return (
     <main>
-      <h1>Accounts</h1>
-      {loading ? (
-        "Loading..."
-      ) : error ? (
-        error
-      ) : (
-        <ul>
-          {accounts.map((account) => (
-            <li key={account.id}>
-              <button onClick={() => setSelectedAccountId(account.id)}>
-                {account.name} :{" "}
-                {(account.balance_paise / 100).toLocaleString("en-IN", {
-                  style: "currency",
-                  currency: "INR",
-                })}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      {selectedAccountId != null && (
-        <TransactionList accountId={selectedAccountId} />
-      )}
+      <h1>Finance reconciler</h1>
+      <nav>
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setView(t.key)}
+            disabled={view === t.key}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
+      {view === "accounts" && <AccountsView />}
+      {view === "transactions" && <ConsolidatedView />}
+      {view === "transfers" && <TransfersView />}
+      {view === "anomalies" && <AnomaliesView />}
     </main>
   );
 }
