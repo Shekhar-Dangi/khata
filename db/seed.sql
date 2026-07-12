@@ -14,7 +14,8 @@ TRUNCATE transactions, accounts RESTART IDENTITY CASCADE;
 
 INSERT INTO accounts (name, bank) VALUES
   ('Salary Account', 'hdfc'),      -- becomes id 1
-  ('Indian Bank', 'indian_bank'); -- becomes id 2
+  ('Savings Account', 'indian_bank'), -- becomes id 2
+  ('Credit Line', 'slice');       -- becomes id 3 (real txns come via ingestion)
 
 -- amount_paise is SIGNED paise: rupees * 100, + in / - out. Never rupees, never float.
 INSERT INTO transactions

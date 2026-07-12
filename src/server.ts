@@ -257,73 +257,158 @@ app.post("/accounts/:id/transactions", async (req, res) => {
   }
 });
 
-app.get("/accounts/:id/reconcile", async (req, res) => {
-  const accountId = Number(req.params.id);
+// Core reconciliation for ONE account: walk ordered txns, compute the running balance,
+// compare to the bank's stated balance at each checkpoint (reset to bank per segment).
+// Extracted so both /accounts/:id/reconcile and /anomalies reuse it.
+async function reconcileAccount(accountId: number) {
+  const result = await fetchTransactions(accountId);
 
-  try {
-    if (!(await accountExists(accountId))) {
-      return res.status(404).json({ error: "account does not exit" });
-    }
-  } catch (error) {
-    console.error("accounts query failed : ", error);
-    return res.status(500).json({ error: "internal error" });
-  }
+  // Independent ledger total (sum of amounts) — computed separately so it
+  // cross-checks the walk rather than being derived from it.
+  const ledgerSum = await pool.query(
+    "SELECT COALESCE(SUM(amount_paise), 0) AS total FROM transactions WHERE account_id = $1",
+    [accountId],
+  );
 
-  try {
-    const result = await fetchTransactions(accountId);
+  const response = {
+    account_id: accountId,
+    reconciled: true,
+    checkpoints_checked: 0,
+    transactions_considered: result.rowCount,
+    ledger_balance_paise: Number(ledgerSum.rows[0].total),
+    bank_last_stated_paise: null as number | null,
+    total_difference_paise: null as number | null,
+    discrepancies: [] as Discrepancy[],
+  };
 
-    // Our independent ledger total (sum of amounts) — computed separately so it
-    // cross-checks the walk rather than being derived from it.
-    const ledgerSum = await pool.query(
-      "SELECT COALESCE(SUM(amount_paise), 0) AS total FROM transactions WHERE account_id = $1",
-      [accountId],
-    );
+  let computed = 0;
+  for (const t of result.rows) {
+    computed += Number(t.amount_paise);
 
-    const response = {
-      account_id: accountId,
-      reconciled: true,
-      checkpoints_checked: 0,
-      transactions_considered: result.rowCount,
-      ledger_balance_paise: Number(ledgerSum.rows[0].total),
-      bank_last_stated_paise: null as number | null,
-      total_difference_paise: null as number | null,
-      discrepancies: [] as Discrepancy[],
-    };
+    // Only rows carrying the bank's balance are checkpoints we can verify.
+    // Guard on the RAW value: Number(null) is 0, which would treat a real 0 as "no checkpoint".
+    if (t.bank_balance_paise != null) {
+      const stated = Number(t.bank_balance_paise);
+      response.checkpoints_checked += 1;
+      response.bank_last_stated_paise = stated; // the bank's most recent stated balance
 
-    let computed = 0;
-    for (const t of result.rows) {
-      computed += Number(t.amount_paise);
-
-      // Only rows carrying the bank's balance are checkpoints we can verify.
-      // Guard on the RAW value: Number(null) is 0, which would treat a real 0 as "no checkpoint".
-      if (t.bank_balance_paise != null) {
-        const stated = Number(t.bank_balance_paise);
-        response.checkpoints_checked += 1;
-        response.bank_last_stated_paise = stated; // the bank's most recent stated balance
-
-        if (computed !== stated) {
-          response.reconciled = false;
-          response.discrepancies.push({
-            transaction_id: t.id,
-            txn_date: t.txn_date,
-            narration: t.narration,
-            expected_paise: computed,
-            stated_paise: stated,
-            difference_paise: stated - computed, // per-segment error
-          });
-          computed = stated; // reset to the bank's truth, then keep walking
-        }
+      if (computed !== stated) {
+        response.reconciled = false;
+        response.discrepancies.push({
+          transaction_id: t.id,
+          txn_date: t.txn_date,
+          narration: t.narration,
+          expected_paise: computed,
+          stated_paise: stated,
+          difference_paise: stated - computed, // per-segment error
+        });
+        computed = stated; // reset to the bank's truth, then keep walking
       }
     }
+  }
 
-    if (response.bank_last_stated_paise != null) {
-      response.total_difference_paise =
-        response.bank_last_stated_paise - response.ledger_balance_paise;
+  if (response.bank_last_stated_paise != null) {
+    response.total_difference_paise =
+      response.bank_last_stated_paise - response.ledger_balance_paise;
+  }
+
+  return response;
+}
+
+app.get("/accounts/:id/reconcile", async (req, res) => {
+  const accountId = Number(req.params.id);
+  try {
+    if (!(await accountExists(accountId))) {
+      return res.status(404).json({ error: "account does not exist" });
     }
-
-    return res.status(200).json(response);
+    return res.status(200).json(await reconcileAccount(accountId));
   } catch (error) {
     console.error("error reconciling transactions:", error);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+// GET /anomalies — reconcile every account, return only the ones with discrepancies.
+app.get("/anomalies", async (_req, res) => {
+  try {
+    const accts = await pool.query("SELECT id FROM accounts ORDER BY id");
+    const accounts = [];
+    for (const row of accts.rows) {
+      const r = await reconcileAccount(Number(row.id));
+      if (!r.reconciled) accounts.push(r);
+    }
+    res.json({ accounts });
+  } catch (error) {
+    console.error("anomalies failed:", error);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+// GET /transactions — consolidated ledger: every account's transactions in one view.
+app.get("/transactions", async (_req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT t.id, t.account_id, a.name AS account_name, a.bank,
+              t.txn_date, t.txn_time, t.amount_paise, t.type, t.narration,
+              t.transfer_status, t.counterparty_account_id, t.bank_balance_paise
+         FROM transactions t
+         JOIN accounts a ON a.id = t.account_id
+        ORDER BY t.txn_date, t.account_id, t.statement_id, t.statement_seq`,
+    );
+    const transactions = result.rows.map((r) => ({
+      id: r.id, // BIGINT PK — keep as string
+      account_id: Number(r.account_id),
+      account_name: r.account_name,
+      bank: r.bank,
+      txn_date: r.txn_date,
+      txn_time: r.txn_time,
+      amount_paise: Number(r.amount_paise),
+      type: r.type,
+      narration: r.narration,
+      transfer_status: r.transfer_status,
+      counterparty_account_id: r.counterparty_account_id,
+      bank_balance_paise:
+        r.bank_balance_paise == null ? null : Number(r.bank_balance_paise),
+    }));
+    res.json({ transactions });
+  } catch (error) {
+    console.error("consolidated transactions failed:", error);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+// GET /transfers — internal transfers (both legs), with counterparty account names.
+app.get("/transfers", async (_req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT t.id, t.account_id, a.name AS account_name,
+              t.txn_date, t.amount_paise, t.narration, t.type,
+              t.transfer_status, t.transfer_group_id,
+              t.counterparty_account_id, ca.name AS counterparty_name
+         FROM transactions t
+         JOIN accounts a ON a.id = t.account_id
+         LEFT JOIN accounts ca ON ca.id = t.counterparty_account_id
+        WHERE t.transfer_status IS NOT NULL
+           OR t.counterparty_account_id IS NOT NULL
+           OR t.type = 'transfer'
+        ORDER BY t.transfer_group_id NULLS LAST, t.txn_date, t.account_id`,
+    );
+    const transfers = result.rows.map((r) => ({
+      id: r.id,
+      account_id: Number(r.account_id),
+      account_name: r.account_name,
+      txn_date: r.txn_date,
+      amount_paise: Number(r.amount_paise),
+      narration: r.narration,
+      type: r.type,
+      transfer_status: r.transfer_status,
+      transfer_group_id: r.transfer_group_id,
+      counterparty_account_id: r.counterparty_account_id,
+      counterparty_name: r.counterparty_name,
+    }));
+    res.json({ transfers });
+  } catch (error) {
+    console.error("transfers failed:", error);
     res.status(500).json({ error: "internal error" });
   }
 });
