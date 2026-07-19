@@ -331,11 +331,11 @@ app.get("/accounts/:id/reconcile", async (req, res) => {
 // GET /anomalies — reconcile every account, return only the ones with discrepancies.
 app.get("/anomalies", async (_req, res) => {
   try {
-    const accts = await pool.query("SELECT id FROM accounts ORDER BY id");
+    const accts = await pool.query("SELECT id, name FROM accounts ORDER BY id");
     const accounts = [];
     for (const row of accts.rows) {
       const r = await reconcileAccount(Number(row.id));
-      if (!r.reconciled) accounts.push(r);
+      if (!r.reconciled) accounts.push({ account_name: row.name, ...r });
     }
     res.json({ accounts });
   } catch (error) {
