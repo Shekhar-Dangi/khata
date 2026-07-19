@@ -12,50 +12,67 @@ type Discrepancy = {
 
 type AccountAnomaly = {
   account_id: number;
+  account_name: string;
   total_difference_paise: number | null;
   discrepancies: Discrepancy[];
 };
 
-// Reconciliation anomalies: where our computed balance disagrees with the bank's.
+// Reconciliation gaps: where our computed balance disagrees with the bank's stated one.
 export default function AnomaliesView() {
-  const { data, loading, error } = useFetch<{ accounts: AccountAnomaly[] }>("/anomalies");
+  const { data, loading, error } = useFetch<{ accounts: AccountAnomaly[] }>(
+    "/anomalies",
+  );
 
-  if (loading) return <p>Loading…</p>;
-  if (error) return <p>{error}</p>;
+  if (loading) return <p className="soft">Loading…</p>;
+  if (error) return <p className="soft">{error}</p>;
   if (!data) return null;
-  if (data.accounts.length === 0) return <p>No anomalies — everything reconciles.</p>;
+  if (data.accounts.length === 0)
+    return <p className="soft">No anomalies — everything reconciles.</p>;
 
   return (
     <div>
       {data.accounts.map((a) => (
-        <section key={a.account_id}>
-          <h3>
-            Account {a.account_id} — total unexplained{" "}
-            {a.total_difference_paise != null ? rupees(a.total_difference_paise) : "—"}
-          </h3>
+        <div key={a.account_id}>
+          <div className="sect">
+            <span>{a.account_name}</span>
+            <span className="mono flag">
+              {a.total_difference_paise != null
+                ? rupees(Math.abs(a.total_difference_paise))
+                : "—"}
+            </span>
+          </div>
           <table>
+            <colgroup>
+              <col style={{ width: "110px" }} />
+              <col />
+              <col style={{ width: "130px" }} />
+              <col style={{ width: "130px" }} />
+              <col style={{ width: "130px" }} />
+            </colgroup>
             <thead>
               <tr>
                 <th>Date</th>
                 <th>Narration</th>
-                <th>Expected</th>
-                <th>Bank stated</th>
-                <th>Difference</th>
+                <th className="r">Expected</th>
+                <th className="r">Bank stated</th>
+                <th className="r">Difference</th>
               </tr>
             </thead>
             <tbody>
               {a.discrepancies.map((d) => (
                 <tr key={d.transaction_id}>
-                  <td>{d.txn_date}</td>
-                  <td>{d.narration}</td>
-                  <td>{rupees(d.expected_paise)}</td>
-                  <td>{rupees(d.stated_paise)}</td>
-                  <td>{rupees(d.difference_paise)}</td>
+                  <td className="mono soft">{d.txn_date}</td>
+                  <td className="narration">{d.narration}</td>
+                  <td className="mono r soft">{rupees(d.expected_paise)}</td>
+                  <td className="mono r soft">{rupees(d.stated_paise)}</td>
+                  <td className="mono r flag">
+                    {rupees(Math.abs(d.difference_paise))}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </section>
+        </div>
       ))}
     </div>
   );

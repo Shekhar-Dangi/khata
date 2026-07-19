@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import Summary from "./Summary";
 import AccountsView from "./AccountsView";
 import ConsolidatedView from "./ConsolidatedView";
 import TransfersView from "./TransfersView";
@@ -17,25 +18,50 @@ const TABS: { key: View; label: string }[] = [
 function App() {
   const [view, setView] = useState<View>("accounts");
 
+  // The summary answers "what can't I explain / how much do I have" — irrelevant on the
+  // pure-ledger views, so it's hidden there (design-brief deviation #1).
+  const showSummary = view === "accounts" || view === "anomalies";
+
   return (
-    <main>
-      <h1>Finance reconciler</h1>
-      <nav>
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setView(t.key)}
-            disabled={view === t.key}
-          >
-            {t.label}
-          </button>
-        ))}
-      </nav>
-      {view === "accounts" && <AccountsView />}
-      {view === "transactions" && <ConsolidatedView />}
-      {view === "transfers" && <TransfersView />}
-      {view === "anomalies" && <AnomaliesView />}
-    </main>
+    <>
+      <div className="topbar">
+        <div className="shell">
+          <div>
+            <span className="wordmark">Khata</span>
+            <span className="tagline">money, explained.</span>
+          </div>
+          <nav>
+            {TABS.map((t) => (
+              <button
+                key={t.key}
+                aria-current={view === t.key}
+                onClick={() => setView(t.key)}
+              >
+                {t.label}
+              </button>
+            ))}
+          </nav>
+        </div>
+      </div>
+
+      {showSummary && <Summary />}
+
+      <main>
+        <div className="shell">
+          {/* key={view} remounts this subtree on tab change -> the CSS reveal replays */}
+          <div className="view" key={view}>
+            {view === "accounts" && <AccountsView />}
+            {view === "transactions" && <ConsolidatedView />}
+            {view === "transfers" && <TransfersView />}
+            {view === "anomalies" && <AnomaliesView />}
+          </div>
+        </div>
+      </main>
+
+      <footer>
+        <div className="shell">local-first · your data never leaves this device</div>
+      </footer>
+    </>
   );
 }
 
