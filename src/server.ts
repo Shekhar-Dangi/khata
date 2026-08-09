@@ -30,7 +30,7 @@ async function accountExists(accountId: number): Promise<boolean> {
   return r.rowCount !== 0;
 }
 
-async function fetchTransactions(accountId: number) {
+async function fetchTransactionsByAccount(accountId: number) {
   const result = await pool.query(
     "SELECT * FROM transactions WHERE account_id = $1 ORDER BY txn_date, statement_id, statement_seq",
     [accountId],
@@ -48,6 +48,20 @@ type Discrepancy = {
   expected_paise: number;
   stated_paise: number;
   difference_paise: number;
+};
+
+type Allocation = {
+  category_id: string;
+  amount_paise: number;
+};
+
+type Transaction = {
+  id: string;
+  txn_date: string;
+  amount_paise: number;
+  type: string;
+  narration: string | null;
+  bank_balance_paise: number | null;
 };
 
 // Health check.
@@ -128,6 +142,108 @@ app.get("/accounts/:id/balance", async (req, res) => {
   } catch (err) {
     console.error("balance query failed:", err);
     res.status(500).json({ error: "internal error" });
+  }
+});
+
+// POST /transactions/:id/allocations — REPLACE this transaction's allocations with the body
+// (sweep + insert; the body is the full desired set). Semantically a PUT — kept POST for now.
+app.post("/transactions/:id/allocations", async (req, res) => {
+  const txnId = Number(req.params.id);
+  const allocations: Allocation[] = req.body?.allocations;
+
+  // Phase 1 — cheap shape validation (no DB): reject before we ever open a connection.
+  if (!Array.isArray(allocations) || allocations.length === 0) {
+    return res
+      .status(400)
+      .json({ error: "`allocations` must be a non-empty array" });
+  }
+  for (const a of allocations) {
+    if (a === null || typeof a !== "object") {
+      return res.status(400).json({ error: "each allocation must be an object" });
+    }
+    if (!Number.isInteger(a.amount_paise) || a.amount_paise === 0) {
+      return res
+        .status(400)
+        .json({ error: "amount_paise must be a non-zero integer" });
+    }
+    if (a.category_id == null) {
+      return res.status(400).json({ error: "category_id is required" });
+    }
+  }
+  const newSum = allocations.reduce((s, a) => s + a.amount_paise, 0);
+
+  // Phase 2 — one DB transaction. FOR UPDATE serializes concurrent explains of this txn;
+  // delete+insert is atomic, so a failed insert rolls back to the old allocations.
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Lock + fetch the transaction. 0 rows => it doesn't exist.
+    const txnResult = await client.query(
+      "SELECT amount_paise FROM transactions WHERE id = $1 FOR UPDATE",
+      [txnId],
+    );
+    if (txnResult.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "no transaction found" });
+    }
+    const txnAmount = Number(txnResult.rows[0].amount_paise);
+
+    // All referenced categories must exist (else the INSERT FK would 500, not 400).
+    const categoryIds = allocations.map((a) => a.category_id);
+    const catResult = await client.query(
+      "SELECT id FROM categories WHERE id = ANY($1)",
+      [categoryIds],
+    );
+    if (catResult.rowCount !== new Set(categoryIds).size) {
+      await client.query("ROLLBACK");
+      return res
+        .status(400)
+        .json({ error: "one or more category_id do not exist" });
+    }
+
+    // Sign rule: each slice must move money the same direction as the transaction.
+    for (const a of allocations) {
+      if (Math.sign(a.amount_paise) !== Math.sign(txnAmount)) {
+        await client.query("ROLLBACK");
+        return res
+          .status(400)
+          .json({ error: "allocation sign must match the transaction" });
+      }
+    }
+
+    // Invariant: can't explain more than the transaction is worth.
+    if (Math.abs(newSum) > Math.abs(txnAmount)) {
+      await client.query("ROLLBACK");
+      return res
+        .status(400)
+        .json({ error: "allocations exceed the transaction amount" });
+    }
+
+    // Replace: sweep the old set, insert the new one.
+    await client.query("DELETE FROM allocations WHERE transaction_id = $1", [
+      txnId,
+    ]);
+    for (const a of allocations) {
+      await client.query(
+        `INSERT INTO allocations (transaction_id, amount_paise, category_id, confidence, source)
+         VALUES ($1, $2, $3, $4, 'user')`,
+        [txnId, a.amount_paise, a.category_id, 1],
+      );
+    }
+    await client.query("COMMIT");
+
+    return res.status(200).json({
+      transaction_id: String(txnId),
+      inserted: allocations.length,
+      unexplained_paise: txnAmount - newSum,
+    });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("allocation write failed:", error);
+    return res.status(500).json({ error: "internal error" });
+  } finally {
+    client.release();
   }
 });
 
@@ -284,7 +400,7 @@ app.post("/accounts/:id/transactions", async (req, res) => {
 // compare to the bank's stated balance at each checkpoint (reset to bank per segment).
 // Extracted so both /accounts/:id/reconcile and /anomalies reuse it.
 async function reconcileAccount(accountId: number) {
-  const result = await fetchTransactions(accountId);
+  const result = await fetchTransactionsByAccount(accountId);
 
   // Independent ledger total (sum of amounts) — computed separately so it
   // cross-checks the walk rather than being derived from it.
@@ -453,10 +569,14 @@ app.post("/accounts/:id/keywords", async (req, res) => {
 
   // Validate before touching the DB — clear 400s instead of a raw constraint error.
   if (typeof keyword !== "string" || keyword.trim() === "") {
-    return res.status(400).json({ error: "keyword must be a non-empty string" });
+    return res
+      .status(400)
+      .json({ error: "keyword must be a non-empty string" });
   }
   if (!KEYWORD_KINDS.includes(kind)) {
-    return res.status(400).json({ error: `kind must be one of ${KEYWORD_KINDS.join(", ")}` });
+    return res
+      .status(400)
+      .json({ error: `kind must be one of ${KEYWORD_KINDS.join(", ")}` });
   }
 
   try {
