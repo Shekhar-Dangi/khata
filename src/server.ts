@@ -55,6 +55,29 @@ app.get("/health", (_req, res) => {
   res.json({ ok: true });
 });
 
+// GET /categories — the category hierarchy (flat list + each row's parent name for display).
+// Self-join: categories LEFT JOIN itself on parent_id to resolve the parent's name.
+app.get("/categories", async (_req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT c.id, c.name, c.parent_id, p.name AS parent_name
+         FROM categories c
+         LEFT JOIN categories p ON p.id = c.parent_id
+        ORDER BY COALESCE(p.name, c.name), c.parent_id NULLS FIRST, c.name`,
+    );
+    const categories = result.rows.map((r) => ({
+      id: Number(r.id),
+      name: r.name,
+      parent_id: r.parent_id == null ? null : Number(r.parent_id),
+      parent_name: r.parent_name, // null for top-level rows
+    }));
+    res.json({ categories });
+  } catch (error) {
+    console.error("categories list failed:", error);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
 // GET /accounts — list every account with its computed balance in ONE aggregate query.
 // LEFT JOIN (not INNER) so accounts with zero transactions still appear, with balance 0.
 // GROUP BY a.id is enough because id is the PK — name/bank are functionally dependent on it.

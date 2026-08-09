@@ -12,6 +12,7 @@ export default defineConfig({
     // (As more backend routes appear, either list them here or switch to an /api prefix.)
     proxy: {
       '/accounts': 'http://localhost:3000',
+      '/categories': 'http://localhost:3000',
       '/transactions': 'http://localhost:3000',
       '/transfers': 'http://localhost:3000',
       '/anomalies': 'http://localhost:3000',
