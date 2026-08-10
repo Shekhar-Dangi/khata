@@ -159,7 +159,9 @@ app.post("/transactions/:id/allocations", async (req, res) => {
   }
   for (const a of allocations) {
     if (a === null || typeof a !== "object") {
-      return res.status(400).json({ error: "each allocation must be an object" });
+      return res
+        .status(400)
+        .json({ error: "each allocation must be an object" });
     }
     if (!Number.isInteger(a.amount_paise) || a.amount_paise === 0) {
       return res
@@ -254,26 +256,50 @@ app.get("/accounts/:id/transactions", async (req, res) => {
     if (!(await accountExists(accountId))) {
       return res.status(404).json({ error: "account id does not exist" });
     }
+    // Each transaction with its allocations nested (json_agg) + explained total — ONE query,
+    // no N+1. LEFT JOIN so txns with zero allocations still appear; the FILTER + COALESCE('[]')
+    // turns "no children" into an empty array instead of [null].
     const result = await pool.query(
-      `SELECT id, txn_date, txn_time, amount_paise, type, narration,
-              transfer_status, counterparty_account_id, bank_balance_paise
-         FROM transactions
-        WHERE account_id = $1
-        ORDER BY txn_date, statement_id, statement_seq`,
+      `SELECT t.id, t.txn_date, t.txn_time, t.amount_paise, t.type, t.narration,
+              t.transfer_status, t.counterparty_account_id, t.bank_balance_paise,
+              COALESCE(SUM(al.amount_paise), 0) AS explained_paise,
+              COALESCE(
+                json_agg(
+                  json_build_object(
+                    'id', al.id::text, 'amount_paise', al.amount_paise,
+                    'category_id', al.category_id, 'category_name', c.name,
+                    'confidence', al.confidence, 'source', al.source
+                  ) ORDER BY al.id
+                ) FILTER (WHERE al.id IS NOT NULL),
+                '[]'
+              ) AS allocations
+         FROM transactions t
+         LEFT JOIN allocations al ON al.transaction_id = t.id
+         LEFT JOIN categories c ON c.id = al.category_id
+        WHERE t.account_id = $1
+        GROUP BY t.id
+        ORDER BY t.txn_date, t.statement_id, t.statement_seq`,
       [accountId],
     );
-    const transactions = result.rows.map((r) => ({
-      id: r.id, // BIGINT PK — keep as STRING (JS loses precision past 2^53)
-      txn_date: r.txn_date,
-      txn_time: r.txn_time,
-      amount_paise: Number(r.amount_paise), // safe: one txn won't exceed 2^53 paise
-      type: r.type,
-      narration: r.narration,
-      transfer_status: r.transfer_status,
-      counterparty_account_id: r.counterparty_account_id, // BIGINT|null — leave as string|null
-      bank_balance_paise:
-        r.bank_balance_paise == null ? null : Number(r.bank_balance_paise),
-    }));
+    const transactions = result.rows.map((r) => {
+      const amount = Number(r.amount_paise);
+      const explained = Number(r.explained_paise);
+      return {
+        id: r.id, // BIGINT PK — keep as STRING (JS loses precision past 2^53)
+        txn_date: r.txn_date,
+        txn_time: r.txn_time,
+        amount_paise: amount, // safe: one txn won't exceed 2^53 paise
+        type: r.type,
+        narration: r.narration,
+        transfer_status: r.transfer_status,
+        counterparty_account_id: r.counterparty_account_id, // BIGINT|null — leave as string|null
+        bank_balance_paise:
+          r.bank_balance_paise == null ? null : Number(r.bank_balance_paise),
+        explained_paise: explained,
+        unexplained_paise: amount - explained, // derived, not stored
+        allocations: r.allocations, // pg parses json_agg into a JS array
+      };
+    });
     res.json({ account_id: accountId, transactions });
   } catch (error) {
     console.error("transactions list failed:", error);
@@ -487,28 +513,39 @@ app.get("/anomalies", async (_req, res) => {
 app.get("/transactions", async (_req, res) => {
   try {
     const result = await pool.query(
+      // Lighter than the drill-in: just the explained total per txn (no nested allocations).
+      // LEFT JOIN allocations + GROUP BY t.id, a.id (both PKs → other columns are free).
       `SELECT t.id, t.account_id, a.name AS account_name, a.bank,
               t.txn_date, t.txn_time, t.amount_paise, t.type, t.narration,
-              t.transfer_status, t.counterparty_account_id, t.bank_balance_paise
+              t.transfer_status, t.counterparty_account_id, t.bank_balance_paise,
+              COALESCE(SUM(al.amount_paise), 0) AS explained_paise
          FROM transactions t
          JOIN accounts a ON a.id = t.account_id
+         LEFT JOIN allocations al ON al.transaction_id = t.id
+        GROUP BY t.id, a.id
         ORDER BY t.txn_date, t.account_id, t.statement_id, t.statement_seq`,
     );
-    const transactions = result.rows.map((r) => ({
-      id: r.id, // BIGINT PK — keep as string
-      account_id: Number(r.account_id),
-      account_name: r.account_name,
-      bank: r.bank,
-      txn_date: r.txn_date,
-      txn_time: r.txn_time,
-      amount_paise: Number(r.amount_paise),
-      type: r.type,
-      narration: r.narration,
-      transfer_status: r.transfer_status,
-      counterparty_account_id: r.counterparty_account_id,
-      bank_balance_paise:
-        r.bank_balance_paise == null ? null : Number(r.bank_balance_paise),
-    }));
+    const transactions = result.rows.map((r) => {
+      const amount = Number(r.amount_paise);
+      const explained = Number(r.explained_paise);
+      return {
+        id: r.id, // BIGINT PK — keep as string
+        account_id: Number(r.account_id),
+        account_name: r.account_name,
+        bank: r.bank,
+        txn_date: r.txn_date,
+        txn_time: r.txn_time,
+        amount_paise: amount,
+        type: r.type,
+        narration: r.narration,
+        transfer_status: r.transfer_status,
+        counterparty_account_id: r.counterparty_account_id,
+        bank_balance_paise:
+          r.bank_balance_paise == null ? null : Number(r.bank_balance_paise),
+        explained_paise: explained,
+        unexplained_paise: amount - explained, // derived
+      };
+    });
     res.json({ transactions });
   } catch (error) {
     console.error("consolidated transactions failed:", error);
