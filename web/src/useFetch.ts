@@ -8,6 +8,7 @@ export function useFetch<T>(url: string) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [tick, setTick] = useState(0); // bump to force a re-fetch of the same url
 
   useEffect(() => {
     let cancelled = false;
@@ -30,7 +31,8 @@ export function useFetch<T>(url: string) {
     return () => {
       cancelled = true; // stale response from a previous url is discarded
     };
-  }, [url]);
+  }, [url, tick]);
 
-  return { data, loading, error };
+  const refetch = () => setTick((t) => t + 1);
+  return { data, loading, error, refetch };
 }
