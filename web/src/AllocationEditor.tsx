@@ -147,7 +147,7 @@ export default function AllocationEditor({
           {overAllocated
             ? `over by ${rupees(Math.abs(remainingMag))}`
             : remainingMag === 0
-              ? "fully explained ✓"
+              ? "fully explained"
               : `${rupees(remainingMag)} left`}
         </span>
         <span className="editor-actions">

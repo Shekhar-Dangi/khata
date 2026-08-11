@@ -70,7 +70,7 @@ export default function TransactionList({ accountId }: { accountId: number }) {
                 <td className={amountClass(t)}>{rupees(t.amount_paise)}</td>
                 <td className="r">
                   {hasAllocs && t.unexplained_paise === 0 ? (
-                    <span className="credit">explained ✓</span>
+                    <span className="credit">explained</span>
                   ) : hasAllocs ? (
                     <span className="flag mono">
                       {rupees(Math.abs(t.unexplained_paise))} left
