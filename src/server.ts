@@ -41,6 +41,62 @@ async function fetchTransactionsByAccount(accountId: number) {
 const ALLOWED_TYPES = ["opening_balance", "transfer", "regular"];
 const KEYWORD_KINDS = ["account_number", "upi_handle", "name"];
 
+// ── Rules (auto-explanation) ────────────────────────────────────────────────
+// A rule is DATA, not code: a list of {field, op, value} conditions plus the category
+// to assign when they match. Validation is deliberately strict HERE, at the write path,
+// so the engine that later reads these rows never meets a malformed one.
+const RULE_FIELDS = ["narration", "amount_paise", "txn_date"];
+const RULE_OPS = ["contains", "equals", "lt", "gt"];
+const MATCH_MODES = ["all", "any"];
+// Not every op makes sense on every field — `contains` is meaningless on a number.
+const OPS_BY_FIELD: Record<string, string[]> = {
+  narration: ["contains", "equals"],
+  amount_paise: ["equals", "lt", "gt"],
+  txn_date: ["equals", "lt", "gt"],
+};
+
+// Returns an error message, or null when the conditions array is well-formed.
+function validateConditions(conditions: unknown): string | null {
+  if (!Array.isArray(conditions)) return "conditions must be an array";
+  // An EMPTY array is rejected ON PURPOSE. Under match_mode 'all' it is vacuously
+  // true (same reason [].every() is true), so an empty rule would match every
+  // transaction in the ledger and categorise the lot. Refuse to store one.
+  if (conditions.length === 0) return "conditions must not be empty";
+
+  for (const [i, c] of conditions.entries()) {
+    if (c === null || typeof c !== "object" || Array.isArray(c)) {
+      return `condition ${i}: must be an object`;
+    }
+    const { field, op, value } = c as Record<string, unknown>;
+    if (typeof field !== "string" || !RULE_FIELDS.includes(field)) {
+      return `condition ${i}: field must be one of ${RULE_FIELDS.join(", ")}`;
+    }
+    if (typeof op !== "string" || !RULE_OPS.includes(op)) {
+      return `condition ${i}: op must be one of ${RULE_OPS.join(", ")}`;
+    }
+    if (!OPS_BY_FIELD[field]!.includes(op)) {
+      return `condition ${i}: op '${op}' is not valid on field '${field}'`;
+    }
+    if (field === "narration") {
+      if (typeof value !== "string" || value.trim() === "") {
+        return `condition ${i}: value must be a non-empty string`;
+      }
+    } else if (field === "amount_paise") {
+      // Demand an actual integer, not merely something coercible: Number("") is 0
+      // and Number("abc") is NaN — neither throws, both would store a broken rule.
+      if (!Number.isInteger(value)) {
+        return `condition ${i}: value must be an integer (paise)`;
+      }
+    } else {
+      // txn_date — same YYYY-MM-DD contract the import path already uses.
+      if (typeof value !== "string" || Number.isNaN(Date.parse(value))) {
+        return `condition ${i}: value must be a date string (YYYY-MM-DD)`;
+      }
+    }
+  }
+  return null;
+}
+
 type Discrepancy = {
   transaction_id: string; // our BIGINT PK — kept as a string to avoid JS precision loss past 2^53
   txn_date: string;
@@ -758,6 +814,98 @@ app.post("/accounts/:id/detect-transfers", async (req, res) => {
     res.status(500).json({ error: "internal error" });
   } finally {
     client.release();
+  }
+});
+
+// POST /rules — create an auto-explanation rule. Validates the whole shape before
+// touching the DB, so the engine can trust every field/op/value it later reads.
+app.post("/rules", async (req, res) => {
+  const { name, conditions, match_mode, category_id, priority, enabled } =
+    req.body ?? {};
+
+  if (typeof name !== "string" || name.trim() === "") {
+    return res.status(400).json({ error: "name must be a non-empty string" });
+  }
+  const conditionError = validateConditions(conditions);
+  if (conditionError !== null) {
+    return res.status(400).json({ error: conditionError });
+  }
+  // `??` (not `||`) so a deliberate `false`/`0` survives — only null/undefined default.
+  const mode = match_mode ?? "all";
+  if (!MATCH_MODES.includes(mode)) {
+    return res
+      .status(400)
+      .json({ error: `match_mode must be one of ${MATCH_MODES.join(", ")}` });
+  }
+  // The action. Nullable in the schema, but a rule that assigns nothing does nothing.
+  if (!Number.isInteger(category_id)) {
+    return res.status(400).json({ error: "category_id must be an integer" });
+  }
+  const rulePriority = priority ?? 0;
+  if (!Number.isInteger(rulePriority)) {
+    return res.status(400).json({ error: "priority must be an integer" });
+  }
+  const isEnabled = enabled ?? true;
+  if (typeof isEnabled !== "boolean") {
+    return res.status(400).json({ error: "enabled must be a boolean" });
+  }
+
+  try {
+    // Check the FK ourselves so a bad id is a clean 400, not a constraint-violation 500.
+    const cat = await pool.query("SELECT 1 FROM categories WHERE id = $1", [
+      category_id,
+    ]);
+    if (cat.rowCount === 0) {
+      return res.status(400).json({ error: "category_id does not exist" });
+    }
+    const result = await pool.query(
+      `INSERT INTO rules (name, conditions, match_mode, category_id, priority, enabled)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id`,
+      [
+        name.trim(),
+        JSON.stringify(conditions),
+        mode,
+        category_id,
+        rulePriority,
+        isEnabled,
+      ],
+    );
+    return res.status(201).json({ id: Number(result.rows[0].id) });
+  } catch (error) {
+    console.error("rule insert failed:", error);
+    return res.status(500).json({ error: "internal error" });
+  }
+});
+
+// GET /rules — every rule with its target category name, in the ORDER THE ENGINE WILL
+// CONSIDER THEM: priority DESC, then id ASC. The id tiebreak is not cosmetic. Two rules
+// at the same priority are a tie, SQL promises nothing about the order of tied rows, and
+// a winner that changes between runs destroys the engine's idempotency. Same ORDER BY
+// must appear in the runner.
+app.get("/rules", async (_req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT r.id, r.name, r.conditions, r.match_mode, r.category_id,
+              c.name AS category_name, r.priority, r.enabled
+         FROM rules r
+         LEFT JOIN categories c ON c.id = r.category_id
+        ORDER BY r.priority DESC, r.id ASC`,
+    );
+    const rules = result.rows.map((r) => ({
+      id: Number(r.id),
+      name: r.name,
+      conditions: r.conditions, // pg parses JSONB into a JS value already
+      match_mode: r.match_mode,
+      category_id: r.category_id == null ? null : Number(r.category_id),
+      category_name: r.category_name, // null if the rule assigns no category
+      priority: r.priority,
+      enabled: r.enabled,
+    }));
+    res.json({ rules });
+  } catch (error) {
+    console.error("rules list failed:", error);
+    res.status(500).json({ error: "internal error" });
   }
 });
 
