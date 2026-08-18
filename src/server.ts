@@ -2,6 +2,15 @@ import express, { type ErrorRequestHandler } from "express";
 import { createHash } from "node:crypto";
 
 import { pool } from "./db.ts";
+import {
+  MATCH_MODES,
+  OPS_BY_FIELD,
+  RULE_FIELDS,
+  RULE_OPS,
+  isMatchMode,
+  isRuleField,
+  isRuleOp,
+} from "./rules.ts";
 
 const PORT = Number(process.env.PORT) || 3000;
 
@@ -45,15 +54,10 @@ const KEYWORD_KINDS = ["account_number", "upi_handle", "name"];
 // A rule is DATA, not code: a list of {field, op, value} conditions plus the category
 // to assign when they match. Validation is deliberately strict HERE, at the write path,
 // so the engine that later reads these rows never meets a malformed one.
-const RULE_FIELDS = ["narration", "amount_paise", "txn_date"];
-const RULE_OPS = ["contains", "equals", "lt", "gt"];
-const MATCH_MODES = ["all", "any"];
-// Not every op makes sense on every field — `contains` is meaningless on a number.
-const OPS_BY_FIELD: Record<string, string[]> = {
-  narration: ["contains", "equals"],
-  amount_paise: ["equals", "lt", "gt"],
-  txn_date: ["equals", "lt", "gt"],
-};
+//
+// The vocabulary itself is NOT defined here — it is imported from ./rules.ts, the module
+// that interprets it. One source of truth: a word this file accepts is a word the
+// matcher is guaranteed (by an exhaustive switch) to handle.
 
 // Returns an error message, or null when the conditions array is well-formed.
 function validateConditions(conditions: unknown): string | null {
@@ -68,30 +72,38 @@ function validateConditions(conditions: unknown): string | null {
       return `condition ${i}: must be an object`;
     }
     const { field, op, value } = c as Record<string, unknown>;
-    if (typeof field !== "string" || !RULE_FIELDS.includes(field)) {
+    // The guards narrow `unknown` to the vocabulary union, so everything below
+    // (and the matcher downstream) works with literal types rather than strings.
+    if (!isRuleField(field)) {
       return `condition ${i}: field must be one of ${RULE_FIELDS.join(", ")}`;
     }
-    if (typeof op !== "string" || !RULE_OPS.includes(op)) {
+    if (!isRuleOp(op)) {
       return `condition ${i}: op must be one of ${RULE_OPS.join(", ")}`;
     }
-    if (!OPS_BY_FIELD[field]!.includes(op)) {
+    if (!OPS_BY_FIELD[field].includes(op)) {
       return `condition ${i}: op '${op}' is not valid on field '${field}'`;
     }
-    if (field === "narration") {
-      if (typeof value !== "string" || value.trim() === "") {
-        return `condition ${i}: value must be a non-empty string`;
-      }
-    } else if (field === "amount_paise") {
-      // Demand an actual integer, not merely something coercible: Number("") is 0
-      // and Number("abc") is NaN — neither throws, both would store a broken rule.
-      if (!Number.isInteger(value)) {
-        return `condition ${i}: value must be an integer (paise)`;
-      }
-    } else {
-      // txn_date — same YYYY-MM-DD contract the import path already uses.
-      if (typeof value !== "string" || Number.isNaN(Date.parse(value))) {
-        return `condition ${i}: value must be a date string (YYYY-MM-DD)`;
-      }
+    // Exhaustive over RuleField: add a field to the vocabulary and this switch
+    // stops compiling until its value contract is written.
+    switch (field) {
+      case "narration":
+        if (typeof value !== "string" || value.trim() === "") {
+          return `condition ${i}: value must be a non-empty string`;
+        }
+        break;
+      case "amount_paise":
+        // Demand an actual integer, not merely something coercible: Number("") is 0
+        // and Number("abc") is NaN — neither throws, both would store a broken rule.
+        if (!Number.isInteger(value)) {
+          return `condition ${i}: value must be an integer (paise)`;
+        }
+        break;
+      case "txn_date":
+        // Same YYYY-MM-DD contract the import path already uses.
+        if (typeof value !== "string" || Number.isNaN(Date.parse(value))) {
+          return `condition ${i}: value must be a date string (YYYY-MM-DD)`;
+        }
+        break;
     }
   }
   return null;
@@ -832,7 +844,7 @@ app.post("/rules", async (req, res) => {
   }
   // `??` (not `||`) so a deliberate `false`/`0` survives — only null/undefined default.
   const mode = match_mode ?? "all";
-  if (!MATCH_MODES.includes(mode)) {
+  if (!isMatchMode(mode)) {
     return res
       .status(400)
       .json({ error: `match_mode must be one of ${MATCH_MODES.join(", ")}` });
