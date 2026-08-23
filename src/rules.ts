@@ -219,3 +219,81 @@ export function matches(
       return conditions.some((c) => evaluateCondition(txn, c));
   }
 }
+
+// ── Conflict resolution ─────────────────────────────────────────────────────
+// Several rules can match one transaction. Exactly one must win, and the same
+// one must win every single time — a winner that varies between runs makes the
+// engine's output stop being a function of its inputs, which is idempotency gone.
+
+// A rule that can be ranked. `id` is a number, not the BIGINT string pg hands
+// back: the caller converts (GET /rules already does). It matters because the
+// tiebreak below is numeric — as strings, "10" sorts before "2".
+export type RankableRule = MatchableRule & {
+  id: number;
+  priority: number;
+  enabled: boolean;
+};
+
+// How specific is this rule — how much had to be true for it to fire?
+//
+// For 'all', every condition had to hold, so more conditions means a narrower
+// rule: "blinkit AND over ₹2000" should beat plain "blinkit".
+//
+// For 'any', the count means the OPPOSITE. One condition was enough, so extra
+// conditions only make the rule match MORE transactions. An 'any' rule is only
+// ever as specific as the single condition that happened to fire, so it scores 1
+// no matter how long its list is.
+function specificity(rule: RankableRule): number {
+  if (!Array.isArray(rule.conditions)) return 0;
+  if (rule.match_mode === "any") return 1;
+  return rule.conditions.length;
+}
+
+// Rank two rules, most-preferred first — the comparator IS the precedence policy,
+// which is why it is exported and tested on its own.
+//
+// This is a TOTAL order: for any two DISTINCT rules it returns a definite answer,
+// never 0. That is the whole point. Stopping at `priority` would leave ties, and
+// SQL guarantees nothing about the order of tied rows — the plan can change as the
+// table grows, as statistics update, as a row is updated and moves. Run 1 picks
+// rule A, run 2 picks rule B, and nothing you can see has changed.
+export function compareRules(a: RankableRule, b: RankableRule): number {
+  // 1. Explicit user ranking. Higher priority wins.
+  if (a.priority !== b.priority) return b.priority - a.priority;
+  // 2. The more specific rule wins — buys "narrower rule beats broader" for free,
+  //    without asking anyone to hand-rank every pair.
+  const specificityA = specificity(a);
+  const specificityB = specificity(b);
+  if (specificityA !== specificityB) return specificityB - specificityA;
+  // 3. Arbitrary, but STABLE — and stable is the entire job. Distinct rules have
+  //    distinct ids, so this can never return 0 and never leave a tie unbroken.
+  return a.id - b.id;
+}
+
+// Which rule explains this transaction? Null when none does.
+//
+// Unlike `matches`, this DOES skip disabled rules — the two functions answer
+// different questions. `matches` asks "do these conditions hold?", a pure
+// predicate about conditions. `chooseWinner` asks "which rule applies here?",
+// and a disabled rule does not apply, by definition. Eligibility belongs to
+// selection. The runner filters on `enabled` in SQL as well; this is the second,
+// independent guard, because a disabled rule that still categorises money is
+// exactly the kind of bug nobody notices for months.
+//
+// Single pass, no sorting and no copying: we only ever need the best element, not
+// the whole ranking. Note the result does NOT depend on the order rules arrive in —
+// that independence is what makes the engine deterministic, and it is tested.
+export function chooseWinner(
+  txn: MatchableTransaction,
+  rules: readonly RankableRule[],
+): RankableRule | null {
+  let winner: RankableRule | null = null;
+  for (const rule of rules) {
+    if (!rule.enabled) continue;
+    if (!matches(txn, rule)) continue;
+    // Strictly-better only. On a tie compareRules cannot return 0 for distinct
+    // rules, so "first one seen wins" never silently decides anything.
+    if (winner === null || compareRules(rule, winner) < 0) winner = rule;
+  }
+  return winner;
+}

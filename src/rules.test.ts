@@ -1,8 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { normalise, matches } from "./rules.ts";
-import type { MatchableRule, MatchableTransaction } from "./rules.ts";
+import { normalise, matches, compareRules, chooseWinner } from "./rules.ts";
+import type {
+  MatchableRule,
+  MatchableTransaction,
+  RankableRule,
+} from "./rules.ts";
 
 // Fixtures. Narrations are real shapes: three from db/mock.sql, one the noisy
 // UPI form a live HDFC statement produces.
@@ -193,4 +197,148 @@ test("a wrongly-typed value fails closed", () => {
     matches(txn(), rule({ conditions: [{ field: "narration", op: "contains", value: 42 }] })),
     false,
   );
+});
+
+// ── chooseWinner ────────────────────────────────────────────────────────────
+
+// Every rule below matches the default txn ("UPI-Debit-Amazon India", -230000),
+// so the ONLY thing under test is which one wins.
+function ranked(over: Partial<RankableRule> = {}): RankableRule {
+  return {
+    id: 1,
+    priority: 0,
+    enabled: true,
+    match_mode: "all",
+    conditions: [{ field: "narration", op: "contains", value: "amazon" }],
+    ...over,
+  };
+}
+
+test("no rules, or no matching rule, yields null", () => {
+  assert.equal(chooseWinner(txn(), []), null);
+  const miss = ranked({
+    conditions: [{ field: "narration", op: "contains", value: "blinkit" }],
+  });
+  assert.equal(chooseWinner(txn(), [miss]), null);
+});
+
+test("higher priority wins", () => {
+  const low = ranked({ id: 1, priority: 0 });
+  const high = ranked({ id: 2, priority: 10 });
+  assert.equal(chooseWinner(txn(), [low, high])?.id, 2);
+  // Same answer with the array the other way round — order must not matter.
+  assert.equal(chooseWinner(txn(), [high, low])?.id, 2);
+});
+
+test("at equal priority the more specific rule wins", () => {
+  const broad = ranked({
+    id: 1,
+    conditions: [{ field: "narration", op: "contains", value: "amazon" }],
+  });
+  const narrow = ranked({
+    id: 2,
+    conditions: [
+      { field: "narration", op: "contains", value: "amazon" },
+      { field: "amount_paise", op: "lt", value: 0 },
+    ],
+  });
+  assert.equal(chooseWinner(txn(), [broad, narrow])?.id, 2);
+  assert.equal(chooseWinner(txn(), [narrow, broad])?.id, 2);
+});
+
+test("extra conditions do NOT make an 'any' rule more specific", () => {
+  // 'any' fires on ONE condition, so a longer list makes it broader, not narrower.
+  // It must not out-rank a two-condition 'all' rule at the same priority.
+  const anyRule = ranked({
+    id: 1,
+    match_mode: "any",
+    conditions: [
+      { field: "narration", op: "contains", value: "amazon" },
+      { field: "narration", op: "contains", value: "swiggy" },
+      { field: "amount_paise", op: "lt", value: 0 },
+    ],
+  });
+  const allRule = ranked({
+    id: 2,
+    match_mode: "all",
+    conditions: [
+      { field: "narration", op: "contains", value: "amazon" },
+      { field: "amount_paise", op: "lt", value: 0 },
+    ],
+  });
+  assert.equal(chooseWinner(txn(), [anyRule, allRule])?.id, 2);
+  assert.equal(chooseWinner(txn(), [allRule, anyRule])?.id, 2);
+});
+
+test("the id tiebreak is numeric, not lexicographic", () => {
+  // As strings "10" < "2", so a lexicographic tiebreak would pick 10. The lowest
+  // id must win: 2.
+  const two = ranked({ id: 2 });
+  const ten = ranked({ id: 10 });
+  assert.equal(chooseWinner(txn(), [ten, two])?.id, 2);
+  assert.equal(compareRules(two, ten) < 0, true);
+});
+
+test("disabled rules never win, and never block an enabled one", () => {
+  const disabledButBetter = ranked({ id: 1, priority: 99, enabled: false });
+  const enabledButWorse = ranked({ id: 2, priority: 0, enabled: true });
+  assert.equal(chooseWinner(txn(), [disabledButBetter, enabledButWorse])?.id, 2);
+  assert.equal(chooseWinner(txn(), [disabledButBetter]), null);
+});
+
+test("compareRules is a total order — never 0 for distinct rules", () => {
+  // If any pair compared equal, which one won would depend on array order, and
+  // the engine would stop being deterministic.
+  const rules = [
+    ranked({ id: 1, priority: 0 }),
+    ranked({ id: 2, priority: 0 }),
+    ranked({ id: 3, priority: 5 }),
+    ranked({ id: 4, priority: 5, conditions: [
+      { field: "narration", op: "contains", value: "amazon" },
+      { field: "amount_paise", op: "lt", value: 0 },
+    ] }),
+    ranked({ id: 5, priority: 5, match_mode: "any" }),
+  ];
+  for (const a of rules) {
+    for (const b of rules) {
+      if (a.id === b.id) continue;
+      assert.notEqual(compareRules(a, b), 0, `rules ${a.id} and ${b.id} tied`);
+      // Antisymmetry: if a beats b then b must lose to a.
+      assert.equal(
+        Math.sign(compareRules(a, b)),
+        -Math.sign(compareRules(b, a)),
+        `compare(${a.id},${b.id}) is not antisymmetric`,
+      );
+    }
+  }
+});
+
+test("the winner does not depend on the order rules arrive in", () => {
+  // The property that actually matters. Every permutation must agree, or the
+  // engine's output depends on however Postgres happened to return the rows.
+  const rules = [
+    ranked({ id: 1, priority: 0 }),
+    ranked({ id: 2, priority: 5 }),
+    ranked({ id: 3, priority: 5, conditions: [
+      { field: "narration", op: "contains", value: "amazon" },
+      { field: "amount_paise", op: "lt", value: 0 },
+    ] }),
+    ranked({ id: 4, priority: 5, enabled: false }),
+  ];
+
+  function permutations<T>(items: readonly T[]): T[][] {
+    if (items.length <= 1) return [[...items]];
+    return items.flatMap((item, i) =>
+      permutations([...items.slice(0, i), ...items.slice(i + 1)]).map((rest) => [
+        item,
+        ...rest,
+      ]),
+    );
+  }
+
+  const winners = new Set(
+    permutations(rules).map((order) => chooseWinner(txn(), order)?.id),
+  );
+  assert.equal(winners.size, 1, `permutations disagreed: ${[...winners]}`);
+  assert.equal([...winners][0], 3); // priority 5, and the most specific of those
 });

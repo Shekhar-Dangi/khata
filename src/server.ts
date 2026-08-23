@@ -890,11 +890,15 @@ app.post("/rules", async (req, res) => {
   }
 });
 
-// GET /rules — every rule with its target category name, in the ORDER THE ENGINE WILL
-// CONSIDER THEM: priority DESC, then id ASC. The id tiebreak is not cosmetic. Two rules
-// at the same priority are a tie, SQL promises nothing about the order of tied rows, and
-// a winner that changes between runs destroys the engine's idempotency. Same ORDER BY
-// must appear in the runner.
+// GET /rules — every rule with its target category name, roughly in precedence order:
+// priority DESC, then id ASC. The id tiebreak is not cosmetic even here — SQL promises
+// nothing about the order of tied rows, so without it this list could shuffle between
+// identical requests.
+//
+// "Roughly" is deliberate. The AUTHORITATIVE precedence is compareRules() in rules.ts,
+// which also ranks by specificity — and that stays in TypeScript rather than being
+// mirrored into this ORDER BY. Precedence is policy, and policy belongs in exactly one
+// place; duplicating it into SQL is the same mistake we just removed from the vocabulary.
 app.get("/rules", async (_req, res) => {
   try {
     const result = await pool.query(
