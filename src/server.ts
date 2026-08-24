@@ -53,6 +53,21 @@ async function fetchTransactionsByAccount(accountId: number) {
 const ALLOWED_TYPES = ["opening_balance", "transfer", "regular"];
 const KEYWORD_KINDS = ["account_number", "upi_handle", "name"];
 
+// What counts as EXPLAINABLE SPEND — the one definition, shared by the rules engine
+// and by every number the UI reports. A SQL predicate over `transactions`.
+//
+//  - `opening_balance` is a ledger seed, not money you spent.
+//  - `type = 'transfer'` is how the import classified it; `transfer_status = 'resolved'`
+//    is how detection confirmed it. Either way it is your own money moving between your
+//    own accounts, so it is neither spend nor income.
+//
+// Kept in ONE string on purpose. Two copies of a definition drift, and then the headline
+// metric and the engine quietly disagree about what "unexplained" means — the same class
+// of bug as the duplicated rule vocabulary.
+const EXPLAINABLE_SPEND = `type <> 'opening_balance'
+   AND type <> 'transfer'
+   AND transfer_status IS DISTINCT FROM 'resolved'`;
+
 // ── Rules (auto-explanation) ────────────────────────────────────────────────
 // A rule is DATA, not code: a list of {field, op, value} conditions plus the category
 // to assign when they match. Validation is deliberately strict HERE, at the write path,
@@ -589,7 +604,13 @@ app.get("/transactions", async (_req, res) => {
       `SELECT t.id, t.account_id, a.name AS account_name, a.bank,
               t.txn_date, t.txn_time, t.amount_paise, t.type, t.narration,
               t.transfer_status, t.counterparty_account_id, t.bank_balance_paise,
-              COALESCE(SUM(al.amount_paise), 0) AS explained_paise
+              COALESCE(SUM(al.amount_paise), 0) AS explained_paise,
+              -- Split the explained total by provenance so the ledger can show the
+              -- three states apart. FILTER is the aggregate-level WHERE: it feeds
+              -- only matching rows to THIS sum, without a second pass over the join.
+              COALESCE(
+                SUM(al.amount_paise) FILTER (WHERE al.source = 'rule'), 0
+              ) AS provisional_paise
          FROM transactions t
          JOIN accounts a ON a.id = t.account_id
          LEFT JOIN allocations al ON al.transaction_id = t.id
@@ -614,6 +635,7 @@ app.get("/transactions", async (_req, res) => {
         bank_balance_paise:
           r.bank_balance_paise == null ? null : Number(r.bank_balance_paise),
         explained_paise: explained,
+        provisional_paise: Number(r.provisional_paise),
         unexplained_paise: amount - explained, // derived
       };
     });
@@ -928,6 +950,48 @@ app.get("/rules", async (_req, res) => {
   }
 });
 
+// GET /summary — the numbers the header strip reports, as SQL aggregates.
+// Deliberately an endpoint rather than something the client derives: the alternative
+// is shipping the entire ledger to the browser to add up two figures, which stops
+// being reasonable the moment real statements land.
+//
+// `unexplained` counts EXPLAINABLE SPEND only (see EXPLAINABLE_SPEND) — the same
+// definition the rules engine uses, so the headline number and the engine can never
+// disagree about what they are talking about.
+app.get("/summary", async (_req, res) => {
+  try {
+    const result = await pool.query(
+      `WITH per_txn AS (
+         SELECT t.id, t.amount_paise, t.type, t.transfer_status,
+                COALESCE(SUM(al.amount_paise), 0) AS explained,
+                COALESCE(
+                  SUM(al.amount_paise) FILTER (WHERE al.source = 'rule'), 0
+                ) AS provisional
+           FROM transactions t
+           LEFT JOIN allocations al ON al.transaction_id = t.id
+          GROUP BY t.id
+       )
+       SELECT
+         (SELECT COALESCE(SUM(amount_paise), 0) FROM transactions) AS net_paise,
+         -- ABS per transaction, THEN sum: a ₹500 unexplained debit and a ₹500
+         -- unexplained credit are ₹1000 of unexplained money, not zero.
+         COALESCE(SUM(ABS(amount_paise - explained))
+                  FILTER (WHERE ${EXPLAINABLE_SPEND}), 0) AS unexplained_paise,
+         COALESCE(SUM(ABS(provisional)), 0) AS provisional_paise
+       FROM per_txn`,
+    );
+    const row = result.rows[0];
+    res.json({
+      net_paise: Number(row.net_paise),
+      unexplained_paise: Number(row.unexplained_paise),
+      provisional_paise: Number(row.provisional_paise),
+    });
+  } catch (error) {
+    console.error("summary failed:", error);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
 // POST /rules/apply — run every enabled rule over the ledger and make the
 // source='rule' allocations match what the rules currently say.
 // Optional ?account_id=N scopes the run. Design: the design.
@@ -984,8 +1048,7 @@ app.post("/rules/apply", async (req, res) => {
       `SELECT id, amount_paise, narration, txn_date
          FROM transactions
         WHERE ($1::bigint IS NULL OR account_id = $1)
-          AND type <> 'opening_balance'
-          AND transfer_status IS DISTINCT FROM 'resolved'
+          AND ${EXPLAINABLE_SPEND}
         ORDER BY id
         FOR UPDATE`,
       [accountId],
