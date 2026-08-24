@@ -1,8 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { normalise, matches, compareRules, chooseWinner } from "./rules.ts";
+import {
+  normalise,
+  matches,
+  compareRules,
+  chooseWinner,
+  decideAllocation,
+  sameAllocation,
+  RULE_CONFIDENCE,
+} from "./rules.ts";
 import type {
+  ApplicableRule,
   MatchableRule,
   MatchableTransaction,
   RankableRule,
@@ -341,4 +350,75 @@ test("the winner does not depend on the order rules arrive in", () => {
   );
   assert.equal(winners.size, 1, `permutations disagreed: ${[...winners]}`);
   assert.equal([...winners][0], 3); // priority 5, and the most specific of those
+});
+
+// ── decideAllocation ────────────────────────────────────────────────────────
+
+function applicable(over: Partial<ApplicableRule> = {}): ApplicableRule {
+  return { ...ranked(), category_id: 11, ...over };
+}
+
+test("a matching rule allocates the whole remainder, signed like the txn", () => {
+  const desired = decideAllocation(txn(), -230000, [applicable({ id: 7 })]);
+  assert.deepEqual(desired, {
+    category_id: 11,
+    amount_paise: -230000,
+    rule_id: 7,
+    confidence: RULE_CONFIDENCE,
+  });
+});
+
+test("a partial remainder is what gets allocated, not the full amount", () => {
+  // ₹800 of a ₹2,300 debit is already explained by evidence, so only ₹1,500 is left.
+  const desired = decideAllocation(txn(), -150000, [applicable()]);
+  assert.equal(desired?.amount_paise, -150000);
+});
+
+test("nothing left to explain means no allocation", () => {
+  // allocations has CHECK (amount_paise <> 0) — a zero row is a constraint
+  // violation, so this guard is what keeps a fully-explained txn from 500ing.
+  assert.equal(decideAllocation(txn(), 0, [applicable()]), null);
+});
+
+test("no matching rule means no allocation", () => {
+  const miss = applicable({
+    conditions: [{ field: "narration", op: "contains", value: "blinkit" }],
+  });
+  assert.equal(decideAllocation(txn(), -230000, [miss]), null);
+  assert.equal(decideAllocation(txn(), -230000, []), null);
+});
+
+test("a rule that assigns no category explains nothing", () => {
+  assert.equal(
+    decideAllocation(txn(), -230000, [applicable({ category_id: null })]),
+    null,
+  );
+});
+
+test("rule allocations are provisional, never fully confident", () => {
+  // If this ever reached 1 it would be indistinguishable from a user allocation
+  // in the UI, and the three-state model collapses back to two.
+  assert.equal(RULE_CONFIDENCE < 1, true);
+  const desired = decideAllocation(txn(), -230000, [applicable()]);
+  assert.equal(desired?.confidence, RULE_CONFIDENCE);
+});
+
+// ── sameAllocation (the no-op detector) ─────────────────────────────────────
+
+test("sameAllocation spots an identical row and any difference in it", () => {
+  const desired = decideAllocation(txn(), -230000, [applicable({ id: 7 })])!;
+  const stored = {
+    category_id: 11,
+    amount_paise: -230000,
+    rule_id: 7,
+    confidence: RULE_CONFIDENCE,
+  };
+  assert.equal(sameAllocation(stored, desired), true);
+
+  // Each field on its own must be enough to force a rewrite.
+  assert.equal(sameAllocation({ ...stored, category_id: 12 }, desired), false);
+  assert.equal(sameAllocation({ ...stored, amount_paise: -230001 }, desired), false);
+  assert.equal(sameAllocation({ ...stored, rule_id: 8 }, desired), false);
+  assert.equal(sameAllocation({ ...stored, rule_id: null }, desired), false);
+  assert.equal(sameAllocation({ ...stored, confidence: 1 }, desired), false);
 });

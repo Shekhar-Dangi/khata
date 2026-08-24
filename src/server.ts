@@ -7,10 +7,13 @@ import {
   OPS_BY_FIELD,
   RULE_FIELDS,
   RULE_OPS,
+  decideAllocation,
   isMatchMode,
   isRuleField,
   isRuleOp,
+  sameAllocation,
 } from "./rules.ts";
+import type { ApplicableRule } from "./rules.ts";
 
 const PORT = Number(process.env.PORT) || 3000;
 
@@ -922,6 +925,198 @@ app.get("/rules", async (_req, res) => {
   } catch (error) {
     console.error("rules list failed:", error);
     res.status(500).json({ error: "internal error" });
+  }
+});
+
+// POST /rules/apply — run every enabled rule over the ledger and make the
+// source='rule' allocations match what the rules currently say.
+// Optional ?account_id=N scopes the run. Design: the design.
+//
+// This CONVERGES, it does not append: it computes the desired rule-allocations and
+// makes the table match, so running it ten times equals running it once. Run it
+// twice and the second run must report created: 0, removed: 0.
+app.post("/rules/apply", async (req, res) => {
+  // Absent = whole ledger. Present-but-junk is a 400, not a silent full run:
+  // Number(undefined) is NaN and Number("") is 0, and neither throws.
+  const rawAccountId = req.query.account_id;
+  let accountId: number | null = null;
+  if (rawAccountId !== undefined) {
+    if (typeof rawAccountId !== "string" || !Number.isInteger(Number(rawAccountId))) {
+      return res.status(400).json({ error: "account_id must be an integer" });
+    }
+    accountId = Number(rawAccountId);
+  }
+
+  const client = await pool.connect();
+  try {
+    if (accountId !== null && !(await accountExists(accountId))) {
+      return res.status(404).json({ error: "account id does not exist" });
+    }
+
+    await client.query("BEGIN");
+
+    // Only enabled rules are even considered. chooseWinner checks `enabled` too —
+    // two independent guards, because a disabled rule that still categorises money
+    // is the kind of bug nobody notices for months.
+    const ruleResult = await client.query(
+      `SELECT id, conditions, match_mode, category_id, priority, enabled
+         FROM rules
+        WHERE enabled = true AND category_id IS NOT NULL`,
+    );
+    const rules: ApplicableRule[] = ruleResult.rows.map((r) => ({
+      id: Number(r.id), // BIGINT arrives as a string; the id tiebreak is numeric
+      conditions: r.conditions,
+      match_mode: r.match_mode,
+      category_id: r.category_id === null ? null : Number(r.category_id),
+      priority: Number(r.priority),
+      enabled: r.enabled,
+    }));
+
+    // Candidates. The user-lock is NOT filtered here — we want to count what it
+    // skipped, so it is applied below. ORDER BY id gives every concurrent run the
+    // same lock order, which is what stops two runs deadlocking against each other.
+    //
+    // FOR UPDATE is load-bearing: without it the engine can read a transaction as
+    // unlocked, a user can save allocations on it, and we then write a rule
+    // allocation onto a transaction that now has user allocations. The allocations
+    // endpoint takes FOR UPDATE on the same row, so the two serialise.
+    const txnResult = await client.query(
+      `SELECT id, amount_paise, narration, txn_date
+         FROM transactions
+        WHERE ($1::bigint IS NULL OR account_id = $1)
+          AND type <> 'opening_balance'
+          AND transfer_status IS DISTINCT FROM 'resolved'
+        ORDER BY id
+        FOR UPDATE`,
+      [accountId],
+    );
+    const txns = txnResult.rows;
+
+    // Every allocation for those transactions, in one query — not one per txn.
+    const txnIds = txns.map((t) => t.id);
+    const allocResult =
+      txnIds.length === 0
+        ? { rows: [] as any[] }
+        : await client.query(
+            `SELECT id, transaction_id, category_id, amount_paise, confidence, source, rule_id
+               FROM allocations
+              WHERE transaction_id = ANY($1)`,
+            [txnIds],
+          );
+
+    // Group allocations by transaction. String keys: transaction_id is a BIGINT
+    // and arrives as a string, so it is already a safe Map key with no precision loss.
+    const allocationsByTxn = new Map<string, any[]>();
+    for (const a of allocResult.rows) {
+      const key = String(a.transaction_id);
+      const list = allocationsByTxn.get(key);
+      if (list === undefined) allocationsByTxn.set(key, [a]);
+      else list.push(a);
+    }
+
+    let matched = 0;
+    let created = 0;
+    let removed = 0;
+    let unchanged = 0;
+    let skippedUserLocked = 0;
+
+    for (const t of txns) {
+      const existing = allocationsByTxn.get(String(t.id)) ?? [];
+
+      // THE TRANSACTION-LEVEL LOCK. Any user allocation and the engine leaves the
+      // whole transaction alone — not just the explained part. Filling the
+      // remainder instead would mean you can never deliberately leave money
+      // unexplained, and that is the product's whole point.
+      if (existing.some((a) => a.source === "user")) {
+        skippedUserLocked++;
+        continue;
+      }
+
+      // The remainder EXCLUDES our own rule rows: they are what we are recomputing.
+      // Counting them would make the desired state depend on the previous run.
+      // Evidence rows DO count — the |Σ| ≤ |txn| budget is shared across sources.
+      const nonRuleExplained = existing
+        .filter((a) => a.source !== "rule")
+        .reduce((sum, a) => sum + Number(a.amount_paise), 0);
+      const remaining = Number(t.amount_paise) - nonRuleExplained;
+
+      const desired = decideAllocation(
+        {
+          narration: t.narration,
+          amount_paise: t.amount_paise,
+          txn_date: t.txn_date,
+        },
+        remaining,
+        rules,
+      );
+      if (desired !== null) matched++;
+
+      const actual = existing.filter((a) => a.source === "rule");
+
+      // The no-op case, detected rather than merely tolerated. Blind delete+insert
+      // would still converge the state, but it churns allocation ids every run and
+      // makes `created: 0, removed: 0` useless as a signal that we converged.
+      if (
+        desired !== null &&
+        actual.length === 1 &&
+        sameAllocation(
+          {
+            category_id: Number(actual[0].category_id),
+            amount_paise: Number(actual[0].amount_paise),
+            rule_id: actual[0].rule_id === null ? null : Number(actual[0].rule_id),
+            confidence: Number(actual[0].confidence), // NUMERIC comes back as a string
+          },
+          desired,
+        )
+      ) {
+        unchanged++;
+        continue;
+      }
+      if (desired === null && actual.length === 0) continue;
+
+      // THE SCOPED SWEEP. `AND source = 'rule'` is the entire override guarantee:
+      // the engine may only delete rows it could have written. The allocations
+      // endpoint deletes unscoped — correct there, fatal here.
+      if (actual.length > 0) {
+        const del = await client.query(
+          "DELETE FROM allocations WHERE transaction_id = $1 AND source = 'rule'",
+          [t.id],
+        );
+        removed += del.rowCount ?? 0;
+      }
+      if (desired !== null) {
+        await client.query(
+          `INSERT INTO allocations
+             (transaction_id, amount_paise, category_id, confidence, source, rule_id)
+           VALUES ($1, $2, $3, $4, 'rule', $5)`,
+          [
+            t.id,
+            desired.amount_paise,
+            desired.category_id,
+            desired.confidence,
+            desired.rule_id,
+          ],
+        );
+        created++;
+      }
+    }
+
+    await client.query("COMMIT");
+    return res.json({
+      account_id: accountId,
+      examined: txns.length,
+      matched,
+      created,
+      removed,
+      unchanged,
+      skipped_user_locked: skippedUserLocked,
+    });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("rules apply failed:", error);
+    return res.status(500).json({ error: "internal error" });
+  } finally {
+    client.release();
   }
 });
 

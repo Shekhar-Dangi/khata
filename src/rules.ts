@@ -283,11 +283,12 @@ export function compareRules(a: RankableRule, b: RankableRule): number {
 // Single pass, no sorting and no copying: we only ever need the best element, not
 // the whole ranking. Note the result does NOT depend on the order rules arrive in —
 // that independence is what makes the engine deterministic, and it is tested.
-export function chooseWinner(
+// Generic in T so the caller gets its own richer row type back, not a widened one.
+export function chooseWinner<T extends RankableRule>(
   txn: MatchableTransaction,
-  rules: readonly RankableRule[],
-): RankableRule | null {
-  let winner: RankableRule | null = null;
+  rules: readonly T[],
+): T | null {
+  let winner: T | null = null;
   for (const rule of rules) {
     if (!rule.enabled) continue;
     if (!matches(txn, rule)) continue;
@@ -296,4 +297,83 @@ export function chooseWinner(
     if (winner === null || compareRules(rule, winner) < 0) winner = rule;
   }
   return winner;
+}
+
+// ── Deciding what to write ──────────────────────────────────────────────────
+// Still pure. This produces the DESIRED state for one transaction; making the
+// database match it is the runner's job.
+
+// How much we trust a rule's guess. Below 1 on purpose: a rule knows the merchant,
+// not the basket, so its allocation is provisional until a human or itemised
+// evidence confirms it. Belongs on the `rules` row eventually, so a user can say
+// how much they trust a given rule — that is a schema change, deferred.
+export const RULE_CONFIDENCE = 0.8;
+
+// A rule that can actually be applied — it carries the category it assigns.
+export type ApplicableRule = RankableRule & {
+  category_id: number | null;
+};
+
+export type DesiredAllocation = {
+  category_id: number;
+  amount_paise: number;
+  rule_id: number;
+  confidence: number;
+};
+
+// What SHOULD this transaction's rule-allocations be?
+//
+// `remaining` is supplied by the caller and must be computed EXCLUDING existing
+// source='rule' rows — see the design. Counting our own previous output
+// makes the desired state depend on the last run, and the engine oscillates:
+// full allocation -> remainder 0 -> desired empty -> swept -> rewritten next run.
+//
+// Returns at most ONE allocation. A rule assigns a single category and cannot
+// split; that is the honest boundary between rules and itemised evidence.
+export function decideAllocation(
+  txn: MatchableTransaction,
+  remaining: number,
+  rules: readonly ApplicableRule[],
+): DesiredAllocation | null {
+  // Nothing left to explain. Also a hard guard: allocations has
+  // CHECK (amount_paise <> 0), so a zero row is a constraint violation, not a no-op.
+  if (remaining === 0) return null;
+
+  const winner = chooseWinner(txn, rules);
+  if (winner === null) return null;
+  // A rule with no category assigns nothing, so it explains nothing. `== null`
+  // would also catch undefined here, but the column is a real nullable BIGINT —
+  // be explicit about which absence we mean.
+  if (winner.category_id === null) return null;
+
+  return {
+    category_id: winner.category_id,
+    amount_paise: remaining,
+    rule_id: winner.id,
+    confidence: RULE_CONFIDENCE,
+  };
+}
+
+// Is an existing allocation already exactly what we want?
+//
+// Used to detect the no-op case. Without it the runner would delete and re-insert
+// an identical row on every run: the STATE would still converge, but allocation
+// ids would churn, created_at would mean "when the job last ran", and
+// `created: 0, removed: 0` would stop being a usable signal that the engine
+// converged at all.
+export function sameAllocation(
+  existing: {
+    category_id: number;
+    amount_paise: number;
+    rule_id: number | null;
+    confidence: number;
+  },
+  desired: DesiredAllocation,
+): boolean {
+  return (
+    existing.category_id === desired.category_id &&
+    existing.amount_paise === desired.amount_paise &&
+    existing.rule_id === desired.rule_id &&
+    existing.confidence === desired.confidence
+  );
 }
