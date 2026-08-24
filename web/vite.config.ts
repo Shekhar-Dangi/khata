@@ -16,6 +16,8 @@ export default defineConfig({
       '/transactions': 'http://localhost:3000',
       '/transfers': 'http://localhost:3000',
       '/anomalies': 'http://localhost:3000',
+      '/rules': 'http://localhost:3000',
+      '/summary': 'http://localhost:3000',
       '/health': 'http://localhost:3000',
     },
   },

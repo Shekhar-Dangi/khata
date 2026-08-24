@@ -5,13 +5,15 @@ import AccountsView from "./AccountsView";
 import ConsolidatedView from "./ConsolidatedView";
 import TransfersView from "./TransfersView";
 import AnomaliesView from "./AnomaliesView";
+import RulesView from "./RulesView";
 
-type View = "accounts" | "transactions" | "transfers" | "anomalies";
+type View = "accounts" | "transactions" | "transfers" | "rules" | "anomalies";
 
 const TABS: { key: View; label: string }[] = [
   { key: "accounts", label: "Accounts" },
   { key: "transactions", label: "All transactions" },
   { key: "transfers", label: "Internal transfers" },
+  { key: "rules", label: "Rules" },
   { key: "anomalies", label: "Anomalies" },
 ];
 
@@ -20,7 +22,8 @@ function App() {
 
   // The summary answers "what can't I explain / how much do I have" — irrelevant on the
   // pure-ledger views, so it's hidden there (design-brief deviation #1).
-  const showSummary = view === "accounts" || view === "anomalies";
+  const showSummary =
+    view === "accounts" || view === "anomalies" || view === "rules";
 
   return (
     <>
@@ -53,6 +56,7 @@ function App() {
             {view === "accounts" && <AccountsView />}
             {view === "transactions" && <ConsolidatedView />}
             {view === "transfers" && <TransfersView />}
+            {view === "rules" && <RulesView />}
             {view === "anomalies" && <AnomaliesView />}
           </div>
         </div>

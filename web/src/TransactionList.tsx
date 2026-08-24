@@ -8,6 +8,8 @@ type Allocation = {
   amount_paise: number;
   category_id: number;
   category_name: string;
+  source: "rule" | "user" | "evidence";
+  confidence: string; // NUMERIC(3,2) — pg sends it as a string, e.g. "0.80"
 };
 type Transaction = {
   id: string;
@@ -58,6 +60,10 @@ export default function TransactionList({ accountId }: { accountId: number }) {
         {txns.data.transactions.map((t) => {
           const expanded = expandedId === t.id;
           const hasAllocs = t.allocations.length > 0;
+          // THREE states, not two. A rule's guess is not the same as your answer,
+          // and collapsing them would make "explained" mean two different things.
+          const provisional =
+            hasAllocs && t.allocations.some((a) => a.source === "rule");
           return (
             <Fragment key={t.id}>
               <tr
@@ -69,14 +75,21 @@ export default function TransactionList({ accountId }: { accountId: number }) {
                 <td className="narration">{t.narration}</td>
                 <td className={amountClass(t)}>{rupees(t.amount_paise)}</td>
                 <td className="r">
-                  {hasAllocs && t.unexplained_paise === 0 ? (
-                    <span className="credit">explained</span>
-                  ) : hasAllocs ? (
+                  {!hasAllocs ? (
+                    <span className="soft">explain ▾</span>
+                  ) : t.unexplained_paise !== 0 ? (
                     <span className="flag mono">
                       {rupees(Math.abs(t.unexplained_paise))} left
                     </span>
+                  ) : provisional ? (
+                    <span
+                      className="prov"
+                      title="A rule guessed this. Open it to confirm."
+                    >
+                      provisional
+                    </span>
                   ) : (
-                    <span className="soft">explain ▾</span>
+                    <span className="credit">explained</span>
                   )}
                 </td>
               </tr>

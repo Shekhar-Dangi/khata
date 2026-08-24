@@ -6,6 +6,7 @@ type Allocation = {
   amount_paise: number;
   category_id: number;
   category_name: string;
+  source?: "rule" | "user" | "evidence";
 };
 type Category = { id: number; name: string; parent_id: number | null };
 type EditorTxn = { id: string; amount_paise: number; allocations: Allocation[] };
@@ -90,8 +91,21 @@ export default function AllocationEditor({
 
   const parents = categories.filter((c) => c.parent_id == null);
 
+  // The rows above were prefilled from the transaction's existing allocations. If those
+  // came from a rule, this is a SUGGESTION awaiting confirmation, not your own answer —
+  // and saving is what converts it (the write path stamps source='user').
+  const fromRule =
+    transaction.allocations.length > 0 &&
+    transaction.allocations.every((a) => a.source === "rule");
+
   return (
     <div className="editor">
+      {fromRule && (
+        <p className="editor-hint">
+          <span className="tag-rule">rule</span>
+          Suggested by a rule. Adjust if it's wrong — saving makes it yours.
+        </p>
+      )}
       {rows.map((row, i) => (
         // Index key is fine here: the inputs are fully controlled (value from state),
         // and rows aren't reordered — only added/removed.
