@@ -9,22 +9,18 @@ import type { TouchedTxn } from "./rules";
 // request with different filters. One component serves both, and will serve the next
 // drill-down without changing. That is the return on the shared filter vocabulary.
 //
+// ONE layout, used everywhere. It previously had a table variant for the rules page and
+// a grid variant for the bars, which meant the same information looked like two
+// different things depending on where you opened it. A drill-down is a drill-down.
+//
 // Its own component so it fetches ONLY when a row is actually expanded — 22 rules would
 // otherwise mean 22 requests on load for data almost none of which is being looked at.
 export default function TransactionPeek({
   query,
   emptyMessage = "Nothing here.",
-  variant = "table",
 }: {
   query: string;
   emptyMessage?: string;
-  /**
-   * "bars" renders rows on the SAME grid as a bar row (shared CSS custom properties),
-   * so each amount sits in the same column as the bar value above it. A separate table
-   * with its own colgroup cannot line up with a grid no matter how the widths are
-   * guessed — they have to share one definition.
-   */
-  variant?: "table" | "bars";
 }) {
   const txns = useFetch<{ transactions: TouchedTxn[]; total: number }>(
     `/transactions?${query}&limit=200`,
@@ -33,66 +29,39 @@ export default function TransactionPeek({
   if (txns.loading) return <p className="soft touched-empty">Loading…</p>;
   if (txns.error) return <p className="soft touched-empty">{txns.error}</p>;
 
-  const rows = txns.data?.transactions ?? [];
-  const total = txns.data?.total ?? 0;
+  const data = txns.data;
+  if (data === null) return <p className="soft touched-empty">Loading…</p>;
+
+  const rows = data.transactions;
   if (rows.length === 0) {
     return <p className="soft touched-empty">{emptyMessage}</p>;
   }
 
-  if (variant === "bars") {
-    return (
-      <div className="touched">
-        {rows.map((t) => (
-          <div className="peek-row" key={t.id}>
-            <span className="peek-when">
-              <span className="mono soft">{t.txn_date}</span>
-              <em>{t.account_name}</em>
-            </span>
-            <span className="narration">{t.narration}</span>
-            <span
-              className={
-                "peek-amount mono " + (t.amount_paise < 0 ? "debit" : "credit")
-              }
-            >
-              {rupees(t.amount_paise)}
-            </span>
-            <span />
-          </div>
-        ))}
-        {total > rows.length && (
-          <p className="soft touched-more">
-            showing {rows.length} of {total}
-          </p>
-        )}
-      </div>
-    );
-  }
-
   return (
-    <div className="touched">
-      <table className="touched-table">
-        <colgroup>
-          <col style={{ width: "104px" }} />
-          <col style={{ width: "120px" }} />
-          <col />
-          <col style={{ width: "120px" }} />
-        </colgroup>
-        <tbody>
-          {rows.map((t) => (
-            <tr key={t.id}>
-              <td className="mono soft">{t.txn_date}</td>
-              <td className="soft">{t.account_name}</td>
-              <td className="narration">{t.narration}</td>
-              <td className={"mono r " + (t.amount_paise < 0 ? "debit" : "credit")}>
-                {rupees(t.amount_paise)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {total > rows.length && (
+    <div className="peek">
+      {rows.map((t) => (
+        <div className="peek-row" key={t.id}>
+          <span className="peek-when">
+            <span className="mono">{t.txn_date}</span>
+            <em>{t.account_name}</em>
+          </span>
+          {/* NOT className="narration" — that rule is max-width: 0, which truncates
+              inside a table but makes a grid item literally zero wide, so the text
+              disappeared entirely. Grid items also need min-width: 0 before they will
+              shrink below their content, which is what makes the ellipsis work. */}
+          <span className="peek-narration">{t.narration}</span>
+          <span
+            className={
+              "peek-amount mono " + (t.amount_paise < 0 ? "debit" : "credit")
+            }
+          >
+            {rupees(t.amount_paise)}
+          </span>
+        </div>
+      ))}
+      {data.total > rows.length && (
         <p className="soft touched-more">
-          showing {rows.length} of {total}
+          showing {rows.length} of {data.total}
         </p>
       )}
     </div>

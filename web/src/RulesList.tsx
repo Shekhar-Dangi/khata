@@ -95,7 +95,7 @@ export default function RulesList({
               </tr>
               {expanded && (
                 <tr className="txn-detail">
-                  <td colSpan={7}>
+                  <td colSpan={7} className="rules-peek">
                     <TransactionPeek
                       query={`rule_id=${r.id}`}
                       emptyMessage="This rule has not matched anything. A typo, or a merchant you stopped using."

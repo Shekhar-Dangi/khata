@@ -110,7 +110,6 @@ export default function CategoryBars({
               <TransactionPeek
                 query={`${baseQuery}${baseQuery === "" ? "" : "&"}category_id=${r.category_id}`}
                 emptyMessage="No transactions in this category for the current filters."
-                variant="bars"
               />
             </div>
           )}

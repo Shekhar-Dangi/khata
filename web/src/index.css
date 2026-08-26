@@ -280,6 +280,13 @@ tbody.muted td {
   background: var(--paper-sunk);
   padding: 0;
 }
+/* Same peek, inset to this table's geometry: the Money column's right edge sits
+   130px in from the table's right (last-fired 94 + delete 36), so the drill-down
+   amounts land underneath the figure they break down. */
+.rules-peek {
+  padding-right: 130px;
+  padding-left: 4px;
+}
 .editor {
   padding: 14px 10px 16px;
 }
@@ -578,20 +585,54 @@ footer .shell {
   margin-top: 14px;
 }
 
-/* ── rule drill-down ──────────────────────────────────── */
-.touched {
-  padding: 4px 0 8px;
+/* ── drill-down (one layout, both pages) ─────────────────
+   Used under a rule row AND under a category bar. Same columns either place, so the
+   same information does not look like two different things depending on where it was
+   opened. Amounts right-aligned in a fixed final column. */
+:root {
+  --peek-cols: 148px 1fr 132px;
+  --peek-gap: 14px;
 }
-.touched-table {
+.peek {
+  padding: 2px 0 6px;
+}
+.peek-row {
+  display: grid;
+  grid-template-columns: var(--peek-cols);
+  gap: var(--peek-gap);
+  align-items: baseline;
+  padding: 5px 0;
+  border-top: 1px solid var(--rule);
+  font-size: 12.5px;
+}
+.peek-row:first-child {
+  border-top: 0;
+}
+.peek-when {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.35;
+}
+.peek-when .mono {
+  font-size: 11.5px;
+  color: var(--ink-soft);
+}
+.peek-when em {
+  font-style: normal;
+  font-size: 10.5px;
+  color: var(--ink-soft);
+}
+/* min-width: 0 is the load-bearing declaration. A grid item will not shrink below its
+   content without it, so the ellipsis never engages and the row blows its column out. */
+.peek-narration {
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.touched-table td {
-  padding: 5px 12px 5px 0;
-  border-bottom: 1px solid var(--rule);
-  font-size: 13px;
-}
-.touched-table tr:last-child td {
-  border-bottom: 0;
+.peek-amount {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 .touched-empty {
   padding: 10px 0;
@@ -856,37 +897,8 @@ footer .shell {
 .bar-peek {
   background: var(--paper-sunk);
   border-bottom: 1px solid var(--rule);
-  /* Left/right padding matches .barrow's own 4px so the shared grid starts and ends in
-     exactly the same place as the row above. */
   padding: 2px 4px 8px;
-}
-.peek-row {
-  display: grid;
-  grid-template-columns: var(--bar-cols);
-  gap: var(--bar-gap);
-  align-items: baseline;
-  padding: 4px 4px;
-  border-top: 1px solid var(--rule);
-  font-size: 12.5px;
-}
-.peek-row:first-child {
-  border-top: 0;
-}
-.peek-when {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.35;
-}
-.peek-when .mono {
-  font-size: 11.5px;
-}
-.peek-when em {
-  font-style: normal;
-  font-size: 10.5px;
-  color: var(--ink-soft);
-}
-.peek-amount {
-  text-align: right;
-  font-size: 12.5px;
-  font-variant-numeric: tabular-nums;
+  /* Inset from the right by the delta column (54px) plus its gap, so the peek's amount
+     column ends where the BAR VALUE above it ends rather than where the row ends. */
+  padding-right: calc(54px + var(--bar-gap) + 4px);
 }
