@@ -620,11 +620,64 @@ footer .shell {
   font-size: 11.5px;
   margin-left: auto;
 }
-/* Stale = real rows, one filter behind. Dimmed rather than removed, so the table keeps
-   its height and the page does not jump while the next result is in flight. */
+/* Working = real rows, one filter behind. Softened rather than removed, so the table
+   keeps its height and the page does not jump while the next result is in flight.
+   The blur is deliberately small: it reads as "settling" at 1px and as broken at 4px,
+   and a large blur on a hundred-row table is real compositing work for no extra clarity.
+   pointer-events off so a row cannot be clicked while it is about to be replaced. */
 .is-stale {
-  opacity: 0.45;
-  transition: opacity 0.12s ease-out;
+  opacity: 0.42;
+  filter: blur(1.2px);
+  pointer-events: none;
+  transition:
+    opacity 0.16s ease-out,
+    filter 0.16s ease-out;
+}
+
+/* Indeterminate progress. Only meaningful because useBusy gates it — bound directly to
+   "a request is in flight" this would flash on and off within one frame on localhost. */
+.busybar {
+  height: 2px;
+  overflow: hidden;
+  background: transparent;
+  opacity: 0;
+  transition: opacity 0.16s ease-out;
+}
+.busybar.on {
+  opacity: 1;
+  background: var(--rule);
+}
+.busybar i {
+  display: block;
+  height: 100%;
+  width: 38%;
+  background: var(--accent);
+  transform: translateX(-100%);
+}
+.busybar.on i {
+  animation: sweep 0.9s ease-in-out infinite;
+}
+@keyframes sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(365%);
+  }
+}
+/* Motion-sensitive readers get a static bar rather than nothing: the information is
+   "something is happening", and that survives without the movement. */
+@media (prefers-reduced-motion: reduce) {
+  .busybar.on i {
+    animation: none;
+    width: 100%;
+    transform: none;
+    opacity: 0.5;
+  }
+  .is-stale {
+    filter: none;
+    transition: none;
+  }
 }
 .pager {
   display: flex;

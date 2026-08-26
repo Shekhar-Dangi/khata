@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { useDebounced, useFetch } from "./useFetch";
+import { useBusy, useDebounced, useFetch } from "./useFetch";
 import { rupees } from "./format";
 
 type Txn = {
@@ -54,6 +54,10 @@ export default function ConsolidatedView() {
 
   const accounts = useFetch<{ accounts: Account[] }>("/accounts");
 
+  // Feedback that a filter is working, without strobing on a 5ms localhost response.
+  // See useBusy: nothing shows below ~90ms, and once shown it holds for ~320ms.
+  const busy = useBusy(refreshing);
+
   // Changing a filter invalidates the current page: page 3 of "blinkit" is not page 3 of
   // everything, and staying there would show a confusing empty result.
   useEffect(() => {
@@ -93,12 +97,18 @@ export default function ConsolidatedView() {
           {total === 0
             ? "no matches"
             : `${showingFrom}–${showingTo} of ${total.toLocaleString("en-IN")}`}
-          {refreshing && " · updating"}
+          {busy && " · updating…"}
         </span>
       </div>
 
-      {/* Dimmed, not replaced: these rows are real, just one filter behind. */}
-      <div className={isStale ? "is-stale" : undefined}>
+      {/* An indeterminate bar above the table: the clearest "working" signal there is,
+          and it costs one animated div rather than re-rendering anything. */}
+      <div className={"busybar" + (busy ? " on" : "")} aria-hidden="true">
+        <i />
+      </div>
+
+      {/* Softened, not replaced: these rows are real, just one filter behind. */}
+      <div className={busy || isStale ? "is-stale" : undefined}>
         <table>
           <colgroup>
             <col style={{ width: "110px" }} />

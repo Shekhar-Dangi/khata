@@ -101,3 +101,43 @@ export function useDebounced<T>(value: T, ms = 300): T {
 
   return settled;
 }
+
+// Turn "a request is in flight" into "show a busy state", without flicker.
+//
+// The naive version — render a spinner whenever `active` is true — behaves badly at both
+// ends. A request that finishes in 5ms flashes the indicator on and off within a single
+// frame, which reads as a glitch rather than as feedback. And a request that finishes
+// just after the indicator appears snaps it away before the eye registers it.
+//
+// So: wait `delay` before showing anything (fast requests stay invisible, which is
+// correct — an instant answer IS the feedback), and once shown, stay up for at least
+// `minDuration` (slow requests get a steady state instead of a blink).
+export function useBusy(active: boolean, delay = 90, minDuration = 320): boolean {
+  const [busy, setBusy] = useState(false);
+  const shownAt = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (active) {
+      if (busy) return; // already showing — do not restart the clock
+      const timer = setTimeout(() => {
+        shownAt.current = Date.now();
+        setBusy(true);
+      }, delay);
+      return () => clearTimeout(timer); // finished before `delay`: never show at all
+    }
+
+    if (!busy) return;
+    // Showing, and the request is done — hold until the minimum has elapsed.
+    const elapsed = shownAt.current === null ? minDuration : Date.now() - shownAt.current;
+    const timer = setTimeout(
+      () => {
+        shownAt.current = null;
+        setBusy(false);
+      },
+      Math.max(0, minDuration - elapsed),
+    );
+    return () => clearTimeout(timer);
+  }, [active, busy, delay, minDuration]);
+
+  return busy;
+}
