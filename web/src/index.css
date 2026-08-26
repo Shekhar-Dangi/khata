@@ -30,15 +30,22 @@ body {
   -webkit-font-smoothing: antialiased;
 
   /* Sticky footer. Without this the footer sits wherever the content happens to end,
-     so a short view leaves it stranded halfway up a tall window. Making the body a
-     full-height column and letting <main> absorb the slack pins it to the bottom on
-     short pages, and lets it be pushed down normally on long ones. */
+     so a short view leaves it stranded halfway up a tall window.
+     The chain has to be UNBROKEN: React mounts into #root, so body's only child is
+     #root — making body a flex column alone does nothing for <main>, which is a child
+     of #root, not of body. Every element between the viewport and <main> has to pass
+     the height down. */
   min-height: 100vh;
   display: flex;
   flex-direction: column;
 }
+#root {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+}
 main {
-  flex: 1 0 auto; /* grow into the leftover height, never shrink below its content */
+  flex: 1 0 auto; /* absorb the leftover height, never shrink below its content */
 }
 footer {
   flex-shrink: 0;

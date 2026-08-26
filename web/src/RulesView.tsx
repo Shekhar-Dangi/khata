@@ -118,7 +118,9 @@ export default function RulesView() {
       const res = await fetch("/rules/apply", { method: "POST" });
       if (!res.ok) throw new Error(`request failed: ${res.status}`);
       setResult((await res.json()) as ApplyResult);
-      rules.refetch();
+      // NOT refetching the rules here on purpose. Applying rules writes allocations;
+      // it does not change a single rule row, so re-reading /rules would be a request
+      // whose response is guaranteed identical to what is already on screen.
     } catch (e) {
       setError(e instanceof Error ? e.message : "Apply failed");
     } finally {
