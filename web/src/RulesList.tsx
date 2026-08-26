@@ -1,7 +1,7 @@
 import { Fragment, useState } from "react";
 
 import { rupees } from "./format";
-import RuleTransactions from "./RuleTransactions";
+import TransactionPeek from "./TransactionPeek";
 import { describeRule, type RuleImpact } from "./rules";
 
 // The rules table, with what each rule actually did. Click a row to see the transactions
@@ -86,7 +86,10 @@ export default function RulesList({
               {expanded && (
                 <tr className="txn-detail">
                   <td colSpan={7}>
-                    <RuleTransactions ruleId={r.id} />
+                    <TransactionPeek
+                      query={`rule_id=${r.id}`}
+                      emptyMessage="This rule has not matched anything. A typo, or a merchant you stopped using."
+                    />
                   </td>
                 </tr>
               )}

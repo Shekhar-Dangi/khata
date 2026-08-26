@@ -2,15 +2,24 @@ import { useFetch } from "./useFetch";
 import { rupees } from "./format";
 import type { TouchedTxn } from "./rules";
 
-// The transactions one rule explained. Its own component so it fetches ONLY when a row
-// is actually expanded — 22 rules would otherwise mean 22 requests on page load for
-// data almost none of which is being looked at.
+// The transactions behind an aggregate — whatever the aggregate was.
 //
-// The endpoint is just the ledger with one more filter. That is the payoff for the
-// shared filter vocabulary: "everything this rule touched" needed no new query.
-export default function RuleTransactions({ ruleId }: { ruleId: number }) {
+// It takes a QUERY STRING rather than a rule id, because "everything this rule touched"
+// and "everything in this category, in this period, on this account" are the same
+// request with different filters. One component serves both, and will serve the next
+// drill-down without changing. That is the return on the shared filter vocabulary.
+//
+// Its own component so it fetches ONLY when a row is actually expanded — 22 rules would
+// otherwise mean 22 requests on load for data almost none of which is being looked at.
+export default function TransactionPeek({
+  query,
+  emptyMessage = "Nothing here.",
+}: {
+  query: string;
+  emptyMessage?: string;
+}) {
   const txns = useFetch<{ transactions: TouchedTxn[]; total: number }>(
-    `/transactions?rule_id=${ruleId}&limit=200`,
+    `/transactions?${query}&limit=200`,
   );
 
   if (txns.loading) return <p className="soft touched-empty">Loading…</p>;
@@ -19,11 +28,7 @@ export default function RuleTransactions({ ruleId }: { ruleId: number }) {
   const rows = txns.data?.transactions ?? [];
   const total = txns.data?.total ?? 0;
   if (rows.length === 0) {
-    return (
-      <p className="soft touched-empty">
-        This rule has not matched anything. A typo, or a merchant you stopped using.
-      </p>
-    );
+    return <p className="soft touched-empty">{emptyMessage}</p>;
   }
 
   return (
