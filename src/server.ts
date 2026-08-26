@@ -521,9 +521,23 @@ async function reconcileAccount(accountId: number) {
     [accountId],
   );
 
+  // An account whose data starts mid-history has no opening_balance row: we hold a slice
+  // of a statement, and money existed in the account before our first transaction. The
+  // bank's FIRST stated balance is then the anchor, not evidence of a fault.
+  const hasOpeningRow = result.rows.some((t) => t.type === "opening_balance");
+
   const response = {
     account_id: accountId,
     reconciled: true,
+    // `reconciled: true` after zero comparisons is vacuous — the same way [].every() is
+    // true. Unverifiable and verified are different claims, so say which one this is.
+    verifiable: false,
+    // Where the walk started from: an explicit opening_balance row, the bank's first
+    // stated balance, or nowhere (no anchor and no checkpoints).
+    opening_anchor: hasOpeningRow ? "opening_balance_row" : "none",
+    // Money that existed before our earliest row, derived from the bank's first stated
+    // balance. Null when an explicit opening row already accounts for it.
+    implied_opening_paise: null as number | null,
     checkpoints_checked: 0,
     transactions_considered: result.rowCount,
     ledger_balance_paise: Number(ledgerSum.rows[0].total),
@@ -532,9 +546,20 @@ async function reconcileAccount(accountId: number) {
     discrepancies: [] as Discrepancy[],
   };
 
+  // Two running totals on purpose:
+  //   `computed` is RESET to the bank's figure at every mismatch, so each reported
+  //             discrepancy is a new fault rather than the first one echoing forever.
+  //   `running`  is never reset, so it stays an honest cumulative sum. Its value at the
+  //             LAST checkpoint is the only thing comparable to bank_last_stated_paise.
   let computed = 0;
+  let running = 0;
+  let runningAtLastCheckpoint = 0;
+  let anchored = hasOpeningRow;
+
   for (const t of result.rows) {
-    computed += Number(t.amount_paise);
+    const amount = Number(t.amount_paise);
+    computed += amount;
+    running += amount;
 
     // Only rows carrying the bank's balance are checkpoints we can verify.
     // Guard on the RAW value: Number(null) is 0, which would treat a real 0 as "no checkpoint".
@@ -542,6 +567,20 @@ async function reconcileAccount(accountId: number) {
       const stated = Number(t.bank_balance_paise);
       response.checkpoints_checked += 1;
       response.bank_last_stated_paise = stated; // the bank's most recent stated balance
+
+      if (!anchored) {
+        // First checkpoint on a mid-history account. The gap here is the balance the
+        // account already held, which is a FACT the bank just told us — not a
+        // discrepancy. Adopt it as the starting point and verify everything after it.
+        const implied = stated - computed;
+        response.opening_anchor = "first_stated_balance";
+        response.implied_opening_paise = implied;
+        computed = stated;
+        running += implied; // put the honest sum on the same footing as the bank's
+        anchored = true;
+        runningAtLastCheckpoint = running;
+        continue;
+      }
 
       if (computed !== stated) {
         response.reconciled = false;
@@ -555,12 +594,19 @@ async function reconcileAccount(accountId: number) {
         });
         computed = stated; // reset to the bank's truth, then keep walking
       }
+      runningAtLastCheckpoint = running;
     }
   }
 
+  response.verifiable = response.checkpoints_checked > 0;
+
   if (response.bank_last_stated_paise != null) {
+    // Compare like with like. The old version subtracted a WHOLE-ACCOUNT sum from a
+    // balance that only covers rows up to the last checkpoint, so any transaction after
+    // that checkpoint was counted on one side of the subtraction and not the other —
+    // and a perfectly healthy account reported a non-zero difference.
     response.total_difference_paise =
-      response.bank_last_stated_paise - response.ledger_balance_paise;
+      response.bank_last_stated_paise - runningAtLastCheckpoint;
   }
 
   return response;
@@ -586,7 +632,12 @@ app.get("/anomalies", async (_req, res) => {
     const accounts = [];
     for (const row of accts.rows) {
       const r = await reconcileAccount(Number(row.id));
-      if (!r.reconciled) accounts.push({ account_name: row.name, ...r });
+      // `verifiable` matters here: an account with no stated balances performed zero
+      // comparisons, so "not reconciled" was never established. Flagging it as an
+      // anomaly would report a fault we have no evidence for.
+      if (r.verifiable && !r.reconciled) {
+        accounts.push({ account_name: row.name, ...r });
+      }
     }
     res.json({ accounts });
   } catch (error) {
@@ -923,8 +974,57 @@ app.post("/rules", async (req, res) => {
     );
     return res.status(201).json({ id: Number(result.rows[0].id) });
   } catch (error) {
+    // 23505 = unique_violation. rules.name is UNIQUE, so a retried POST after a dropped
+    // response lands here instead of silently creating a second identical rule.
+    if ((error as { code?: string }).code === "23505") {
+      return res.status(409).json({ error: "a rule with that name already exists" });
+    }
     console.error("rule insert failed:", error);
     return res.status(500).json({ error: "internal error" });
+  }
+});
+
+// DELETE /rules/:id — remove a rule and the allocations it produced.
+//
+// allocations.rule_id is a FK, so those rows have to go first or the delete fails. That
+// is the correct semantic anyway: a rule allocation is a machine guess whose entire
+// justification was the rule. Remove the justification and the guess should go with it.
+//
+// This CANNOT touch human work. The schema's CHECK allows rule_id to be non-null only
+// when source = 'rule', so a user or evidence allocation is unreachable from here.
+app.delete("/rules/:id", async (req, res) => {
+  const ruleId = Number(req.params.id);
+  if (!Number.isInteger(ruleId)) {
+    return res.status(400).json({ error: "rule id must be an integer" });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const found = await client.query(
+      "SELECT 1 FROM rules WHERE id = $1 FOR UPDATE",
+      [ruleId],
+    );
+    if (found.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "no rule found" });
+    }
+    const swept = await client.query(
+      "DELETE FROM allocations WHERE rule_id = $1",
+      [ruleId],
+    );
+    await client.query("DELETE FROM rules WHERE id = $1", [ruleId]);
+    await client.query("COMMIT");
+    return res.json({
+      deleted: ruleId,
+      allocations_removed: swept.rowCount ?? 0,
+    });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("rule delete failed:", error);
+    return res.status(500).json({ error: "internal error" });
+  } finally {
+    client.release();
   }
 });
 

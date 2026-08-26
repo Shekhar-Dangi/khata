@@ -49,7 +49,18 @@ export default function RulesView() {
         />
       )}
 
-      <RulesList rules={rules.data?.rules ?? []} />
+      <RulesList
+        rules={rules.data?.rules ?? []}
+        onDelete={async (rule) => {
+          // Deleting a rule also removes the allocations it produced, which is real
+          // (if provisional) work disappearing off the ledger — worth one confirm.
+          if (!confirm(`Delete “${rule.name}”? Its provisional explanations go too.`)) {
+            return;
+          }
+          await fetch(`/rules/${rule.id}`, { method: "DELETE" });
+          rules.refetch();
+        }}
+      />
     </>
   );
 }

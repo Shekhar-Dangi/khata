@@ -92,7 +92,12 @@ CREATE TABLE rules (
   category_id BIGINT REFERENCES categories(id),   -- the action: category to assign
   priority    INT NOT NULL DEFAULT 0,             -- higher wins when rules conflict
   enabled     BOOLEAN NOT NULL DEFAULT true,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- A retried POST after a dropped response would otherwise create a second identical
+  -- rule (it happened once in testing). Duplicates are not merely untidy here: two rules
+  -- that match the same transaction both compete for it, and the engine's whole claim is
+  -- that its output is a function of its inputs.
+  UNIQUE (name)
 );
 
 -- evidence: normalized external records (Blinkit/Amazon/Splitwise/Uber orders & receipts)

@@ -7,7 +7,13 @@ import { describeRule, type Rule } from "./rules";
 //
 // It also means this component can only re-render when its parent does, and it has no
 // way to trigger a render on its own.
-export default function RulesList({ rules }: { rules: Rule[] }) {
+export default function RulesList({
+  rules,
+  onDelete,
+}: {
+  rules: Rule[];
+  onDelete: (rule: Rule) => void;
+}) {
   if (rules.length === 0) {
     return <p className="soft">No rules yet. The first one takes about ten seconds.</p>;
   }
@@ -19,6 +25,7 @@ export default function RulesList({ rules }: { rules: Rule[] }) {
         <col />
         <col style={{ width: "170px" }} />
         <col style={{ width: "80px" }} />
+        <col style={{ width: "40px" }} />
       </colgroup>
       <thead>
         <tr>
@@ -26,6 +33,7 @@ export default function RulesList({ rules }: { rules: Rule[] }) {
           <th>When</th>
           <th>Then</th>
           <th className="r">Priority</th>
+          <th></th>
         </tr>
       </thead>
       <tbody>
@@ -38,6 +46,15 @@ export default function RulesList({ rules }: { rules: Rule[] }) {
             <td className="soft">{describeRule(r)}</td>
             <td>{r.category_name ?? <span className="soft">—</span>}</td>
             <td className="r mono soft">{r.priority}</td>
+            <td className="r">
+              <button
+                className="row-x"
+                title={`delete "${r.name}"`}
+                onClick={() => onDelete(r)}
+              >
+                ✕
+              </button>
+            </td>
           </tr>
         ))}
       </tbody>
