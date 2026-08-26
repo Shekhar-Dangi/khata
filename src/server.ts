@@ -14,6 +14,7 @@ import {
   sameAllocation,
 } from "./rules.ts";
 import type { ApplicableRule } from "./rules.ts";
+import { isSpendOnly, parseFilters, parsePaging } from "./filters.ts";
 
 const PORT = Number(process.env.PORT) || 3000;
 
@@ -647,8 +648,27 @@ app.get("/anomalies", async (_req, res) => {
 });
 
 // GET /transactions — consolidated ledger: every account's transactions in one view.
-app.get("/transactions", async (_req, res) => {
+app.get("/transactions", async (req, res) => {
+  // Filtering happens HERE, not in the browser. At 10,000 rows the unfiltered payload is
+  // several megabytes, and the client would download and parse all of it before it could
+  // hide a single row. Postgres has indexes for this; Array.filter does not.
+  const filters = parseFilters(req.query, 1);
+  if (!filters.ok) return res.status(400).json({ error: filters.error });
+  const paging = parsePaging(req.query);
+  if (!paging.ok) return res.status(400).json({ error: paging.error });
+
+  const spendClause = isSpendOnly(req.query) ? `AND ${EXPLAINABLE_SPEND}` : "";
+
   try {
+    // Total BEFORE paging, so the UI can say "showing 100 of 1,432" and size its pager.
+    // Same predicate, no grouping — the count is of transactions, not allocation rows.
+    const countResult = await pool.query(
+      `SELECT COUNT(*) AS total
+         FROM transactions t
+        WHERE 1=1 ${spendClause} ${filters.sql}`,
+      filters.params,
+    );
+
     const result = await pool.query(
       // Lighter than the drill-in: just the explained total per txn (no nested allocations).
       // LEFT JOIN allocations + GROUP BY t.id, a.id (both PKs → other columns are free).
@@ -665,8 +685,11 @@ app.get("/transactions", async (_req, res) => {
          FROM transactions t
          JOIN accounts a ON a.id = t.account_id
          LEFT JOIN allocations al ON al.transaction_id = t.id
+        WHERE 1=1 ${spendClause} ${filters.sql}
         GROUP BY t.id, a.id
-        ORDER BY t.txn_date, t.account_id, t.statement_id, t.statement_seq`,
+        ORDER BY t.txn_date, t.account_id, t.statement_id, t.statement_seq
+        LIMIT $${filters.params.length + 1} OFFSET $${filters.params.length + 2}`,
+      [...filters.params, paging.limit, paging.offset],
     );
     const transactions = result.rows.map((r) => {
       const amount = Number(r.amount_paise);
@@ -690,7 +713,12 @@ app.get("/transactions", async (_req, res) => {
         unexplained_paise: amount - explained, // derived
       };
     });
-    res.json({ transactions });
+    res.json({
+      transactions,
+      total: Number(countResult.rows[0].total),
+      limit: paging.limit,
+      offset: paging.offset,
+    });
   } catch (error) {
     console.error("consolidated transactions failed:", error);
     res.status(500).json({ error: "internal error" });
