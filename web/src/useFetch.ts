@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 // A custom hook: our useEffect fetch pattern extracted so every view reuses it.
-// Returns { data, loading, refreshing, error, refetch }.
+// Returns { data, loading, refreshing, isStale, error, refetch }.
 //
 // `loading` means "there is nothing to show yet" — NOT "a request is in flight".
 // That distinction is the whole point. Views are written as:
@@ -13,8 +13,28 @@ import { useEffect, useRef, useState } from "react";
 // reads as a flash, and replays the .view reveal animation on the way in. Use
 // `refreshing` when you want to show that a request is in flight without hiding
 // what is already on screen.
-export function useFetch<T>(url: string) {
-  const [data, setData] = useState<T | null>(null);
+//
+// `keepPreviousData` extends that to URL CHANGES. By default a changed url clears the
+// data, because the url naming a different resource means what we hold is wrong. But a
+// url built from FILTERS names the same view with different parameters, and blanking
+// the page on every filter tweak is exactly the flash we removed. Opt in there, and use
+// `isStale` to dim what is on screen while the new result is in flight. React Query
+// ships this under the same name for the same reason.
+export function useFetch<T>(
+  url: string,
+  options: { keepPreviousData?: boolean } = {},
+) {
+  // Destructured to a PRIMITIVE before it reaches the dependency array. Putting the
+  // options object itself in the deps would re-run the effect on every render, because
+  // a caller writing `{ keepPreviousData: true }` inline creates a new object each time.
+  const keepPreviousData = options.keepPreviousData ?? false;
+
+  // data and the url it came from move together, so they live in one state object —
+  // two separate useStates could be read in a torn state mid-update.
+  const [result, setResult] = useState<{ data: T | null; url: string | null }>({
+    data: null,
+    url: null,
+  });
   const [error, setError] = useState<string | null>(null);
   const [inFlight, setInFlight] = useState(true);
   const [tick, setTick] = useState(0); // bump to force a re-fetch of the same url
@@ -23,12 +43,11 @@ export function useFetch<T>(url: string) {
   useEffect(() => {
     let cancelled = false;
 
-    // A CHANGED url means the data we are holding describes a different resource, so
-    // it must go and the view should show its loading state. A refetch of the SAME
-    // url keeps the old data on screen while the new response is in flight.
     if (lastUrl.current !== url) {
       lastUrl.current = url;
-      setData(null);
+      if (!keepPreviousData) {
+        setResult({ data: null, url: null });
+      }
     }
     setInFlight(true);
     setError(null);
@@ -38,7 +57,9 @@ export function useFetch<T>(url: string) {
         const res = await fetch(url);
         if (!res.ok) throw new Error(`request failed: ${res.status}`);
         const json = (await res.json()) as T;
-        if (!cancelled) setData(json);
+        // Stamp the url the data came from, so `isStale` can tell whether what is on
+        // screen matches what is currently being asked for.
+        if (!cancelled) setResult({ data: json, url });
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Unknown error");
       } finally {
@@ -49,15 +70,34 @@ export function useFetch<T>(url: string) {
     return () => {
       cancelled = true; // stale response from a previous url is discarded
     };
-  }, [url, tick]);
+  }, [url, tick, keepPreviousData]);
 
   const refetch = () => setTick((t) => t + 1);
 
   return {
-    data,
-    loading: inFlight && data === null, // nothing to show yet
-    refreshing: inFlight, // a request is in flight, stale data may still be on screen
+    data: result.data,
+    loading: inFlight && result.data === null, // nothing to show yet
+    refreshing: inFlight, // a request is in flight; stale data may still be on screen
+    // What is rendered belongs to a different url than the one being requested. Only
+    // possible with keepPreviousData; the cue for dimming rather than blanking.
+    isStale: result.url !== null && result.url !== url,
     error,
     refetch,
   };
+}
+
+// Delay a fast-changing value so it can be used to build a fetch url.
+//
+// Without this, a filter bound to a text input fires one request per keystroke: typing
+// "blinkit" is seven requests, six of which are already obsolete when they land. The
+// cleanup cancels the pending timer on every change, so only a pause actually commits.
+export function useDebounced<T>(value: T, ms = 300): T {
+  const [settled, setSettled] = useState(value);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(value), ms);
+    return () => clearTimeout(timer); // a new keystroke replaces the pending timer
+  }, [value, ms]);
+
+  return settled;
 }

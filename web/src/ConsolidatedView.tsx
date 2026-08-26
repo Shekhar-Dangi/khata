@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
-import { useFetch } from "./useFetch";
+import { useDebounced, useFetch } from "./useFetch";
 import { rupees } from "./format";
 
 type Txn = {
@@ -11,6 +11,9 @@ type Txn = {
   type: string;
   narration: string | null;
 };
+type Account = { id: number; name: string };
+
+const PAGE = 100;
 
 // amount colour: transfers are movement (muted), else green in / rust out.
 function amountClass(t: Txn) {
@@ -18,73 +21,141 @@ function amountClass(t: Txn) {
   return "mono r " + (t.amount_paise < 0 ? "debit" : "credit");
 }
 
-// The consolidated ledger: every account's transactions in one view, with live filter.
+// The consolidated ledger: every account's transactions, filtered and paged BY THE
+// SERVER.
+//
+// This used to fetch the whole ledger and filter it with a useMemo. That works at 277
+// rows and stops working somewhere before 10,000, where the unfiltered payload is
+// megabytes the browser must download and parse before it can hide a single row.
+// Postgres has indexes for this; Array.filter does not.
 export default function ConsolidatedView() {
-  const { data, loading, error } = useFetch<{ transactions: Txn[] }>(
-    "/transactions",
-  );
   const [query, setQuery] = useState("");
+  const [accountId, setAccountId] = useState("");
+  const [offset, setOffset] = useState(0);
 
-  const filtered = useMemo(() => {
-    const txns = data?.transactions ?? [];
-    const q = query.trim().toLowerCase();
-    if (!q) return txns;
-    return txns.filter(
-      (t) =>
-        t.narration?.toLowerCase().includes(q) ||
-        t.account_name.toLowerCase().includes(q),
-    );
-  }, [data, query]);
+  // The input updates on every keystroke so typing stays instant; the URL only follows
+  // once you pause. Otherwise "blinkit" would be seven requests.
+  const debouncedQuery = useDebounced(query);
+
+  const params = new URLSearchParams({
+    limit: String(PAGE),
+    offset: String(offset),
+  });
+  if (debouncedQuery.trim() !== "") params.set("q", debouncedQuery.trim());
+  if (accountId !== "") params.set("account_id", accountId);
+
+  // keepPreviousData: the url here is built from filters, so a change means "same view,
+  // different parameters" — not a different resource. Holding the old rows and dimming
+  // them beats blanking the table on every keystroke.
+  const { data, loading, error, isStale, refreshing } = useFetch<{
+    transactions: Txn[];
+    total: number;
+  }>(`/transactions?${params}`, { keepPreviousData: true });
+
+  const accounts = useFetch<{ accounts: Account[] }>("/accounts");
+
+  // Changing a filter invalidates the current page: page 3 of "blinkit" is not page 3 of
+  // everything, and staying there would show a confusing empty result.
+  useEffect(() => {
+    setOffset(0);
+  }, [debouncedQuery, accountId]);
 
   if (loading) return <p className="soft">Loading…</p>;
   if (error) return <p className="soft">{error}</p>;
-  if (!data) return null;
+
+  const rows = data?.transactions ?? [];
+  const total = data?.total ?? 0;
+  const showingFrom = total === 0 ? 0 : offset + 1;
+  const showingTo = Math.min(offset + rows.length, total);
 
   return (
     <>
-      <input
-        className="search"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Filter by narration or account…"
-      />
-      <table>
-        <colgroup>
-          <col style={{ width: "110px" }} />
-          <col style={{ width: "130px" }} />
-          <col />
-          <col style={{ width: "140px" }} />
-          <col style={{ width: "70px" }} />
-        </colgroup>
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Account</th>
-            <th>Narration</th>
-            <th className="r">Amount</th>
-            <th>Type</th>
-          </tr>
-        </thead>
-        <tbody>
-          {filtered.length === 0 ? (
+      <div className="ledger-filters">
+        <input
+          className="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search narration…"
+        />
+        <select
+          className="cat-select"
+          value={accountId}
+          onChange={(e) => setAccountId(e.target.value)}
+        >
+          <option value="">All accounts</option>
+          {(accounts.data?.accounts ?? []).map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+            </option>
+          ))}
+        </select>
+        <span className="ledger-count mono soft">
+          {total === 0
+            ? "no matches"
+            : `${showingFrom}–${showingTo} of ${total.toLocaleString("en-IN")}`}
+          {refreshing && " · updating"}
+        </span>
+      </div>
+
+      {/* Dimmed, not replaced: these rows are real, just one filter behind. */}
+      <div className={isStale ? "is-stale" : undefined}>
+        <table>
+          <colgroup>
+            <col style={{ width: "110px" }} />
+            <col style={{ width: "130px" }} />
+            <col />
+            <col style={{ width: "140px" }} />
+            <col style={{ width: "70px" }} />
+          </colgroup>
+          <thead>
             <tr>
-              <td colSpan={5} className="soft">
-                No matching transactions.
-              </td>
+              <th>Date</th>
+              <th>Account</th>
+              <th>Narration</th>
+              <th className="r">Amount</th>
+              <th>Type</th>
             </tr>
-          ) : (
-            filtered.map((t) => (
-              <tr key={t.id}>
-                <td className="mono soft">{t.txn_date}</td>
-                <td className="soft">{t.account_name}</td>
-                <td className="narration">{t.narration}</td>
-                <td className={amountClass(t)}>{rupees(t.amount_paise)}</td>
-                <td className="soft">{t.type}</td>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="soft">
+                  No matching transactions.
+                </td>
               </tr>
-            ))
-          )}
-        </tbody>
-      </table>
+            ) : (
+              rows.map((t) => (
+                <tr key={t.id}>
+                  <td className="mono soft">{t.txn_date}</td>
+                  <td className="soft">{t.account_name}</td>
+                  <td className="narration">{t.narration}</td>
+                  <td className={amountClass(t)}>{rupees(t.amount_paise)}</td>
+                  <td className="soft">{t.type}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {total > PAGE && (
+        <div className="pager">
+          <button
+            className="btn-ghost"
+            disabled={offset === 0}
+            onClick={() => setOffset((o) => Math.max(0, o - PAGE))}
+          >
+            ‹ Newer
+          </button>
+          <button
+            className="btn-ghost"
+            disabled={offset + PAGE >= total}
+            onClick={() => setOffset((o) => o + PAGE)}
+          >
+            Older ›
+          </button>
+        </div>
+      )}
     </>
   );
 }
