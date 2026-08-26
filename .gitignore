@@ -1,7 +1,10 @@
 node_modules/
 .env
 CLAUDE.local.md
-data/private/
+# Real bank data never leaves this machine. `data/` WHOLESALE, not just data/private/:
+# the old rule meant a statement dropped one directory up would have been committed,
+# and for this repo that mistake is not recoverable once pushed.
+data/
 .DS_Store
 ingest/.venv/
 __pycache__/
