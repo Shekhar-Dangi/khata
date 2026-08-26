@@ -9,15 +9,18 @@ import type { ApplyResult } from "./rules";
 // and everything below — so holding the result upstairs meant clicking Apply re-rendered
 // the rules table too. Owning it here scopes the update to this bar.
 //
-// Note what it does NOT do: refetch /rules. Applying rules writes allocations; it does
-// not change a single rule row, so re-reading them would be a request whose response is
-// guaranteed identical to what is already on screen.
+// It DOES report upward when a run finishes. Applying rules writes allocations, and the
+// list now shows allocation-derived numbers (transactions touched, money, last fired),
+// so those go stale the moment a run changes anything. This was correct to omit when the
+// list showed only rule rows; adding impact columns changed what the data depends on.
 export default function RulesToolbar({
   showForm,
   onToggleForm,
+  onApplied,
 }: {
   showForm: boolean;
   onToggleForm: () => void;
+  onApplied: () => void;
 }) {
   const [applying, setApplying] = useState(false);
   const [result, setResult] = useState<ApplyResult | null>(null);
@@ -30,6 +33,7 @@ export default function RulesToolbar({
       const res = await fetch("/rules/apply", { method: "POST" });
       if (!res.ok) throw new Error(`request failed: ${res.status}`);
       setResult((await res.json()) as ApplyResult);
+      onApplied();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Apply failed");
     } finally {

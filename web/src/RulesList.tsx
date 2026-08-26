@@ -1,19 +1,25 @@
-import { describeRule, type Rule } from "./rules";
+import { Fragment, useState } from "react";
 
-// The rules table. PRESENTATIONAL: it owns no state and fetches nothing — it takes rules
-// and renders them. That is what makes it safe to grow into the comprehensive component
-// this will become (sorting, filtering, enable/disable toggles, inline edit, delete)
-// without any of that leaking back into the parent.
+import { rupees } from "./format";
+import RuleTransactions from "./RuleTransactions";
+import { describeRule, type RuleImpact } from "./rules";
+
+// The rules table, with what each rule actually did. Click a row to see the transactions
+// it explained.
 //
-// It also means this component can only re-render when its parent does, and it has no
-// way to trigger a render on its own.
+// It owns `expandedId` and nothing else. That is not a contradiction of "presentational":
+// which row is open is this table's OWN interaction state — no other component needs it,
+// and no data depends on it. State belongs where it is used, and here that is here.
+// Rule DATA still arrives as a prop, and refreshing it is still the parent's job.
 export default function RulesList({
   rules,
   onDelete,
 }: {
-  rules: Rule[];
-  onDelete: (rule: Rule) => void;
+  rules: RuleImpact[];
+  onDelete: (rule: RuleImpact) => void;
 }) {
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+
   if (rules.length === 0) {
     return <p className="soft">No rules yet. The first one takes about ten seconds.</p>;
   }
@@ -21,42 +27,72 @@ export default function RulesList({
   return (
     <table>
       <colgroup>
-        <col style={{ width: "210px" }} />
+        <col style={{ width: "190px" }} />
         <col />
-        <col style={{ width: "170px" }} />
-        <col style={{ width: "80px" }} />
-        <col style={{ width: "40px" }} />
+        <col style={{ width: "128px" }} />
+        <col style={{ width: "62px" }} />
+        <col style={{ width: "104px" }} />
+        <col style={{ width: "94px" }} />
+        <col style={{ width: "36px" }} />
       </colgroup>
       <thead>
         <tr>
           <th>Rule</th>
           <th>When</th>
           <th>Then</th>
-          <th className="r">Priority</th>
+          <th className="r">Txns</th>
+          <th className="r">Money</th>
+          <th className="r">Last fired</th>
           <th></th>
         </tr>
       </thead>
       <tbody>
-        {rules.map((r) => (
-          <tr key={r.id} className={r.enabled ? undefined : "rule-off"}>
-            <td>
-              {r.name}
-              {!r.enabled && <span className="tag-off">off</span>}
-            </td>
-            <td className="soft">{describeRule(r)}</td>
-            <td>{r.category_name ?? <span className="soft">—</span>}</td>
-            <td className="r mono soft">{r.priority}</td>
-            <td className="r">
-              <button
-                className="row-x"
-                title={`delete "${r.name}"`}
-                onClick={() => onDelete(r)}
+        {rules.map((r) => {
+          const expanded = expandedId === r.id;
+          // Zero is the most actionable number in this table, so it gets said in words
+          // rather than shown as a 0 the eye slides past.
+          const dead = r.transactions === 0;
+          return (
+            <Fragment key={r.id}>
+              <tr
+                className={"txn-row" + (r.enabled ? "" : " rule-off")}
+                aria-expanded={expanded}
+                onClick={() => setExpandedId(expanded ? null : r.id)}
               >
-                ✕
-              </button>
-            </td>
-          </tr>
-        ))}
+                <td>
+                  {r.name}
+                  {!r.enabled && <span className="tag-off">off</span>}
+                </td>
+                <td className="soft">{describeRule(r)}</td>
+                <td>{r.category_name ?? <span className="soft">—</span>}</td>
+                <td className="r mono soft">{dead ? "—" : r.transactions}</td>
+                <td className={"r mono" + (dead ? " soft" : "")}>
+                  {dead ? "never fired" : rupees(r.money_paise)}
+                </td>
+                <td className="r mono soft">{r.last_seen ?? "—"}</td>
+                <td className="r">
+                  <button
+                    className="row-x"
+                    title={`delete "${r.name}"`}
+                    onClick={(e) => {
+                      e.stopPropagation(); // do not toggle the row open on delete
+                      onDelete(r);
+                    }}
+                  >
+                    ✕
+                  </button>
+                </td>
+              </tr>
+              {expanded && (
+                <tr className="txn-detail">
+                  <td colSpan={7}>
+                    <RuleTransactions ruleId={r.id} />
+                  </td>
+                </tr>
+              )}
+            </Fragment>
+          );
+        })}
       </tbody>
     </table>
   );

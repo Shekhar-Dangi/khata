@@ -933,6 +933,70 @@ app.post("/accounts/:id/detect-transfers", async (req, res) => {
   }
 });
 
+// GET /reports/by-rule — every rule with what it actually did.
+//
+// Answers the questions a bare rule list cannot: is this rule dead, is it too broad,
+// and how much money is riding on its guess. Accepts the shared filter vocabulary, so
+// "what did my rules do in June" is the same endpoint with from/to.
+//
+// LEFT JOIN from `rules` on purpose: a rule that matched NOTHING must still appear,
+// because zero is the most actionable number here — a typo, or a merchant you stopped
+// using. The filters live inside the subquery rather than in a WHERE, since a WHERE on
+// the joined table would silently turn the LEFT JOIN back into an inner one and hide
+// exactly the rules we most want to see.
+app.get("/reports/by-rule", async (req, res) => {
+  const filters = parseFilters(req.query, 1);
+  if (!filters.ok) return res.status(400).json({ error: filters.error });
+  const spendClause = isSpendOnly(req.query) ? `AND ${EXPLAINABLE_SPEND}` : "";
+
+  try {
+    const result = await pool.query(
+      `SELECT r.id, r.name, r.conditions, r.match_mode, r.category_id,
+              c.name AS category_name, r.priority, r.enabled,
+              COUNT(x.allocation_id)                       AS allocations,
+              COUNT(DISTINCT x.transaction_id)             AS transactions,
+              COALESCE(SUM(ABS(x.amount_paise)), 0)        AS money_paise,
+              COALESCE(SUM(x.amount_paise), 0)             AS net_paise,
+              MIN(x.txn_date)                              AS first_seen,
+              MAX(x.txn_date)                              AS last_seen
+         FROM rules r
+         LEFT JOIN categories c ON c.id = r.category_id
+         LEFT JOIN (
+           SELECT al.id AS allocation_id, al.rule_id, al.amount_paise,
+                  al.transaction_id, t.txn_date
+             FROM allocations al
+             JOIN transactions t ON t.id = al.transaction_id
+            WHERE al.source = 'rule' ${spendClause} ${filters.sql}
+         ) x ON x.rule_id = r.id
+        GROUP BY r.id, c.name
+        ORDER BY COALESCE(SUM(ABS(x.amount_paise)), 0) DESC, r.id ASC`,
+      filters.params,
+    );
+
+    const rules = result.rows.map((r) => ({
+      id: Number(r.id),
+      name: r.name,
+      conditions: r.conditions,
+      match_mode: r.match_mode,
+      category_id: r.category_id === null ? null : Number(r.category_id),
+      category_name: r.category_name,
+      priority: Number(r.priority),
+      enabled: r.enabled,
+      // COUNT returns BIGINT, so these arrive as strings like every other BIGINT.
+      allocations: Number(r.allocations),
+      transactions: Number(r.transactions),
+      money_paise: Number(r.money_paise), // magnitude — "how much did this touch"
+      net_paise: Number(r.net_paise), // signed — separates an income rule from a spend one
+      first_seen: r.first_seen,
+      last_seen: r.last_seen,
+    }));
+    res.json({ rules });
+  } catch (error) {
+    console.error("by-rule report failed:", error);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
 // GET /rules/vocabulary — the fields, ops and legal combinations a rule may use.
 // The rule builder in the UI renders itself from this rather than hardcoding a copy:
 // add an op to rules.ts and the form offers it, with no second place to update.

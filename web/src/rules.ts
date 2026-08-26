@@ -17,6 +17,27 @@ export type Rule = {
 
 export type Category = { id: number; name: string; parent_id: number | null };
 
+// A rule plus what it actually did — from GET /reports/by-rule. `money_paise` is the
+// MAGNITUDE it touched; `net_paise` is signed, which is what separates an income rule
+// from a spend one when both are in the same list.
+export type RuleImpact = Rule & {
+  allocations: number;
+  transactions: number;
+  money_paise: number;
+  net_paise: number;
+  first_seen: string | null;
+  last_seen: string | null;
+};
+
+// One transaction as the rule drill-down shows it.
+export type TouchedTxn = {
+  id: string;
+  txn_date: string;
+  account_name: string;
+  narration: string | null;
+  amount_paise: number;
+};
+
 // Mirrors GET /rules/vocabulary. The form renders itself from this rather than a
 // hardcoded copy, so adding an op to the backend's rules.ts offers it here with no
 // second place to edit.

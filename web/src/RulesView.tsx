@@ -4,19 +4,23 @@ import { useFetch } from "./useFetch";
 import RulesToolbar from "./RulesToolbar";
 import RuleForm from "./RuleForm";
 import RulesList from "./RulesList";
-import type { Rule } from "./rules";
+import type { RuleImpact } from "./rules";
 
 // Composition and one piece of shared data. Everything else has been pushed DOWN into
 // the component that uses it:
 //
-//   RulesToolbar  owns applying + result   -> clicking Apply re-renders only the bar
-//   RuleForm      owns all the form state  -> typing re-renders only the form
-//   RulesList     owns nothing at all      -> renders when this component does
+//   RulesToolbar  owns applying + result    -> clicking Apply re-renders only the bar
+//   RuleForm      owns all the form state   -> typing re-renders only the form
+//   RulesList     owns only which row is open -> its own interaction state, nothing else
 //
-// The /rules fetch stays here because two children have a relationship to it: the list
-// consumes it, and the form invalidates it after creating a rule. Callback up, data down.
+// The /reports/by-rule fetch stays here because every child has a relationship to it: the
+// list consumes it, and both the form and the toolbar invalidate it — creating a rule
+// changes the list, and applying rules changes the impact numbers in it.
+// Callback up, data down.
 export default function RulesView() {
-  const rules = useFetch<{ rules: Rule[] }>("/rules");
+  // /reports/by-rule returns everything /rules did PLUS what each rule actually
+  // touched, so this is one request rather than two joined in the browser.
+  const rules = useFetch<{ rules: RuleImpact[] }>("/reports/by-rule");
   // Whether the form is open genuinely changes THIS layout, so it belongs here.
   const [showForm, setShowForm] = useState(false);
 
@@ -37,6 +41,7 @@ export default function RulesView() {
         <RulesToolbar
           showForm={showForm}
           onToggleForm={() => setShowForm((v) => !v)}
+          onApplied={rules.refetch}
         />
       </div>
 

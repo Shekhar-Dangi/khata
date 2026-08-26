@@ -577,3 +577,29 @@ footer .shell {
   justify-content: flex-end;
   margin-top: 14px;
 }
+
+/* ── rule drill-down ──────────────────────────────────── */
+.touched {
+  padding: 4px 0 8px;
+}
+.touched-table {
+  min-width: 0;
+}
+.touched-table td {
+  padding: 5px 12px 5px 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: 13px;
+}
+.touched-table tr:last-child td {
+  border-bottom: 0;
+}
+.touched-empty {
+  padding: 10px 0;
+  margin: 0;
+  font-size: 13px;
+}
+.touched-more {
+  margin: 8px 0 0;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+}
