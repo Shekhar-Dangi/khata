@@ -28,6 +28,20 @@ body {
   font-size: 14px;
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
+
+  /* Sticky footer. Without this the footer sits wherever the content happens to end,
+     so a short view leaves it stranded halfway up a tall window. Making the body a
+     full-height column and letting <main> absorb the slack pins it to the bottom on
+     short pages, and lets it be pushed down normally on long ones. */
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+main {
+  flex: 1 0 auto; /* grow into the leftover height, never shrink below its content */
+}
+footer {
+  flex-shrink: 0;
 }
 
 /* layout container — one max-width, centered, with side gutters */
@@ -137,7 +151,6 @@ nav button[aria-current="true"] {
 main .shell {
   padding-top: 8px;
   padding-bottom: 40px;
-  min-height: 420px;
 }
 table {
   width: 100%;
@@ -449,17 +462,9 @@ footer .shell {
   margin-right: 7px;
   vertical-align: 1px;
 }
-.tag-rule {
-  color: var(--flag);
-}
-.tag-off {
-  color: var(--ink-soft);
-  margin-left: 8px;
-  margin-right: 0;
-}
-.rule-off td {
-  opacity: 0.55;
-}
+.tag-rule { color: var(--flag); }
+.tag-off { color: var(--ink-soft); margin-left: 8px; margin-right: 0; }
+.rule-off td { opacity: 0.55; }
 
 .editor-hint {
   margin: 0 0 12px;
@@ -467,41 +472,57 @@ footer .shell {
   color: var(--ink-soft);
 }
 
+/* A normal block header. NOT .sect — that is a two-item flex ROW, so putting a
+   heading, a paragraph and a button bar inside it laid all three side by side. */
+.rules-head {
+  padding: 0 10px;
+  margin: 30px 0 18px;
+}
+.rules-head h2 {
+  font-family: Fraunces, serif;
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 6px;
+}
 .rules-intro {
   max-width: 62ch;
-  margin-top: -2px;
+  margin: 0 0 14px;
 }
 .rules-actions {
   display: flex;
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
-  margin-top: 14px;
 }
+/* Its own line, so the result text can never resize or reflow the buttons above it. */
 .apply-result {
   font-size: 11.5px;
   color: var(--ink-soft);
+  margin: 12px 0 0;
 }
+.apply-note { font-style: italic; }
 
 .rule-form {
   border: 1px solid var(--rule);
   background: var(--paper-sunk);
   padding: 16px 18px;
-  margin-bottom: 22px;
+  margin: 0 10px 22px;
 }
 .rule-form-row {
   display: flex;
   gap: 18px;
   flex-wrap: wrap;
-  margin-bottom: 12px;
+  align-items: flex-end;
+  margin-bottom: 16px;
 }
 .rule-form label {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
-.rule-form input[type="text"],
-.rule-form input:not([type]) {
+.rule-form label.grow { flex: 1 1 220px; }
+.rule-form input,
+.rule-form select {
   font: inherit;
   font-size: 13px;
   color: var(--ink);
@@ -509,22 +530,43 @@ footer .shell {
   border: 1px solid var(--rule);
   border-radius: 3px;
   padding: 5px 8px;
-  min-width: 210px;
 }
-.rule-priority input {
-  min-width: 70px !important;
-  width: 70px;
-}
-.rule-check {
-  flex-direction: row !important;
+.rule-form input { min-width: 0; }
+.rule-priority input { width: 74px; }
+
+.cond-head {
+  display: flex;
   align-items: center;
-  gap: 7px !important;
-  align-self: flex-end;
-  padding-bottom: 6px;
-  font-size: 13px;
-  color: var(--ink-soft);
+  justify-content: space-between;
+  border-top: 1px solid var(--rule);
+  padding-top: 12px;
+  margin-bottom: 10px;
+}
+.mode-toggle select { font-size: 12px; }
+
+.cond-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.cond-row > select { flex: 0 0 auto; }
+.cond-row > input,
+.cond-value { flex: 1 1 160px; }
+.cond-value {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.cond-value input { width: 100%; }
+.cond-hint {
+  font-size: 12px;
+  margin: 10px 0 0;
+  max-width: 62ch;
 }
 .rule-form-foot {
   display: flex;
   justify-content: flex-end;
+  margin-top: 14px;
 }

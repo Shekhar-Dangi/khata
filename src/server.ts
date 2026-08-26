@@ -854,6 +854,19 @@ app.post("/accounts/:id/detect-transfers", async (req, res) => {
   }
 });
 
+// GET /rules/vocabulary — the fields, ops and legal combinations a rule may use.
+// The rule builder in the UI renders itself from this rather than hardcoding a copy:
+// add an op to rules.ts and the form offers it, with no second place to update.
+// Same reason server.ts imports the vocabulary instead of declaring its own.
+app.get("/rules/vocabulary", (_req, res) => {
+  res.json({
+    fields: RULE_FIELDS,
+    ops: RULE_OPS,
+    match_modes: MATCH_MODES,
+    ops_by_field: OPS_BY_FIELD,
+  });
+});
+
 // POST /rules — create an auto-explanation rule. Validates the whole shape before
 // touching the DB, so the engine can trust every field/op/value it later reads.
 app.post("/rules", async (req, res) => {
