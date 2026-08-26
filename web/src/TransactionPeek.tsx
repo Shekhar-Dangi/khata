@@ -14,9 +14,17 @@ import type { TouchedTxn } from "./rules";
 export default function TransactionPeek({
   query,
   emptyMessage = "Nothing here.",
+  variant = "table",
 }: {
   query: string;
   emptyMessage?: string;
+  /**
+   * "bars" renders rows on the SAME grid as a bar row (shared CSS custom properties),
+   * so each amount sits in the same column as the bar value above it. A separate table
+   * with its own colgroup cannot line up with a grid no matter how the widths are
+   * guessed — they have to share one definition.
+   */
+  variant?: "table" | "bars";
 }) {
   const txns = useFetch<{ transactions: TouchedTxn[]; total: number }>(
     `/transactions?${query}&limit=200`,
@@ -29,6 +37,35 @@ export default function TransactionPeek({
   const total = txns.data?.total ?? 0;
   if (rows.length === 0) {
     return <p className="soft touched-empty">{emptyMessage}</p>;
+  }
+
+  if (variant === "bars") {
+    return (
+      <div className="touched">
+        {rows.map((t) => (
+          <div className="peek-row" key={t.id}>
+            <span className="peek-when">
+              <span className="mono soft">{t.txn_date}</span>
+              <em>{t.account_name}</em>
+            </span>
+            <span className="narration">{t.narration}</span>
+            <span
+              className={
+                "peek-amount mono " + (t.amount_paise < 0 ? "debit" : "credit")
+              }
+            >
+              {rupees(t.amount_paise)}
+            </span>
+            <span />
+          </div>
+        ))}
+        {total > rows.length && (
+          <p className="soft touched-more">
+            showing {rows.length} of {total}
+          </p>
+        )}
+      </div>
+    );
   }
 
   return (

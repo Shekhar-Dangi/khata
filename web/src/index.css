@@ -780,10 +780,17 @@ footer .shell {
 .bars {
   padding: 0 10px;
 }
+/* ONE definition of the bar grid, used by the bar row and by the drill-down rows
+   underneath it. Two separate declarations drift the moment either is tweaked, and the
+   symptom is amounts that no longer line up with the value above them. */
+:root {
+  --bar-cols: 168px 1fr 108px 54px;
+  --bar-gap: 14px;
+}
 .barrow {
   display: grid;
-  grid-template-columns: 168px 1fr 108px 54px;
-  gap: 14px;
+  grid-template-columns: var(--bar-cols);
+  gap: var(--bar-gap);
   align-items: center;
   width: 100%;
   background: none;
@@ -849,5 +856,37 @@ footer .shell {
 .bar-peek {
   background: var(--paper-sunk);
   border-bottom: 1px solid var(--rule);
-  padding: 2px 14px 8px;
+  /* Left/right padding matches .barrow's own 4px so the shared grid starts and ends in
+     exactly the same place as the row above. */
+  padding: 2px 4px 8px;
+}
+.peek-row {
+  display: grid;
+  grid-template-columns: var(--bar-cols);
+  gap: var(--bar-gap);
+  align-items: baseline;
+  padding: 4px 4px;
+  border-top: 1px solid var(--rule);
+  font-size: 12.5px;
+}
+.peek-row:first-child {
+  border-top: 0;
+}
+.peek-when {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.35;
+}
+.peek-when .mono {
+  font-size: 11.5px;
+}
+.peek-when em {
+  font-style: normal;
+  font-size: 10.5px;
+  color: var(--ink-soft);
+}
+.peek-amount {
+  text-align: right;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
 }

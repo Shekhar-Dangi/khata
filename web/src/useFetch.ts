@@ -22,12 +22,16 @@ import { useEffect, useRef, useState } from "react";
 // ships this under the same name for the same reason.
 export function useFetch<T>(
   url: string,
-  options: { keepPreviousData?: boolean } = {},
+  options: { keepPreviousData?: boolean; enabled?: boolean } = {},
 ) {
   // Destructured to a PRIMITIVE before it reaches the dependency array. Putting the
   // options object itself in the deps would re-run the effect on every render, because
   // a caller writing `{ keepPreviousData: true }` inline creates a new object each time.
   const keepPreviousData = options.keepPreviousData ?? false;
+  // Hooks cannot be called conditionally, so "do not fetch this yet" has to be a flag
+  // rather than an `if`. Without it, a hook whose data is not currently wanted still
+  // fires a request on every dependency change.
+  const enabled = options.enabled ?? true;
 
   // data and the url it came from move together, so they live in one state object —
   // two separate useStates could be read in a torn state mid-update.
@@ -41,6 +45,7 @@ export function useFetch<T>(
   const lastUrl = useRef(url);
 
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
 
     if (lastUrl.current !== url) {
@@ -70,14 +75,14 @@ export function useFetch<T>(
     return () => {
       cancelled = true; // stale response from a previous url is discarded
     };
-  }, [url, tick, keepPreviousData]);
+  }, [url, tick, keepPreviousData, enabled]);
 
   const refetch = () => setTick((t) => t + 1);
 
   return {
     data: result.data,
-    loading: inFlight && result.data === null, // nothing to show yet
-    refreshing: inFlight, // a request is in flight; stale data may still be on screen
+    loading: enabled && inFlight && result.data === null, // nothing to show yet
+    refreshing: enabled && inFlight, // in flight; stale data may still be on screen
     // What is rendered belongs to a different url than the one being requested. Only
     // possible with keepPreviousData; the cue for dimming rather than blanking.
     isStale: result.url !== null && result.url !== url,

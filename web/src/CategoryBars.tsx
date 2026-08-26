@@ -81,7 +81,15 @@ export default function CategoryBars({
               </span>
             </span>
 
-            <span className="barvalue mono">{rupees(magnitude)}</span>
+            {/* Signed rather than a bare magnitude: the section heading says which
+                direction this is, but a number that can be negative should look it. */}
+            <span
+              className={
+                "barvalue mono " + (r.total_paise < 0 ? "debit" : "credit")
+              }
+            >
+              {rupees(r.total_paise)}
+            </span>
             <span className="bardelta mono">
               {delta === null ? (
                 before === undefined ? (
@@ -102,6 +110,7 @@ export default function CategoryBars({
               <TransactionPeek
                 query={`${baseQuery}${baseQuery === "" ? "" : "&"}category_id=${r.category_id}`}
                 emptyMessage="No transactions in this category for the current filters."
+                variant="bars"
               />
             </div>
           )}

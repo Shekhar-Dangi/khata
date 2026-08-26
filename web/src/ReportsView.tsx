@@ -43,37 +43,41 @@ export default function ReportsView() {
     { keepPreviousData: true },
   );
 
-  // The previous equal-length window. Requested unconditionally-but-inertly when not
-  // comparing: passing the same url keeps useFetch from thrashing, and "all time" has no
-  // predecessor at all.
+  // The previous equal-length window. "All time" has no predecessor, so there is nothing
+  // to compare against and the toggle is disabled.
   const prev = previousPeriod(period);
-  const compareUrl =
-    comparing && prev !== null
-      ? `/reports/by-category?${query(prev, accountId)}`
-      : `/reports/by-category?${query(period, accountId)}`;
-  const compared = useFetch<CategoryReport>(compareUrl, {
-    keepPreviousData: true,
-  });
+  const compared = useFetch<CategoryReport>(
+    `/reports/by-category?${query(prev ?? period, accountId)}`,
+    { keepPreviousData: true, enabled: comparing && prev !== null },
+  );
 
   const busy = useBusy(main.refreshing || compared.refreshing);
 
-  if (main.loading) return <p className="soft">Loading…</p>;
   if (main.error) return <p className="soft">{main.error}</p>;
-
+  // Gate on the DATA, not on `loading`. `?? 0` fallbacks are why a Rs 0 renders for a
+  // frame and vanishes: absent data becomes a zero, and a zero is a claim. There is no
+  // state in which this page should show a number it has not been told.
   const data = main.data;
-  const rows = data?.categories ?? [];
+  if (data === null) return <p className="soft">Loading…</p>;
+
+  const rows = data.categories;
   // Income and spending do not belong in one ranked list: a six-figure salary dwarfs
   // every category of spending and the chart stops saying anything about either.
   const spend = rows.filter((r) => r.total_paise < 0);
   const income = rows.filter((r) => r.total_paise > 0);
 
+  // `isStale` is load-bearing here, not a nicety. keepPreviousData means `compared.data`
+  // survives a url change, so the instant you tick the box it still holds the PREVIOUS
+  // url's result — which was the current period. Every delta would read 0% for a frame
+  // and then correct itself. Refusing stale data means no comparison is shown until the
+  // comparison has actually been fetched.
   const compareMap =
-    comparing && prev !== null && compared.data
+    comparing && prev !== null && compared.data !== null && !compared.isStale
       ? new Map(compared.data.categories.map((c) => [c.category_id, c.total_paise]))
       : null;
 
-  const out = Math.abs(data?.out_paise ?? 0);
-  const unexplained = Math.abs(data?.unexplained_paise ?? 0);
+  const out = Math.abs(data.out_paise);
+  const unexplained = Math.abs(data.unexplained_paise);
   const confirmed = rows.reduce((s, r) => s + Math.abs(r.confirmed_paise), 0);
   const provisional = rows.reduce((s, r) => s + Math.abs(r.provisional_paise), 0);
 
@@ -152,7 +156,7 @@ export default function ReportsView() {
             <span className="label">Money out</span>
             <b className="mono">{rupees(out)}</b>
             <span className="tile-sub soft mono">
-              {data?.transactions ?? 0} transactions
+              {data.transactions} transactions
             </span>
           </div>
           <div className="tile">

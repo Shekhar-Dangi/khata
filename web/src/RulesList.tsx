@@ -66,8 +66,18 @@ export default function RulesList({
                 <td className="soft">{describeRule(r)}</td>
                 <td>{r.category_name ?? <span className="soft">—</span>}</td>
                 <td className="r mono soft">{dead ? "—" : r.transactions}</td>
-                <td className={"r mono" + (dead ? " soft" : "")}>
-                  {dead ? "never fired" : rupees(r.money_paise)}
+                {/* SIGNED, and coloured by direction. money_paise is a magnitude, which
+                    made a salary rule and a rent rule look like the same kind of thing.
+                    net_paise carries the direction, and for a rule whose allocations all
+                    point one way — which is every rule — it is the same figure with its
+                    meaning restored. */}
+                <td
+                  className={
+                    "r mono " +
+                    (dead ? "soft" : r.net_paise < 0 ? "debit" : "credit")
+                  }
+                >
+                  {dead ? "never fired" : rupees(r.net_paise)}
                 </td>
                 <td className="r mono soft">{r.last_seen ?? "—"}</td>
                 <td className="r">
