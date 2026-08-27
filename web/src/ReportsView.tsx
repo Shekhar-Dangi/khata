@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { useBusy, useFetch } from "./useFetch";
+import { useLedgerVersion } from "./ledgerVersion";
 import { rupees } from "./format";
 import CategoryBars from "./CategoryBars";
 import {
@@ -36,11 +37,12 @@ export default function ReportsView() {
   const [accountId, setAccountId] = useState("");
   const [comparing, setComparing] = useState(false);
 
+  const { version } = useLedgerVersion();
   const accounts = useFetch<{ accounts: Account[] }>("/accounts");
 
   const main = useFetch<CategoryReport>(
     `/reports/by-category?${query(period, accountId)}`,
-    { keepPreviousData: true },
+    { keepPreviousData: true, revalidateOn: version },
   );
 
   // The previous equal-length window. "All time" has no predecessor, so there is nothing
@@ -48,7 +50,11 @@ export default function ReportsView() {
   const prev = previousPeriod(period);
   const compared = useFetch<CategoryReport>(
     `/reports/by-category?${query(prev ?? period, accountId)}`,
-    { keepPreviousData: true, enabled: comparing && prev !== null },
+    {
+      keepPreviousData: true,
+      enabled: comparing && prev !== null,
+      revalidateOn: version,
+    },
   );
 
   const busy = useBusy(main.refreshing || compared.refreshing);
@@ -76,10 +82,14 @@ export default function ReportsView() {
       ? new Map(compared.data.categories.map((c) => [c.category_id, c.total_paise]))
       : null;
 
+  // All four tiles describe MONEY OUT. They previously mixed universes: `out` counted
+  // only negative amounts while `confirmed`/`provisional` summed every category including
+  // income, so a rule that categorised salary inflated two tiles and not the other — four
+  // numbers that look like they should reconcile and cannot.
   const out = Math.abs(data.out_paise);
-  const unexplained = Math.abs(data.unexplained_paise);
-  const confirmed = rows.reduce((s, r) => s + Math.abs(r.confirmed_paise), 0);
-  const provisional = rows.reduce((s, r) => s + Math.abs(r.provisional_paise), 0);
+  const unexplained = Math.abs(data.unexplained_out_paise);
+  const confirmed = spend.reduce((s, r) => s + Math.abs(r.confirmed_paise), 0);
+  const provisional = spend.reduce((s, r) => s + Math.abs(r.provisional_paise), 0);
 
   // The drill-down inherits whatever is filtered right now: same vocabulary, different
   // projection. Clicking a bar in "August, HDFC" shows August's HDFC transactions in
@@ -162,17 +172,17 @@ export default function ReportsView() {
           <div className="tile">
             <span className="label">You confirmed</span>
             <b className="mono st-confirmed">{rupees(confirmed)}</b>
-            <span className="tile-sub soft mono">explanations you wrote</span>
+            <span className="tile-sub soft mono">of money out</span>
           </div>
           <div className="tile">
             <span className="label">A rule guessed</span>
             <b className="mono st-provisional">{rupees(provisional)}</b>
-            <span className="tile-sub soft mono">provisional</span>
+            <span className="tile-sub soft mono">of money out</span>
           </div>
           <div className="tile">
             <span className="label">Can't explain yet</span>
             <b className="mono st-unexplained">{rupees(unexplained)}</b>
-            <span className="tile-sub soft mono">nothing covers it</span>
+            <span className="tile-sub soft mono">of money out</span>
           </div>
         </div>
 

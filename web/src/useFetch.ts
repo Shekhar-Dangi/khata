@@ -22,7 +22,16 @@ import { useEffect, useRef, useState } from "react";
 // ships this under the same name for the same reason.
 export function useFetch<T>(
   url: string,
-  options: { keepPreviousData?: boolean; enabled?: boolean } = {},
+  options: {
+    keepPreviousData?: boolean;
+    enabled?: boolean;
+    /**
+     * Re-fetch whenever this number changes. A plain number rather than a deps ARRAY on
+     * purpose: an inline `[version]` is a new array every render, and putting it in the
+     * effect's dependency list would re-run the fetch forever. See ledgerVersion.tsx.
+     */
+    revalidateOn?: number;
+  } = {},
 ) {
   // Destructured to a PRIMITIVE before it reaches the dependency array. Putting the
   // options object itself in the deps would re-run the effect on every render, because
@@ -32,6 +41,7 @@ export function useFetch<T>(
   // rather than an `if`. Without it, a hook whose data is not currently wanted still
   // fires a request on every dependency change.
   const enabled = options.enabled ?? true;
+  const revalidateOn = options.revalidateOn ?? 0;
 
   // data and the url it came from move together, so they live in one state object —
   // two separate useStates could be read in a torn state mid-update.
@@ -75,7 +85,7 @@ export function useFetch<T>(
     return () => {
       cancelled = true; // stale response from a previous url is discarded
     };
-  }, [url, tick, keepPreviousData, enabled]);
+  }, [url, tick, keepPreviousData, enabled, revalidateOn]);
 
   const refetch = () => setTick((t) => t + 1);
 

@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { useLedgerVersion } from "./ledgerVersion";
 import type { ApplyResult } from "./rules";
 
 // The apply action and its result.
@@ -22,6 +23,7 @@ export default function RulesToolbar({
   onToggleForm: () => void;
   onApplied: () => void;
 }) {
+  const { bump } = useLedgerVersion();
   const [applying, setApplying] = useState(false);
   const [result, setResult] = useState<ApplyResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -34,6 +36,9 @@ export default function RulesToolbar({
       if (!res.ok) throw new Error(`request failed: ${res.status}`);
       setResult((await res.json()) as ApplyResult);
       onApplied();
+      // A rule run rewrites allocations, which moves the summary strip and every report —
+      // none of which are below this component, so a callback cannot reach them.
+      bump();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Apply failed");
     } finally {

@@ -17,6 +17,9 @@ export type CategoryReport = {
   out_paise: number;
   in_paise: number;
   unexplained_paise: number;
+  /** Unexplained split by direction, so the tiles can share one universe. */
+  unexplained_out_paise: number;
+  unexplained_in_paise: number;
   transactions: number;
 };
 

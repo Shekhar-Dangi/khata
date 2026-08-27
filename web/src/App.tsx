@@ -1,24 +1,17 @@
 import { useState } from "react";
 
 import Summary from "./Summary";
-import AccountsView from "./AccountsView";
+import { LedgerVersionProvider } from "./ledgerVersion";
 import ConsolidatedView from "./ConsolidatedView";
 import TransfersView from "./TransfersView";
 import AnomaliesView from "./AnomaliesView";
 import RulesView from "./RulesView";
 import ReportsView from "./ReportsView";
 
-type View =
-  | "accounts"
-  | "transactions"
-  | "reports"
-  | "transfers"
-  | "rules"
-  | "anomalies";
+type View = "transactions" | "reports" | "transfers" | "rules" | "anomalies";
 
 const TABS: { key: View; label: string }[] = [
-  { key: "accounts", label: "Accounts" },
-  { key: "transactions", label: "All transactions" },
+  { key: "transactions", label: "Transactions" },
   { key: "reports", label: "Where it goes" },
   { key: "transfers", label: "Internal transfers" },
   { key: "rules", label: "Rules" },
@@ -26,15 +19,16 @@ const TABS: { key: View; label: string }[] = [
 ];
 
 function App() {
-  const [view, setView] = useState<View>("accounts");
+  const [view, setView] = useState<View>("transactions");
 
-  // The summary answers "what can't I explain / how much do I have" — irrelevant on the
-  // pure-ledger views, so it's hidden there (design-brief deviation #1).
+  // The summary answers "what can't I explain / how much do I have". That belongs on the
+  // ledger now that the ledger IS the home page — it is where you arrive and where you
+  // explain things, so the number you are moving should be in front of you.
   const showSummary =
-    view === "accounts" || view === "anomalies" || view === "rules";
+    view === "transactions" || view === "anomalies" || view === "rules";
 
   return (
-    <>
+    <LedgerVersionProvider>
       <div className="topbar">
         <div className="shell">
           <div>
@@ -61,7 +55,6 @@ function App() {
         <div className="shell">
           {/* key={view} remounts this subtree on tab change -> the CSS reveal replays */}
           <div className="view" key={view}>
-            {view === "accounts" && <AccountsView />}
             {view === "transactions" && <ConsolidatedView />}
             {view === "transfers" && <TransfersView />}
             {view === "reports" && <ReportsView />}
@@ -74,7 +67,7 @@ function App() {
       <footer>
         <div className="shell">local-first · your data never leaves this device</div>
       </footer>
-    </>
+    </LedgerVersionProvider>
   );
 }
 

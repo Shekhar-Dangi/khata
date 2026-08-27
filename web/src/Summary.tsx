@@ -1,4 +1,5 @@
 import { useFetch } from "./useFetch";
+import { useLedgerVersion } from "./ledgerVersion";
 import { rupees } from "./format";
 
 type Account = { id: number; name: string; bank: string; balance_paise: number };
@@ -16,11 +17,18 @@ type SummaryTotals = {
 // The summary strip. Three numbers about MEANING (unexplained / provisional / net),
 // plus a fourth about RECONCILIATION when it applies.
 export default function Summary() {
+  // Every number here is derived from allocations, so all three refetch when anything
+  // mutates the ledger — a rule run, an explanation saved, a rule deleted.
+  const { version } = useLedgerVersion();
   // One endpoint, three aggregates. The alternative — pulling the whole ledger into the
   // browser and adding it up here — stops being reasonable once real statements land.
-  const totals = useFetch<SummaryTotals>("/summary");
-  const accounts = useFetch<{ accounts: Account[] }>("/accounts");
-  const anomalies = useFetch<{ accounts: Anomaly[] }>("/anomalies");
+  const totals = useFetch<SummaryTotals>("/summary", { revalidateOn: version });
+  const accounts = useFetch<{ accounts: Account[] }>("/accounts", {
+    revalidateOn: version,
+  });
+  const anomalies = useFetch<{ accounts: Anomaly[] }>("/anomalies", {
+    revalidateOn: version,
+  });
 
   const t = totals.data;
   const accts = accounts.data?.accounts ?? [];

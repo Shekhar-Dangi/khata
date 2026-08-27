@@ -681,10 +681,24 @@ app.get("/transactions", async (req, res) => {
               -- only matching rows to THIS sum, without a second pass over the join.
               COALESCE(
                 SUM(al.amount_paise) FILTER (WHERE al.source = 'rule'), 0
-              ) AS provisional_paise
+              ) AS provisional_paise,
+              -- Nested slices, so a row in the ledger can be expanded and explained
+              -- without a second request. FILTER + COALESCE turns "no children" into an
+              -- empty array rather than [null].
+              COALESCE(
+                json_agg(
+                  json_build_object(
+                    'id', al.id::text, 'amount_paise', al.amount_paise,
+                    'category_id', al.category_id, 'category_name', c.name,
+                    'confidence', al.confidence, 'source', al.source
+                  ) ORDER BY al.id
+                ) FILTER (WHERE al.id IS NOT NULL),
+                '[]'
+              ) AS allocations
          FROM transactions t
          JOIN accounts a ON a.id = t.account_id
          LEFT JOIN allocations al ON al.transaction_id = t.id
+         LEFT JOIN categories c ON c.id = al.category_id
         WHERE 1=1 ${spendClause} ${filters.sql}
         GROUP BY t.id, a.id
         ORDER BY t.txn_date, t.account_id, t.statement_id, t.statement_seq
@@ -710,6 +724,7 @@ app.get("/transactions", async (req, res) => {
           r.bank_balance_paise == null ? null : Number(r.bank_balance_paise),
         explained_paise: explained,
         provisional_paise: Number(r.provisional_paise),
+        allocations: r.allocations, // pg parses json_agg into a JS array
         unexplained_paise: amount - explained, // derived
       };
     });
@@ -987,6 +1002,13 @@ app.get("/reports/by-category", async (req, res) => {
               -- ABS per transaction BEFORE summing: an unexplained 500 debit and an
               -- unexplained 500 credit are 1000 unexplained, not zero.
               COALESCE(SUM(ABS(amount_paise - explained)), 0)                AS unexplained_paise,
+              -- Split by direction. The summary tiles compare against "money out", and
+              -- mixing an unexplained salary credit into that total makes four numbers
+              -- that look like they should reconcile and cannot.
+              COALESCE(SUM(ABS(amount_paise - explained))
+                       FILTER (WHERE amount_paise < 0), 0)                   AS unexplained_out_paise,
+              COALESCE(SUM(ABS(amount_paise - explained))
+                       FILTER (WHERE amount_paise > 0), 0)                   AS unexplained_in_paise,
               COUNT(*)                                                        AS transactions
          FROM per_txn`,
       filters.params,
@@ -1008,6 +1030,8 @@ app.get("/reports/by-category", async (req, res) => {
       out_paise: Number(t.out_paise),
       in_paise: Number(t.in_paise),
       unexplained_paise: Number(t.unexplained_paise),
+      unexplained_out_paise: Number(t.unexplained_out_paise),
+      unexplained_in_paise: Number(t.unexplained_in_paise),
       transactions: Number(t.transactions),
     });
   } catch (error) {

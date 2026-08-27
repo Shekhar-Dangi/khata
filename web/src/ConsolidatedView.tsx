@@ -1,8 +1,16 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 
 import { useBusy, useDebounced, useFetch } from "./useFetch";
+import { useLedgerVersion } from "./ledgerVersion";
 import { rupees } from "./format";
+import AllocationEditor from "./AllocationEditor";
 
+type Allocation = {
+  amount_paise: number;
+  category_id: number;
+  category_name: string;
+  source: "rule" | "user" | "evidence";
+};
 type Txn = {
   id: string;
   account_name: string;
@@ -10,8 +18,12 @@ type Txn = {
   amount_paise: number;
   type: string;
   narration: string | null;
+  explained_paise: number;
+  unexplained_paise: number;
+  allocations: Allocation[];
 };
 type Account = { id: number; name: string };
+type Category = { id: number; name: string; parent_id: number | null };
 
 const PAGE = 100;
 
@@ -32,6 +44,8 @@ export default function ConsolidatedView() {
   const [query, setQuery] = useState("");
   const [accountId, setAccountId] = useState("");
   const [offset, setOffset] = useState(0);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const { version, bump } = useLedgerVersion();
 
   // The input updates on every keystroke so typing stays instant; the URL only follows
   // once you pause. Otherwise "blinkit" would be seven requests.
@@ -50,9 +64,10 @@ export default function ConsolidatedView() {
   const { data, loading, error, isStale, refreshing } = useFetch<{
     transactions: Txn[];
     total: number;
-  }>(`/transactions?${params}`, { keepPreviousData: true });
+  }>(`/transactions?${params}`, { keepPreviousData: true, revalidateOn: version });
 
   const accounts = useFetch<{ accounts: Account[] }>("/accounts");
+  const cats = useFetch<{ categories: Category[] }>("/categories");
 
   // Feedback that a filter is working, without strobing on a 5ms localhost response.
   // See useBusy: nothing shows below ~90ms, and once shown it holds for ~320ms.
@@ -115,7 +130,7 @@ export default function ConsolidatedView() {
             <col style={{ width: "130px" }} />
             <col />
             <col style={{ width: "140px" }} />
-            <col style={{ width: "70px" }} />
+            <col style={{ width: "120px" }} />
           </colgroup>
           <thead>
             <tr>
@@ -123,7 +138,7 @@ export default function ConsolidatedView() {
               <th>Account</th>
               <th>Narration</th>
               <th className="r">Amount</th>
-              <th>Type</th>
+              <th className="r">Explained</th>
             </tr>
           </thead>
           <tbody>
@@ -134,15 +149,62 @@ export default function ConsolidatedView() {
                 </td>
               </tr>
             ) : (
-              rows.map((t) => (
-                <tr key={t.id}>
-                  <td className="mono soft">{t.txn_date}</td>
-                  <td className="soft">{t.account_name}</td>
-                  <td className="narration">{t.narration}</td>
-                  <td className={amountClass(t)}>{rupees(t.amount_paise)}</td>
-                  <td className="soft">{t.type}</td>
-                </tr>
-              ))
+              rows.map((t) => {
+                const expanded = expandedId === t.id;
+                const hasAllocs = t.allocations.length > 0;
+                const provisional =
+                  hasAllocs && t.allocations.some((a) => a.source === "rule");
+                return (
+                  <Fragment key={t.id}>
+                    <tr
+                      className="txn-row"
+                      aria-expanded={expanded}
+                      onClick={() => setExpandedId(expanded ? null : t.id)}
+                    >
+                      <td className="mono soft">{t.txn_date}</td>
+                      <td className="soft">{t.account_name}</td>
+                      <td className="narration">{t.narration}</td>
+                      <td className={amountClass(t)}>{rupees(t.amount_paise)}</td>
+                      <td className="r">
+                        {!hasAllocs ? (
+                          <span className="soft">explain ▾</span>
+                        ) : t.unexplained_paise !== 0 ? (
+                          <span className="flag mono">
+                            {rupees(Math.abs(t.unexplained_paise))} left
+                          </span>
+                        ) : provisional ? (
+                          <span className="prov" title="A rule guessed this. Open it to confirm.">
+                            provisional
+                          </span>
+                        ) : (
+                          <span className="credit">explained</span>
+                        )}
+                      </td>
+                    </tr>
+                    {expanded && (
+                      <tr className="txn-detail">
+                        <td colSpan={5}>
+                          {cats.data ? (
+                            <AllocationEditor
+                              transaction={t}
+                              categories={cats.data.categories}
+                              onSaved={() => {
+                                setExpandedId(null);
+                                // Explaining a transaction moves the headline numbers and
+                                // every report, none of which are below this component.
+                                bump();
+                              }}
+                              onClose={() => setExpandedId(null)}
+                            />
+                          ) : (
+                            <p className="soft">Loading categories…</p>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })
             )}
           </tbody>
         </table>

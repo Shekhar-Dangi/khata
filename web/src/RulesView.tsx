@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { useFetch } from "./useFetch";
+import { useLedgerVersion } from "./ledgerVersion";
 import RulesToolbar from "./RulesToolbar";
 import RuleForm from "./RuleForm";
 import RulesList from "./RulesList";
@@ -20,7 +21,10 @@ import type { RuleImpact } from "./rules";
 export default function RulesView() {
   // /reports/by-rule returns everything /rules did PLUS what each rule actually
   // touched, so this is one request rather than two joined in the browser.
-  const rules = useFetch<{ rules: RuleImpact[] }>("/reports/by-rule");
+  const { version, bump } = useLedgerVersion();
+  const rules = useFetch<{ rules: RuleImpact[] }>("/reports/by-rule", {
+    revalidateOn: version,
+  });
   // Whether the form is open genuinely changes THIS layout, so it belongs here.
   const [showForm, setShowForm] = useState(false);
 
@@ -63,7 +67,9 @@ export default function RulesView() {
             return;
           }
           await fetch(`/rules/${rule.id}`, { method: "DELETE" });
-          rules.refetch();
+          // Deleting a rule removes its allocations too, so this is a ledger mutation,
+          // not just a change to this list.
+          bump();
         }}
       />
     </>
