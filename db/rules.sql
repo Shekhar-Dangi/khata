@@ -2,12 +2,20 @@
 --   psql -d finance -f db/rules.sql
 -- then POST /rules/apply to turn them into provisional allocations.
 --
--- Re-runnable: clears rules first. NOTE the CASCADE also removes the allocations those
--- rules produced — correct, since a rule allocation's only justification is its rule.
+-- Re-runnable. It removes the allocations these rules produced first, then the rules —
+-- correct, since a rule allocation's only justification is its rule.
 --
+-- NOT `TRUNCATE rules CASCADE`. That truncates every table with an FK to rules, which is
+-- the WHOLE allocations table, including source='user' rows. Harmless when allocations
+-- were seeded fakes; it destroys real work the moment there is any. The scoped DELETE
+-- below cannot touch human work: the schema's CHECK allows rule_id to be non-null only
+-- when source = 'rule'.
+DELETE FROM allocations WHERE source = 'rule';
+DELETE FROM rules;
+ALTER SEQUENCE rules_id_seq RESTART WITH 1;
+
 -- Categories are looked up BY NAME rather than by hardcoded id, so this survives
 -- categories.sql being regenerated with different identity values.
-TRUNCATE rules RESTART IDENTITY CASCADE;
 
 INSERT INTO rules (name, conditions, match_mode, category_id, priority) VALUES
 
