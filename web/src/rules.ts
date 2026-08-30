@@ -29,15 +29,6 @@ export type RuleImpact = Rule & {
   last_seen: string | null;
 };
 
-// One transaction as the rule drill-down shows it.
-export type TouchedTxn = {
-  id: string;
-  txn_date: string;
-  account_name: string;
-  narration: string | null;
-  amount_paise: number;
-};
-
 // Mirrors GET /rules/vocabulary. The form renders itself from this rather than a
 // hardcoded copy, so adding an op to the backend's rules.ts offers it here with no
 // second place to edit.
@@ -93,6 +84,20 @@ export function toCondition(d: Draft): Condition {
     };
   }
   return { field: d.field, op: d.op, value: d.value.trim() };
+}
+
+// The inverse, for loading an existing rule into the edit form. It must undo exactly
+// what toCondition did: paise back to rupees, everything else to its own text.
+//
+// `String(value / 100)` and not `toFixed(2)` — toFixed would turn a whole ₹500 into
+// "500.00", which is not what the user typed and not what they want to see waiting in
+// the box. Both round-trip to the same paise, so neither is wrong; only one is polite.
+export function toDraft(c: Condition): Draft {
+  if (c.field === "amount_paise") {
+    const paise = typeof c.value === "number" ? c.value : Number(c.value);
+    return { field: c.field, op: c.op, value: String(paise / 100) };
+  }
+  return { field: c.field, op: c.op, value: String(c.value) };
 }
 
 // Integer paise -> rupee string. Local to this module so `describe` stays pure and does

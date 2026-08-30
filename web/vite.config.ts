@@ -19,6 +19,10 @@ export default defineConfig({
       '/categories': 'http://localhost:3000',
       '/transactions': 'http://localhost:3000',
       '/transfers': 'http://localhost:3000',
+      // Added with the account-identifiers screen. A path missing from this list does
+      // not 404 — Vite's SPA fallback serves index.html with a 200, and the failure
+      // surfaces somewhere else entirely as "JSON.parse: unexpected character".
+      '/keywords': 'http://localhost:3000',
       '/anomalies': 'http://localhost:3000',
       '/rules': 'http://localhost:3000',
       '/summary': 'http://localhost:3000',

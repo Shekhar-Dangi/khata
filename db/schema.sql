@@ -38,8 +38,12 @@ CREATE TABLE transactions (
   bank_balance_paise      BIGINT,                            -- bank's stated balance AFTER this row (evidence)
   import_hash             TEXT UNIQUE,                       -- dedup fingerprint
   -- transfer detection (filled in by detect-transfers, not at import):
-  transfer_status         TEXT CHECK (transfer_status IN ('pending', 'resolved', 'suspected')),
+  transfer_status         TEXT CHECK (transfer_status IN ('pending', 'resolved', 'suspected', 'rejected')),
   transfer_group_id       BIGINT,                            -- shared by the two paired legs
+  -- WHY the link was made: 'reference:<rrn>' | 'keyword:<kw>' | 'amount+date' | 'confirmed'.
+  -- Detection auto-resolves on a shared UPI reference with no human in the loop, and an
+  -- automatic classification nobody can interrogate is not reversible in any useful sense.
+  transfer_evidence       TEXT,
   created_at              TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -57,6 +61,12 @@ CREATE TABLE account_keywords (
 
 -- Shared id stamped on the two legs of a detected transfer (its own identity, not a txn id).
 CREATE SEQUENCE IF NOT EXISTS transfer_group_seq;
+
+-- Transfer detection pairs legs by (account, date, magnitude); confirm/reject then act on
+-- a whole group. Neither lookup is served by the primary key.
+CREATE INDEX transactions_pairing_idx ON transactions (account_id, txn_date, amount_paise);
+CREATE INDEX transactions_transfer_group_idx
+  ON transactions (transfer_group_id) WHERE transfer_group_id IS NOT NULL;
 
 
 -- ============================================================================

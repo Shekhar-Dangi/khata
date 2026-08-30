@@ -1,17 +1,28 @@
+import { useEffect, useState } from "react";
+
 import { useFetch } from "./useFetch";
-import { rupees } from "./format";
-import type { TouchedTxn } from "./rules";
+import { useLedgerVersion } from "./ledgerVersion";
+import Pager from "./Pager";
+import TransactionTable from "./TransactionTable";
+import type { TransactionsResponse } from "./transactions";
+
+// Ten, not twenty-five. This opens INSIDE another table, under the row you clicked, so
+// every row it adds pushes that row further up the screen. Ten fits without losing the
+// rule you are looking at.
+const PAGE = 10;
 
 // The transactions behind an aggregate — whatever the aggregate was.
 //
 // It takes a QUERY STRING rather than a rule id, because "everything this rule touched"
-// and "everything in this category, in this period, on this account" are the same
-// request with different filters. One component serves both, and will serve the next
-// drill-down without changing. That is the return on the shared filter vocabulary.
+// and "everything in this category, in this period, on this account" are the same request
+// with different filters. One component serves both, and will serve the next drill-down
+// without changing. That is the return on the shared filter vocabulary.
 //
-// ONE layout, used everywhere. It previously had a table variant for the rules page and
-// a grid variant for the bars, which meant the same information looked like two
-// different things depending on where you opened it. A drill-down is a drill-down.
+// It renders the SAME TransactionTable as the ledger, so a transaction looks and behaves
+// the same wherever you meet it — including being explainable on the spot. You are most
+// likely to want to fix a categorisation at exactly the moment you are looking at what a
+// rule did to it, and until now that meant leaving for the ledger and searching for the
+// row again.
 //
 // Its own component so it fetches ONLY when a row is actually expanded — 22 rules would
 // otherwise mean 22 requests on load for data almost none of which is being looked at.
@@ -22,8 +33,19 @@ export default function TransactionPeek({
   query: string;
   emptyMessage?: string;
 }) {
-  const txns = useFetch<{ transactions: TouchedTxn[]; total: number }>(
-    `/transactions?${query}&limit=200`,
+  const [offset, setOffset] = useState(0);
+  const { version, bump } = useLedgerVersion();
+
+  // Page 3 of one rule is not page 3 of another. The component is usually remounted on
+  // open, but a caller that keeps it mounted while changing the query would otherwise
+  // land on an offset that belongs to the previous filter.
+  useEffect(() => {
+    setOffset(0);
+  }, [query]);
+
+  const txns = useFetch<TransactionsResponse>(
+    `/transactions?${query}&limit=${PAGE}&offset=${offset}`,
+    { keepPreviousData: true, revalidateOn: version },
   );
 
   if (txns.loading) return <p className="soft touched-empty">Loading…</p>;
@@ -33,36 +55,29 @@ export default function TransactionPeek({
   if (data === null) return <p className="soft touched-empty">Loading…</p>;
 
   const rows = data.transactions;
-  if (rows.length === 0) {
+  if (rows.length === 0 && offset === 0) {
     return <p className="soft touched-empty">{emptyMessage}</p>;
   }
 
   return (
     <div className="peek">
-      {rows.map((t) => (
-        <div className="peek-row" key={t.id}>
-          <span className="peek-when">
-            <span className="mono">{t.txn_date}</span>
-            <em>{t.account_name}</em>
-          </span>
-          {/* NOT className="narration" — that rule is max-width: 0, which truncates
-              inside a table but makes a grid item literally zero wide, so the text
-              disappeared entirely. Grid items also need min-width: 0 before they will
-              shrink below their content, which is what makes the ellipsis work. */}
-          <span className="peek-narration">{t.narration}</span>
-          <span
-            className={
-              "peek-amount mono " + (t.amount_paise < 0 ? "debit" : "credit")
-            }
-          >
-            {rupees(t.amount_paise)}
-          </span>
-        </div>
-      ))}
-      {data.total > rows.length && (
-        <p className="soft touched-more">
-          showing {rows.length} of {data.total}
-        </p>
+      <TransactionTable
+        rows={rows}
+        frame={false}
+        emptyMessage={emptyMessage}
+        // Explaining a transaction moves the headline numbers and every report, none of
+        // which are below this component.
+        onSaved={bump}
+      />
+      {data.total > PAGE && (
+        <Pager
+          offset={offset}
+          limit={PAGE}
+          total={data.total}
+          shown={rows.length}
+          onOffset={setOffset}
+          busy={txns.refreshing}
+        />
       )}
     </div>
   );

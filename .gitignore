@@ -9,3 +9,6 @@ data/
 ingest/.venv/
 __pycache__/
 *.pyc
+
+# Refactor safety net — regenerated on demand, never committed.
+.snapshots/

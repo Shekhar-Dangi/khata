@@ -25,11 +25,23 @@ export default function RulesView() {
   const rules = useFetch<{ rules: RuleImpact[] }>("/reports/by-rule", {
     revalidateOn: version,
   });
-  // Whether the form is open genuinely changes THIS layout, so it belongs here.
-  const [showForm, setShowForm] = useState(false);
+  // What the form is doing genuinely changes THIS layout, so it belongs here.
+  // null = closed, "new" = creating, a rule = editing that one.
+  const [editing, setEditing] = useState<null | "new" | RuleImpact>(null);
 
   if (rules.loading) return <p className="soft">Loading…</p>;
   if (rules.error) return <p className="soft">{rules.error}</p>;
+
+  // Any change to what a rule MATCHES throws away the allocations it had already
+  // written — they were justified by conditions that no longer exist. Re-running the
+  // engine right after is what puts the new guesses on the ledger; leaving that to the
+  // user means the reports read wrong until they happen to press Apply.
+  async function afterWrite(reapplyNeeded: boolean) {
+    setEditing(null);
+    if (reapplyNeeded) await fetch("/rules/apply", { method: "POST" });
+    await rules.refetch();
+    bump();
+  }
 
   return (
     <>
@@ -43,23 +55,38 @@ export default function RulesView() {
           nothing until a rule changes.
         </p>
         <RulesToolbar
-          showForm={showForm}
-          onToggleForm={() => setShowForm((v) => !v)}
+          showForm={editing === "new"}
+          onToggleForm={() => setEditing((v) => (v === "new" ? null : "new"))}
           onApplied={rules.refetch}
         />
       </div>
 
-      {showForm && (
+      {editing !== null && (
         <RuleForm
-          onCreated={() => {
-            setShowForm(false);
-            rules.refetch(); // the list is ours to refresh; the form only reports
-          }}
+          // key remounts the form when you switch from one rule to another, which is what
+          // resets the drafts. Without it React keeps the same component instance and its
+          // useState initialisers — written for the PREVIOUS rule — never run again, so
+          // clicking "edit" on a second rule would show the first one's conditions.
+          key={editing === "new" ? "new" : editing.id}
+          rule={editing === "new" ? undefined : editing}
+          onCancel={() => setEditing(null)}
+          onSaved={(r) => afterWrite(r.reapply_needed)}
         />
       )}
 
       <RulesList
         rules={rules.data?.rules ?? []}
+        onEdit={(rule) => setEditing(rule)}
+        onToggle={async (rule) => {
+          await fetch(`/rules/${rule.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ enabled: !rule.enabled }),
+          });
+          // Turning a rule off deletes its guesses; turning it back on has to re-make
+          // them. Both are ledger mutations, so both re-run and bump.
+          await afterWrite(true);
+        }}
         onDelete={async (rule) => {
           // Deleting a rule also removes the allocations it produced, which is real
           // (if provisional) work disappearing off the ledger — worth one confirm.
@@ -68,8 +95,8 @@ export default function RulesView() {
           }
           await fetch(`/rules/${rule.id}`, { method: "DELETE" });
           // Deleting a rule removes its allocations too, so this is a ledger mutation,
-          // not just a change to this list.
-          bump();
+          // not just a change to this list. Nothing to re-apply — the rule is gone.
+          await afterWrite(false);
         }}
       />
     </>

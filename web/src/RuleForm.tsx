@@ -4,31 +4,53 @@ import { useFetch } from "./useFetch";
 import {
   emptyDraft,
   toCondition,
+  toDraft,
   FIELD_LABEL,
   OP_LABEL,
   type Category,
   type Draft,
+  type Rule,
   type Vocabulary,
 } from "./rules";
 
-// Create a rule.
+// Create OR edit a rule.
+//
+// One form for both, because they are the same shape: the only differences are where the
+// initial values come from, which HTTP verb goes out, and one line of copy. A second
+// "EditRuleForm" would be the create form plus a divergence waiting to happen — the
+// condition/op snapping logic below is subtle enough that having it in two files means
+// having it right in one.
+//
+// Editing used to mean delete + re-create, which loses the rule's id and with it its
+// history in /reports/by-rule. PATCH keeps the row.
 //
 // ALL form state lives here. That is deliberate: `drafts` used to sit in the parent
 // alongside the rules table, so every keystroke re-rendered the table. State only
 // re-renders the component that owns it and its children, so moving it down here means
 // typing costs exactly this subtree and nothing else.
-//
-// It also fetches its own vocabulary and categories — lazily, when the form opens,
-// rather than on every page load.
-export default function RuleForm({ onCreated }: { onCreated: () => void }) {
+export default function RuleForm({
+  rule,
+  onSaved,
+  onCancel,
+}: {
+  /** Absent = create. Present = edit that rule in place. */
+  rule?: Rule;
+  onSaved: (result: { reapply_needed: boolean }) => void;
+  onCancel?: () => void;
+}) {
   const cats = useFetch<{ categories: Category[] }>("/categories");
   const vocab = useFetch<Vocabulary>("/rules/vocabulary");
 
-  const [name, setName] = useState("");
-  const [categoryId, setCategoryId] = useState<number | null>(null);
-  const [priority, setPriority] = useState("0");
-  const [matchMode, setMatchMode] = useState("all");
-  const [drafts, setDrafts] = useState<Draft[]>([emptyDraft()]);
+  const editing = rule !== undefined;
+  // The initialisers run on the first render only, so this reads the rule once and the
+  // form is uncontrolled by it from then on — typing is not fighting a prop.
+  const [name, setName] = useState(rule?.name ?? "");
+  const [categoryId, setCategoryId] = useState<number | null>(rule?.category_id ?? null);
+  const [priority, setPriority] = useState(String(rule?.priority ?? 0));
+  const [matchMode, setMatchMode] = useState(rule?.match_mode ?? "all");
+  const [drafts, setDrafts] = useState<Draft[]>(
+    rule === undefined ? [emptyDraft()] : rule.conditions.map(toDraft),
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -59,24 +81,27 @@ export default function RuleForm({ onCreated }: { onCreated: () => void }) {
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch("/rules", {
-        method: "POST",
+      const body = {
+        name: name.trim(),
+        conditions: drafts.map(toCondition),
+        match_mode: matchMode,
+        category_id: categoryId,
+        priority: Number(priority) || 0,
+      };
+      const res = await fetch(editing ? `/rules/${rule.id}` : "/rules", {
+        method: editing ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: name.trim(),
-          conditions: drafts.map(toCondition),
-          match_mode: matchMode,
-          category_id: categoryId,
-          priority: Number(priority) || 0,
-        }),
+        body: JSON.stringify(body),
       });
+      const result = await res.json().catch(() => ({}) as Record<string, unknown>);
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? `request failed: ${res.status}`);
+        throw new Error(
+          typeof result.error === "string" ? result.error : `request failed: ${res.status}`,
+        );
       }
-      // Callback up, data down: this component created a rule, but it does not own the
-      // list, so it tells the parent — which owns the /rules fetch — to refresh.
-      onCreated();
+      // Callback up, data down: this component wrote a rule, but it does not own the
+      // list, so it tells the parent — which owns the fetch — what happened.
+      onSaved({ reapply_needed: result.reapply_needed === true });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save the rule");
     } finally {
@@ -146,7 +171,7 @@ export default function RuleForm({ onCreated }: { onCreated: () => void }) {
       <div className="cond-head">
         <span className="label">Conditions</span>
         <label className="mode-toggle">
-          <select value={matchMode} onChange={(e) => setMatchMode(e.target.value)}>
+          <select value={matchMode} onChange={(e) => setMatchMode(e.target.value as "all" | "any")}>
             <option value="all">match ALL of these</option>
             <option value="any">match ANY of these</option>
           </select>
@@ -228,10 +253,22 @@ export default function RuleForm({ onCreated }: { onCreated: () => void }) {
         </p>
       )}
 
+      {editing && (
+        <p className="soft cond-hint">
+          Saving drops the guesses this rule already made, because they were justified by
+          the old conditions. The rules are re-run straight after.
+        </p>
+      )}
+
       <div className="rule-form-foot">
         {error && <span className="debit save-error">{error}</span>}
+        {onCancel && (
+          <button className="link-btn" onClick={onCancel}>
+            cancel
+          </button>
+        )}
         <button className="btn" onClick={save} disabled={saving || !canSave}>
-          {saving ? "Saving…" : "Save rule"}
+          {saving ? "Saving…" : editing ? "Save changes" : "Save rule"}
         </button>
       </div>
     </div>

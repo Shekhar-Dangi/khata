@@ -19,11 +19,27 @@ export type FilterResult =
 // liberal here would mean two callers disagreeing about what a date range covers.
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-function isIsoDate(value: unknown): value is string {
+/**
+ * A date that is well-formed AND real.
+ *
+ * The shape test is not enough and neither is Date.parse. **Date.parse accepts impossible
+ * days**: `Date.parse("2026-06-31")` is not NaN — V8 rolls it forward to 1 July and hands
+ * back a perfectly good timestamp. So do "2026-02-30" and "2025-02-29". The regex passes
+ * them, `Date.parse` passes them, and the first thing that notices is Postgres, which
+ * answers `date/time field value out of range` — a 500 on user input, for a value we had
+ * every means to reject at the door.
+ *
+ * The round-trip is the check: build the date in UTC, read the three fields back, and
+ * require them to be what was asked for. A rolled-over day fails because June has no 31st
+ * to read back. UTC throughout for the same reason as reports.ts — the local-time
+ * constructor shifts the day either side of Greenwich.
+ */
+export function isIsoDate(value: unknown): value is string {
+  if (typeof value !== "string" || !ISO_DATE.test(value)) return false;
+  const [y, m, d] = value.split("-").map(Number);
+  const at = new Date(Date.UTC(y!, m! - 1, d!));
   return (
-    typeof value === "string" &&
-    ISO_DATE.test(value) &&
-    !Number.isNaN(Date.parse(value))
+    at.getUTCFullYear() === y && at.getUTCMonth() === m! - 1 && at.getUTCDate() === d
   );
 }
 

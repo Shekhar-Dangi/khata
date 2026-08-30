@@ -4,6 +4,7 @@ import { useBusy, useFetch } from "./useFetch";
 import { useLedgerVersion } from "./ledgerVersion";
 import { rupees } from "./format";
 import CategoryBars from "./CategoryBars";
+import DateRange, { rangeParams } from "./DateRange";
 import {
   monthLabel,
   presets,
@@ -15,9 +16,7 @@ import {
 type Account = { id: number; name: string };
 
 function query(p: Period, accountId: string): string {
-  const params = new URLSearchParams();
-  if (p.from !== "") params.set("from", p.from);
-  if (p.to !== "") params.set("to", p.to);
+  const params = rangeParams(p);
   if (accountId !== "") params.set("account_id", accountId);
   return params.toString();
 }
@@ -107,24 +106,19 @@ export default function ReportsView() {
         </p>
 
         <div className="report-filters">
-          <select
-            className="cat-select"
-            value={period.label}
-            onChange={(e) =>
-              setPeriod(options.find((o) => o.label === e.target.value) ?? options[4]!)
-            }
-          >
-            {options.map((o) => (
-              <option key={o.label} value={o.label}>
-                {o.label}
-              </option>
-            ))}
-          </select>
+          {/* The same control the ledger uses. It used to be presets only, so "March" was
+              not a question this page could be asked — you got this month, last month, or
+              three months, and nothing in between. */}
+          <DateRange period={period} today={today} onChange={setPeriod} />
 
           <span className="period-range mono soft">
-            {period.from === ""
+            {period.from === "" && period.to === ""
               ? "everything"
-              : `${monthLabel(period.from)} – ${monthLabel(period.to)}`}
+              : period.from === ""
+                ? `up to ${monthLabel(period.to)}`
+                : period.to === ""
+                  ? `${monthLabel(period.from)} onwards`
+                  : `${monthLabel(period.from)} – ${monthLabel(period.to)}`}
           </span>
 
           <select
