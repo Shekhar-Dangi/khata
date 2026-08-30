@@ -7,7 +7,8 @@
     "dev": "cd src && node --env-file=../.env --watch server.ts",
     "start": "node --env-file=.env src/server.ts",
     "test": "node --test \"src/**/*.test.ts\"",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "migrate": "node --env-file=.env scripts/migrate.ts"
   },
   "dependencies": {
     "express": "^5.2.1",
