@@ -280,12 +280,10 @@ tbody.muted td {
   background: var(--paper-sunk);
   padding: 0;
 }
-/* Same peek, inset to this table's geometry: the Money column's right edge sits
-   130px in from the table's right (last-fired 94 + delete 36), so the drill-down
-   amounts land underneath the figure they break down. */
+/* The drill-down is a full transaction table now, with its own headers, so it gets the
+   whole width rather than being inset to line its amounts up under one column. */
 .rules-peek {
-  padding-right: 130px;
-  padding-left: 4px;
+  padding: 0;
 }
 .editor {
   padding: 14px 10px 16px;
@@ -589,60 +587,46 @@ footer .shell {
    Used under a rule row AND under a category bar. Same columns either place, so the
    same information does not look like two different things depending on where it was
    opened. Amounts right-aligned in a fixed final column. */
-:root {
-  --peek-cols: 148px 1fr 132px;
-  --peek-gap: 14px;
-}
+/* ── drill-down ───────────────────────────────────────────
+   The same TransactionTable as the ledger, nested one level in. Everything here is about
+   making a table inside a table read as SUBORDINATE rather than as a second, competing
+   table: quieter headers, tighter rows, and a hover that is still visible against the
+   sunken background it sits on. */
 .peek {
-  padding: 2px 0 6px;
+  padding: 4px 12px 10px;
 }
-.peek-row {
-  display: grid;
-  grid-template-columns: var(--peek-cols);
-  gap: var(--peek-gap);
-  align-items: baseline;
-  padding: 5px 0;
-  border-top: 1px solid var(--rule);
+.peek table {
+  /* The parent row's cell is already the full width; a nested table must not inherit the
+     outer frame's border-collapse: separate, or its own rules double up. */
+  border-collapse: collapse;
+}
+.peek th {
+  font-size: 9.5px;
+  padding: 8px 8px 6px;
+  background: transparent;
+  color: var(--ink-soft);
+  opacity: 0.75;
+}
+.peek td {
+  padding: 8px;
   font-size: 12.5px;
 }
-.peek-row:first-child {
-  border-top: 0;
+/* The drill-down sits ON --paper-sunk, which is also the global row-hover colour — so
+   without this the hover state is invisible in exactly the place you are pointing. */
+.peek tbody tr:hover {
+  background: #ece6d9;
 }
-.peek-when {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.35;
+.peek .txn-detail > td,
+.peek .txn-detail > td:hover {
+  background: var(--paper);
 }
-.peek-when .mono {
-  font-size: 11.5px;
-  color: var(--ink-soft);
-}
-.peek-when em {
-  font-style: normal;
-  font-size: 10.5px;
-  color: var(--ink-soft);
-}
-/* min-width: 0 is the load-bearing declaration. A grid item will not shrink below its
-   content without it, so the ellipsis never engages and the row blows its column out. */
-.peek-narration {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.peek-amount {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
+.peek tbody tr:last-child td {
+  border-bottom: 0;
 }
 .touched-empty {
-  padding: 10px 0;
+  padding: 10px 12px;
   margin: 0;
   font-size: 13px;
-}
-.touched-more {
-  margin: 8px 0 0;
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 11px;
 }
 
 /* ── server-filtered ledger ───────────────────────────── */
@@ -719,12 +703,6 @@ footer .shell {
     filter: none;
     transition: none;
   }
-}
-.pager {
-  display: flex;
-  gap: 10px;
-  justify-content: center;
-  padding: 16px 0 4px;
 }
 .pager button:disabled {
   opacity: 0.35;
@@ -901,4 +879,394 @@ footer .shell {
   /* Inset from the right by the delta column (54px) plus its gap, so the peek's amount
      column ends where the BAR VALUE above it ends rather than where the row ends. */
   padding-right: calc(54px + var(--bar-gap) + 4px);
+}
+
+/* ── scrolling table frame ────────────────────────────────
+   Every list of transactions sits in a box of a FIXED size, and the rows scroll inside
+   it. Two reasons, both of which were real problems:
+
+   1. The page stopped moving under you. A filter that returns 4 rows and one that
+      returns 100 used to change the document height, so the pager, the footer and the
+      scrollbar itself jumped to a different place on every keystroke. Reserving the
+      height means the controls stay where your hand already is.
+   2. The header stays visible. `position: sticky` on <th> only works when there is a
+      scrolling ancestor to stick to — on the document scroll it just leaves.
+
+   The height is a CLAMP, not a fixed number: short results do not leave a tall empty
+   box, and tall ones stop at something a laptop screen can hold. `overflow: auto` (not
+   scroll) so the bar appears only when it is needed. */
+.table-scroll {
+  max-height: min(62vh, 620px);
+  overflow: auto;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: var(--paper);
+  /* Anchors the scroll position to the top when the row count changes underneath,
+     rather than trying to keep the row nearest the middle in view. */
+  overflow-anchor: none;
+}
+.table-scroll.short {
+  max-height: min(40vh, 340px);
+}
+/* The table's own top border would double up with the frame's. */
+.table-scroll table {
+  border-collapse: separate; /* sticky + collapse loses the header's bottom border */
+  border-spacing: 0;
+}
+.table-scroll th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  /* Opaque, or the rows scroll THROUGH the header. --paper, not transparent. */
+  background: var(--paper);
+  /* With border-collapse: separate a <th> border does not travel with the sticky
+     element the way a collapsed one does; a box-shadow does. */
+  box-shadow: inset 0 -1px 0 var(--rule);
+  border-bottom: 0;
+}
+.table-scroll td {
+  border-bottom: 1px solid var(--rule);
+}
+.table-scroll tbody tr:last-child td {
+  border-bottom: 0;
+}
+.pager {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 0 4px;
+}
+.pager-count {
+  font-size: 11.5px;
+  min-width: 150px;
+  text-align: center;
+}
+
+/* ── transfers ────────────────────────────────────────────
+   A proposal is a PAIR, so it is drawn as one card holding two legs rather than as two
+   table rows that happen to be adjacent. The point of the screen is "are these two the
+   same money", and a table makes that comparison the reader's job. */
+.tf-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 10px 12px;
+  flex-wrap: wrap;
+}
+.tf-tab {
+  font: inherit;
+  font-size: 12.5px;
+  background: none;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  color: var(--ink-soft);
+  padding: 4px 11px;
+  cursor: pointer;
+}
+.tf-tab[aria-current="true"] {
+  color: var(--paper);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.tf-tab b {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  margin-left: 7px;
+  opacity: 0.7;
+}
+.tf-tab[aria-current="true"] b {
+  opacity: 0.85;
+}
+.pair {
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  margin: 0 10px 10px;
+  background: var(--paper);
+}
+.pair-head {
+  /* A grid, not a flex row. As flex, the reason text ("same UPI reference 6226…") is a
+     different length on every card, so the buttons landed in a different place on each
+     one and the column of actions zig-zagged down the page. Fixed lanes: amount, reason,
+     actions. */
+  display: grid;
+  grid-template-columns: 108px 1fr auto;
+  align-items: baseline;
+  gap: 14px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper-sunk);
+}
+.pair-when {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.pair-amount {
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.pair-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  white-space: nowrap;
+}
+.pair-leg {
+  display: grid;
+  grid-template-columns: 106px 130px 1fr 130px;
+  gap: 12px;
+  align-items: baseline;
+  padding: 9px 14px;
+  font-size: 13px;
+}
+.pair-leg + .pair-leg {
+  border-top: 1px dashed var(--rule);
+}
+.pair-narration {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* ── account identifiers ──────────────────────────────── */
+.kw-account {
+  border-top: 1px solid var(--rule);
+  padding: 12px 10px;
+}
+.kw-account:first-child {
+  border-top: 0;
+}
+.kw-name {
+  font-family: Fraunces, serif;
+  font-size: 15px;
+  margin-bottom: 6px;
+}
+.kw-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.kw-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 2px 4px 2px 9px;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12px;
+}
+.kw-chip em {
+  font-style: normal;
+  font-family: "Hanken Grotesk", sans-serif;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.kw-add {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.kw-add input {
+  font: inherit;
+  font-size: 13px;
+  padding: 4px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: var(--paper);
+  color: var(--ink);
+  min-width: 190px;
+}
+.kw-add input:focus,
+.kw-add select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* ── categories ───────────────────────────────────────────
+   A list of names you scan, not a table you read. What made it noisy was the labelling:
+   an "unused" written against every empty category (which is most of them on a fresh
+   install) and a tree-drawing glyph in front of every child. Both are gone; the names and
+   the actions stay. */
+.cat-tree {
+  padding: 0 10px;
+  max-width: 620px;
+}
+.cat-group {
+  padding: 10px 0;
+  border-top: 1px solid var(--rule);
+}
+.cat-group:first-child {
+  border-top: 0;
+}
+.cat-row {
+  display: grid;
+  /* Fixed lanes. `auto` sized the action column to its content, so it started in a
+     different place on every row and the buttons stepped in and out down the page. */
+  grid-template-columns: 1fr 46px 150px;
+  gap: 10px;
+  align-items: center;
+  padding: 3px 4px;
+  border-radius: 3px;
+}
+.cat-row:hover {
+  background: var(--paper-sunk);
+}
+.cat-row.child {
+  padding-left: 18px;
+}
+.cat-label {
+  font-size: 13.5px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cat-row.parent .cat-label {
+  font-family: Fraunces, serif;
+  font-size: 15px;
+}
+.cat-usage {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10.5px;
+  color: var(--ink-soft);
+  text-align: right;
+  white-space: nowrap;
+}
+.cat-usage em {
+  font-style: normal;
+  margin-left: 5px;
+  opacity: 0.75;
+}
+/* Always visible. Hiding them until hover was tried and reverted: an action you cannot
+   see is an action you do not know exists, and on this screen the actions ARE the point.
+   What was actually cluttering the list was the labelling around them, not the buttons. */
+.cat-actions {
+  display: flex;
+  gap: 2px;
+  justify-content: flex-end;
+  white-space: nowrap;
+}
+.cat-edit {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 4px;
+}
+.cat-edit input {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+.cat-edit input {
+  font: inherit;
+  font-size: 13px;
+  padding: 4px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: var(--paper);
+  color: var(--ink);
+}
+.cat-edit input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.link-btn {
+  font: inherit;
+  font-size: 12px;
+  background: none;
+  border: 0;
+  padding: 2px 6px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  border-radius: 3px;
+}
+.link-btn:hover {
+  background: var(--paper-sunk);
+  color: var(--ink);
+}
+.link-btn.danger:hover {
+  color: var(--debit);
+}
+.head-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.note {
+  font-size: 12px;
+  padding: 8px 12px;
+  border-left: 2px solid var(--flag);
+  background: var(--paper-sunk);
+  margin: 0 10px 12px;
+}
+.note.ok {
+  border-left-color: var(--credit);
+}
+.nowrap {
+  white-space: nowrap;
+}
+.reassign-said {
+  margin-bottom: 8px;
+}
+.pair-why {
+  font-size: 11.5px;
+}
+.pair-why b {
+  font-weight: 400;
+  margin-left: 6px;
+  font-size: 11.5px;
+}
+
+/* ── date range ───────────────────────────────────────────
+   Preset dropdown and two date inputs on one line. The inputs are always visible rather
+   than hidden behind a "Custom…" option: picking an arbitrary range is the general case,
+   and putting it behind the shortcuts makes it feel like an advanced mode. */
+.daterange {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.daterange-inputs {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.daterange input[type="date"] {
+  font: inherit;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12px;
+  color: var(--ink);
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  padding: 3px 2px;
+  border-radius: 0;
+}
+.daterange input[type="date"]:focus {
+  outline: none;
+  border-bottom-color: var(--accent);
+}
+/* An empty date input renders "dd-mm-yyyy" at full contrast, which reads as a value that
+   has been set. Soften it until it holds one.
+   The class is set from React, deliberately. `:not(:valid)` does NOT work — an empty
+   non-required input IS valid — and `[value=""]` does not work either, because React
+   controls the value as a DOM property and never writes the attribute. Both look correct
+   and match nothing. */
+.daterange input.empty {
+  color: var(--ink-soft);
+}
+.daterange .link-btn {
+  font-size: 11px;
 }

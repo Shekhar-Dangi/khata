@@ -7,14 +7,22 @@ import TransfersView from "./TransfersView";
 import AnomaliesView from "./AnomaliesView";
 import RulesView from "./RulesView";
 import ReportsView from "./ReportsView";
+import CategoriesView from "./CategoriesView";
 
-type View = "transactions" | "reports" | "transfers" | "rules" | "anomalies";
+type View =
+  | "transactions"
+  | "reports"
+  | "transfers"
+  | "rules"
+  | "categories"
+  | "anomalies";
 
 const TABS: { key: View; label: string }[] = [
   { key: "transactions", label: "Transactions" },
   { key: "reports", label: "Where it goes" },
   { key: "transfers", label: "Internal transfers" },
   { key: "rules", label: "Rules" },
+  { key: "categories", label: "Categories" },
   { key: "anomalies", label: "Anomalies" },
 ];
 
@@ -59,6 +67,7 @@ function App() {
             {view === "transfers" && <TransfersView />}
             {view === "reports" && <ReportsView />}
             {view === "rules" && <RulesView />}
+            {view === "categories" && <CategoriesView />}
             {view === "anomalies" && <AnomaliesView />}
           </div>
         </div>
