@@ -197,3 +197,63 @@ router.get("/summary", route(async (_req, res) => {
   });
 }));
 
+
+// GET /reports/by-month — the soul metric over TIME.
+//
+// Every other number in this app is a snapshot, which makes the one question the product
+// exists to answer unanswerable: is unexplained money going down? A metric whose entire
+// meaning is directional needs a direction.
+//
+// Same per-transaction CTE as /summary, for the same reason: ABS is taken PER TRANSACTION
+// before summing, so an unexplained 500 debit and an unexplained 500 credit are 1000
+// unexplained rather than zero. Aggregating first and taking ABS after would net them out
+// and report a month with two mistakes in it as a clean one.
+//
+// Months with no transactions are absent rather than zero-filled. A gap in a bank
+// statement is missing data, not a month you spent nothing — and drawing it as zero would
+// invent a dip that never happened. The chart joins across gaps; it does not fabricate.
+router.get("/reports/by-month", route(async (req, res) => {
+  const filters = parseFilters(req.query, 1);
+  if (!filters.ok) return res.status(400).json({ error: filters.error });
+
+  const result = await pool.query(
+    `WITH per_txn AS (
+         SELECT t.id,
+                t.txn_date,
+                t.amount_paise,
+                COALESCE(SUM(al.amount_paise), 0) AS explained,
+                COALESCE(SUM(al.amount_paise) FILTER (WHERE al.source = 'rule'), 0) AS provisional,
+                COALESCE(SUM(al.amount_paise) FILTER (WHERE al.source = 'user'), 0) AS confirmed
+           FROM transactions t
+           LEFT JOIN allocations al ON al.transaction_id = t.id
+          WHERE ${EXPLAINABLE_SPEND} ${filters.sql}
+          GROUP BY t.id
+       )
+       SELECT to_char(txn_date, 'YYYY-MM')                                  AS month,
+              COALESCE(SUM(ABS(amount_paise)) FILTER (WHERE amount_paise < 0), 0) AS out_paise,
+              COALESCE(SUM(ABS(provisional)) FILTER (WHERE amount_paise < 0), 0)  AS provisional_paise,
+              COALESCE(SUM(ABS(confirmed))   FILTER (WHERE amount_paise < 0), 0)  AS confirmed_paise,
+              COALESCE(SUM(ABS(amount_paise - explained))
+                       FILTER (WHERE amount_paise < 0), 0)                        AS unexplained_paise,
+              COUNT(*) FILTER (WHERE amount_paise < 0)                            AS transactions
+         FROM per_txn
+        GROUP BY 1
+        HAVING COUNT(*) FILTER (WHERE amount_paise < 0) > 0
+        ORDER BY 1`,
+    filters.params,
+  );
+
+  // pg returns BIGINT as a STRING. Every one of these is compared and charted, and
+  // "-230000" < "-500000" is true as strings, so they are coerced here once rather than
+  // hopefully somewhere in the browser.
+  return res.json({
+    months: result.rows.map((r) => ({
+      month: r.month,
+      out_paise: Number(r.out_paise),
+      provisional_paise: Number(r.provisional_paise),
+      confirmed_paise: Number(r.confirmed_paise),
+      unexplained_paise: Number(r.unexplained_paise),
+      transactions: Number(r.transactions),
+    })),
+  });
+}));

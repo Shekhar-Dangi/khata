@@ -4,12 +4,14 @@ import { useBusy, useFetch } from "./useFetch";
 import { useLedgerVersion } from "./ledgerVersion";
 import { rupees } from "./format";
 import CategoryBars from "./CategoryBars";
+import MonthTrend from "./MonthTrend";
 import DateRange, { rangeParams } from "./DateRange";
 import {
   monthLabel,
   presets,
   previousPeriod,
   type CategoryReport,
+  type MonthRow,
   type Period,
 } from "./reports";
 
@@ -41,6 +43,14 @@ export default function ReportsView() {
 
   const main = useFetch<CategoryReport>(
     `/reports/by-category?${query(period, accountId)}`,
+    { keepPreviousData: true, revalidateOn: version },
+  );
+
+  // The trend deliberately IGNORES the period filter and always shows every month: its
+  // whole job is "is this going down over time", and answering that inside a one-month
+  // window is answering a different question. It does honour the account filter.
+  const trend = useFetch<{ months: MonthRow[] }>(
+    `/reports/by-month${accountId ? `?account_id=${accountId}` : ""}`,
     { keepPreviousData: true, revalidateOn: version },
   );
 
@@ -185,6 +195,13 @@ export default function ReportsView() {
           <span className="lg"><i className="seg-provisional" />a rule guessed</span>
           <span className="lg"><i className="seg-evidence" />from evidence</span>
         </div>
+
+        <h3 className="report-h">Money you can&rsquo;t explain, over time</h3>
+        {trend.data ? (
+          <MonthTrend months={trend.data.months} />
+        ) : (
+          <p className="soft">{trend.error ?? "Loading…"}</p>
+        )}
 
         <h3 className="report-h">Spending</h3>
         <CategoryBars rows={spend} compare={compareMap} baseQuery={baseQuery} />
