@@ -4,6 +4,7 @@ import { useFetch } from "./useFetch";
 import { rupees } from "./format";
 import AllocationEditor from "./AllocationEditor";
 import CategorySelect from "./CategorySelect";
+import { errorText, mutate } from "./api";
 import { isTransfer, type Category, type Txn } from "./transactions";
 
 
@@ -32,6 +33,7 @@ export default function TransactionTable({
   emptyMessage = "No matching transactions.",
   frame = true,
   suggestable = false,
+  confirmable = false,
   resetKey = "",
 }: {
   rows: Txn[];
@@ -48,6 +50,16 @@ export default function TransactionTable({
    * asked for, and an absent control says that better than one returning nothing.
    */
   suggestable?: boolean;
+  /**
+   * Offer bulk confirmation of rule guesses on these rows.
+   *
+   * Only true where it means something — the ledger filtered to provisional. Confirming
+   * is a PROVENANCE change (same category, different author), and it takes the
+   * transaction-level user lock, so a confirmed wrong guess is one the engine can never
+   * correct. That is why this ticks rows in a list whose narrations are on screen rather
+   * than offering a single "confirm everything" button.
+   */
+  confirmable?: boolean;
   /**
    * Identity of the current view — the parent's query string. When it changes the rows
    * underneath are a different set, so any suggestions in flight are about a list that no
@@ -89,11 +101,25 @@ export default function TransactionTable({
   // ledger. It shows ONLY rows it named — an "Unknown" badge on four rows in five would
   // make a working feature look broken, and there is nothing to decide about them.
   const reviewing = suggestions.size > 0;
+  // Confirm mode is its own thing, not a variant of the suggestion review. They look
+  // alike — tick boxes over rows — but they differ where it matters: a suggestion needs
+  // fetching and a category decision, a confirmation needs neither. Forcing them through
+  // one abstraction would make both harder to read than keeping them apart.
+  const confirmMode = confirmable && !reviewing;
   const reviewRows = reviewing ? rows.filter((r) => suggestions.has(r.id)) : rows;
-  const allTicked = reviewing && reviewRows.every((r) => selected.has(r.id));
+  // ONE definition of "which rows can be ticked right now", so the header checkbox, the
+  // select-all and the submit button cannot disagree about the set they act on.
+  const ticking = reviewing || confirmable;
+  const allTicked =
+    ticking && tickTargets().length > 0 && tickTargets().every((r) => selected.has(r.id));
 
+  function tickTargets(): Txn[] {
+    if (reviewing) return rows.filter((r) => suggestions.has(r.id));
+    if (confirmable) return rows.filter((r) => r.allocations.some((a) => a.source === "rule"));
+    return [];
+  }
   function tickAll(on: boolean) {
-    setSelected(on ? new Set(reviewRows.map((r) => r.id)) : new Set());
+    setSelected(on ? new Set(tickTargets().map((r) => r.id)) : new Set());
   }
   function tick(id: string, on: boolean) {
     setSelected((prev) => {
@@ -113,6 +139,25 @@ export default function TransactionTable({
     setChosen(new Map());
     setAskError(null);
   }, [resetKey]);
+
+  async function confirmSelected() {
+    const ids = tickTargets().filter((r) => selected.has(r.id)).map((r) => r.id);
+    if (ids.length === 0) return;
+    setAccepting(true);
+    setAskError(null);
+    try {
+      const body = await mutate<{ confirmed: number; transactions: number }>(
+        "/transactions/confirm",
+        { method: "POST", body: JSON.stringify({ transaction_ids: ids }) },
+      );
+      setSelected(new Set());
+      if (body.confirmed > 0) onSaved();
+    } catch (e) {
+      setAskError(errorText(e, "Could not confirm"));
+    } finally {
+      setAccepting(false);
+    }
+  }
 
   function clearSuggestions() {
     setSuggestions(new Map());
@@ -227,7 +272,7 @@ export default function TransactionTable({
   const table = (
     <table>
       <colgroup>
-        {reviewing && <col style={{ width: "38px" }} />}
+        {ticking && <col style={{ width: "38px" }} />}
         <col style={{ width: "110px" }} />
         <col style={{ width: "130px" }} />
         <col />
@@ -237,7 +282,7 @@ export default function TransactionTable({
       </colgroup>
       <thead>
         <tr>
-          {reviewing && (
+          {ticking && (
             <th>
               <input
                 type="checkbox"
@@ -257,7 +302,7 @@ export default function TransactionTable({
       <tbody>
         {reviewRows.length === 0 ? (
           <tr>
-            <td colSpan={reviewing ? 6 : 5} className="soft">
+            <td colSpan={ticking ? 6 : 5} className="soft">
               {emptyMessage}
             </td>
           </tr>
@@ -270,16 +315,16 @@ export default function TransactionTable({
             return (
               <Fragment key={t.id}>
                 <tr
-                  className={reviewing ? "txn-row is-review" : "txn-row"}
-                  aria-expanded={reviewing ? undefined : expanded}
+                  className={ticking ? "txn-row is-review" : "txn-row"}
+                  aria-expanded={ticking ? undefined : expanded}
                   // While reviewing, the row is a decision, not a drill-down: the category
                   // cell is already an editable picker, so expanding would only offer a
                   // slower way to do the same thing.
                   onClick={
-                    reviewing ? undefined : () => setExpandedId(expanded ? null : t.id)
+                    ticking ? undefined : () => setExpandedId(expanded ? null : t.id)
                   }
                 >
-                  {reviewing && (
+                  {ticking && (
                     <td>
                       <input
                         type="checkbox"
@@ -302,8 +347,18 @@ export default function TransactionTable({
                   >
                     {rupees(t.amount_paise)}
                   </td>
-                  <td className={reviewing ? "" : "r"}>
-                    {reviewing ? (
+                  <td className={ticking ? "" : "r"}>
+                    {confirmMode ? (
+                      // The categories themselves, not the word "provisional". You are
+                      // being asked to claim these as your own answer, and a state label
+                      // is not something you can decide from.
+                      <span className="confirm-cats">
+                        {t.allocations
+                          .filter((a) => a.source === "rule")
+                          .map((a) => a.category_name)
+                          .join(", ") || "—"}
+                      </span>
+                    ) : reviewing ? (
                       // The picker is PRE-FILLED with the model's answer. Most wrong
                       // suggestions are nearly right — correct parent, wrong child — and
                       // accept-or-discard alone would throw away the 80% that was useful.
@@ -345,9 +400,9 @@ export default function TransactionTable({
                     )}
                   </td>
                 </tr>
-                {expanded && !reviewing && (
+                {expanded && !ticking && (
                   <tr className="txn-detail">
-                    <td colSpan={reviewing ? 6 : 5}>
+                    <td colSpan={ticking ? 6 : 5}>
                       {cats.data ? (
                         <AllocationEditor
                           transaction={t}
@@ -378,6 +433,26 @@ export default function TransactionTable({
   // document scroll it just leaves. Drill-downs pass frame={false}: they are already
   // inside one, and a scrollbar nested in a scrollbar catches the wrong wheel.
   const framed = frame ? <div className="table-scroll">{table}</div> : table;
+
+  if (confirmMode) {
+    const ticked = tickTargets().filter((r) => selected.has(r.id)).length;
+    return (
+      <>
+        <div className="sugg-bar">
+          <button className="btn" onClick={confirmSelected} disabled={accepting || ticked === 0}>
+            {accepting ? "Confirming…" : `Confirm ${ticked} selected`}
+          </button>
+          <span className="soft">
+            A rule guessed these. Confirming makes them YOUR answer — same category, and
+            the engine stops managing the row, so look before you tick.
+          </span>
+          {askError && <span className="debit">{askError}</span>}
+        </div>
+        {framed}
+      </>
+    );
+  }
+
   if (!suggestable) return framed;
 
   const ticked = reviewRows.filter((r) => selected.has(r.id)).length;

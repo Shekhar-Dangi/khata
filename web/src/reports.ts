@@ -117,3 +117,15 @@ export function pctChange(now: number, before: number): number | null {
   if (before === 0) return null;
   return ((Math.abs(now) - Math.abs(before)) / Math.abs(before)) * 100;
 }
+
+// Mirrors GET /reports/by-month. The three states sum to out_paise exactly, every month —
+// that is the endpoint's own invariant and what makes a stacked column honest rather than
+// decorative.
+export type MonthRow = {
+  month: string; // "YYYY-MM"
+  out_paise: number;
+  provisional_paise: number;
+  confirmed_paise: number;
+  unexplained_paise: number;
+  transactions: number;
+};
