@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { errorText, mutate } from "./api";
 import { useFetch } from "./useFetch";
 
 type Account = { id: number; name: string };
@@ -102,8 +103,16 @@ function AccountRow({
     }
   }
 
+  // Unchecked before: a refused DELETE left the identifier on screen with nothing said,
+  // which reads as "the button is broken" rather than "the server refused".
   async function remove(id: number) {
-    await fetch(`/accounts/${account.id}/keywords/${id}`, { method: "DELETE" });
+    setError(null);
+    try {
+      await mutate(`/accounts/${account.id}/keywords/${id}`, { method: "DELETE" });
+    } catch (e) {
+      setError(errorText(e, "Could not remove this identifier"));
+      return;
+    }
     await onChanged();
   }
 
