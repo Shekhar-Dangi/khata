@@ -295,3 +295,63 @@ router.post("/transactions/suggest", route(async (req, res) => {
     model: LLM_MODEL,
   });
 }));
+
+
+// POST /transactions/confirm — turn a rule's guesses on these rows into your own answer.
+//
+// The three-state model's central distinction is "a machine guessed" vs "I know", and it
+// was decorative until this existed: 254 rows carried a rule's guess and 13 had ever been
+// confirmed, because confirming was a one-row action and nobody does it 254 times.
+//
+// Confirming is a PROVENANCE change, not a value change: same category, same amount,
+// different author. The schema forces the shape — the CHECK requires rule_id IS NULL when
+// source='user' — so the link to the rule is dropped and the rule's impact in
+// /reports/by-rule shrinks accordingly. That is correct rather than lossy: once you have
+// claimed a row, the rule no longer manages it. The origin is kept in `note` so the
+// history survives in a readable form.
+//
+// It does NOT move the unexplained figure. Unexplained is
+// SUM(ABS(amount - explained)) and `explained` is unchanged by this — these rows were
+// already explained, just not by you.
+//
+// Consequence to respect: a confirmed allocation takes the TRANSACTION-LEVEL USER LOCK,
+// so the engine will skip the whole transaction from here on. A confirmed wrong guess is
+// one the engine can never correct. That is why the UI makes you look before you tick.
+router.post("/transactions/confirm", route(async (req, res) => {
+  const ids = req.body?.transaction_ids;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    throw badRequest("`transaction_ids` must be a non-empty array");
+  }
+  // BIGINT ids arrive as strings. Number() never throws, so test the shape — an unchecked
+  // id reaches Postgres as NaN and returns a 500 for what was only ever a bad request.
+  for (const id of ids) {
+    if (typeof id !== "string" || !/^\d+$/.test(id)) {
+      throw badRequest("every transaction id must be a numeric string");
+    }
+  }
+
+  const result = await withTransaction(async (client) => {
+    // Scoped to source='rule' twice over: in the WHERE, and by the CHECK constraint itself,
+    // which would reject a user row that still named a rule. A user allocation is
+    // unreachable here, which is the point — this may only claim what a machine wrote.
+    const updated = await client.query(
+      `UPDATE allocations al
+          SET source = 'user',
+              rule_id = NULL,
+              confidence = 1,
+              note = COALESCE(al.note || ' | ', '') || 'confirmed from rule: ' || r.name
+         FROM rules r
+        WHERE al.rule_id = r.id
+          AND al.source = 'rule'
+          AND al.transaction_id = ANY($1::bigint[])
+        RETURNING al.transaction_id`,
+      [ids],
+    );
+    return {
+      confirmed: updated.rowCount ?? 0,
+      transactions: new Set(updated.rows.map((r) => String(r.transaction_id))).size,
+    };
+  });
+
+  return res.json(result);
+}));
