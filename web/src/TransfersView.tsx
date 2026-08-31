@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { errorText, mutate } from "./api";
 import { useBusy, useFetch } from "./useFetch";
 import { useLedgerVersion } from "./ledgerVersion";
 import { rupees } from "./format";
@@ -93,6 +94,10 @@ export default function TransfersView() {
   const [showIds, setShowIds] = useState(false);
   const [detecting, setDetecting] = useState(false);
   const [result, setResult] = useState<DetectResult | null>(null);
+  // A REFUSED write, as opposed to a failed read. The read error already returns early
+  // and replaces the page; a write failure must be said without throwing away the list
+  // you are working through.
+  const [writeError, setWriteError] = useState<string | null>(null);
   const { version, bump } = useLedgerVersion();
 
   const { data, loading, error, refetch, refreshing, isStale } =
@@ -124,14 +129,30 @@ export default function TransfersView() {
 
   // Confirming moves both legs out of spend, so every number on the ledger changes —
   // that is a ledger mutation, not a change to this list.
+  // These were fire-and-forget: a refused confirm looked identical to a successful one,
+  // because nothing read the response. The list refetched, the pair was still sitting
+  // there, and the totals had not moved — with no explanation anywhere on screen. On a
+  // control that moves BOTH legs out of spend, that is the worst place to be quiet.
   async function decide(groupId: number, verdict: "confirm" | "reject") {
-    await fetch(`/transfers/${groupId}/${verdict}`, { method: "POST" });
+    setWriteError(null);
+    try {
+      await mutate(`/transfers/${groupId}/${verdict}`, { method: "POST" });
+    } catch (e) {
+      setWriteError(errorText(e, `Could not ${verdict} this pair`));
+      return; // nothing changed, so nothing to refresh
+    }
     await refetch();
     bump();
   }
 
   async function unlink(txnId: string) {
-    await fetch(`/transactions/${txnId}/unlink-transfer`, { method: "POST" });
+    setWriteError(null);
+    try {
+      await mutate(`/transactions/${txnId}/unlink-transfer`, { method: "POST" });
+    } catch (e) {
+      setWriteError(errorText(e, "Could not unlink this transaction"));
+      return;
+    }
     await refetch();
     bump();
   }
@@ -153,6 +174,7 @@ export default function TransfersView() {
           statement. Pairs sharing a UPI reference are linked for you; weaker guesses wait
           for you. Every link says why, and can be undone.
         </p>
+        {writeError && <p className="debit rules-error">{writeError}</p>}
         <div className="head-actions">
           <button className="btn" onClick={detect} disabled={detecting}>
             {detecting ? "Looking…" : "Find transfers"}

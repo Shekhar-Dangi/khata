@@ -1,10 +1,13 @@
 import { useState } from "react";
 
+import { errorText, mutate } from "./api";
+
 import { useFetch } from "./useFetch";
 import { useLedgerVersion } from "./ledgerVersion";
 import RulesToolbar from "./RulesToolbar";
 import RuleForm from "./RuleForm";
 import RulesList from "./RulesList";
+import CandidatesList from "./CandidatesList";
 import type { RuleImpact } from "./rules";
 
 // Composition and one piece of shared data. Everything else has been pushed DOWN into
@@ -29,6 +32,22 @@ export default function RulesView() {
   // null = closed, "new" = creating, a rule = editing that one.
   const [editing, setEditing] = useState<null | "new" | RuleImpact>(null);
 
+  // Active rules and candidates are two MODES of one page, not two pages.
+  //
+  // A candidate is a rule you have not accepted yet, and judging one means knowing what
+  // already exists — which rules there are, what they cover, what priority they carry.
+  // In its own tab, every review becomes: read the candidate, switch to Rules to check
+  // nothing covers it, switch back. Same instinct as the routes layer, where
+  // /accounts/:id/keywords is a TRANSFERS route because it lives with its concern.
+  //
+  // Two modes rather than two stacked lists: they answer different questions and neither
+  // wants to be half a screen.
+  const [mode, setMode] = useState<"active" | "candidates">("active");
+  // Writes from this screen used to be fire-and-forget: a refused PATCH or DELETE looked
+  // exactly like success, because nothing read the response. The list refetched, the rule
+  // was still there, and the screen said nothing.
+  const [writeError, setWriteError] = useState<string | null>(null);
+
   if (rules.loading) return <p className="soft">Loading…</p>;
   if (rules.error) return <p className="soft">{rules.error}</p>;
 
@@ -38,7 +57,14 @@ export default function RulesView() {
   // user means the reports read wrong until they happen to press Apply.
   async function afterWrite(reapplyNeeded: boolean) {
     setEditing(null);
-    if (reapplyNeeded) await fetch("/rules/apply", { method: "POST" });
+    try {
+      if (reapplyNeeded) await mutate("/rules/apply", { method: "POST" });
+    } catch (e) {
+      // The rule change itself already landed, so this is NOT a reason to skip the
+      // refresh — the ledger has moved and the screen must catch up. Say what failed and
+      // carry on: leaving stale rows on screen would hide a change that really happened.
+      setWriteError(`${errorText(e)} — the rule saved, but re-applying failed.`);
+    }
     await rules.refetch();
     bump();
   }
@@ -49,11 +75,40 @@ export default function RulesView() {
           content inside it lays out side by side and squeezes. */}
       <div className="rules-head">
         <h2>Rules</h2>
+
+        <div className="mode-switch" role="tablist" aria-label="Rules view">
+          <button
+            role="tab"
+            aria-selected={mode === "active"}
+            className={mode === "active" ? "mode on" : "mode"}
+            onClick={() => setMode("active")}
+          >
+            Active rules <span className="mode-count">{rules.data?.rules.length ?? 0}</span>
+          </button>
+          <button
+            role="tab"
+            aria-selected={mode === "candidates"}
+            className={mode === "candidates" ? "mode on" : "mode"}
+            onClick={() => setMode("candidates")}
+          >
+            Candidates
+          </button>
+        </div>
+
+        {/* The intro and the toolbar render in BOTH modes, in the same slot. They used to
+            be active-only, so switching tabs changed the header's height and everything
+            below jumped. Applying rules and starting a new one are both meaningful while
+            reviewing candidates anyway — only the prose changes. */}
         <p className="soft rules-intro">
-          A rule explains a transaction automatically. Its guess is provisional — it never
-          overwrites an explanation you wrote yourself, and running it again changes
-          nothing until a rule changes.
+          {mode === "active"
+            ? `A rule explains a transaction automatically. Its guess is provisional — it
+               never overwrites an explanation you wrote yourself, and running it again
+               changes nothing until a rule changes.`
+            : `Patterns that repeat across your unexplained transactions. None of these
+               exist yet. Open one to see exactly which transactions it would claim —
+               looking is how you create it, because the summary hides the mistakes.`}
         </p>
+        {writeError && <p className="debit rules-error">{writeError}</p>}
         <RulesToolbar
           showForm={editing === "new"}
           onToggleForm={() => setEditing((v) => (v === "new" ? null : "new"))}
@@ -61,7 +116,17 @@ export default function RulesView() {
         />
       </div>
 
-      {editing !== null && (
+      {mode === "candidates" && (
+        <CandidatesList
+          version={version}
+          // A new rule writes provisional allocations the moment it is applied, so this
+          // is a ledger mutation: re-apply, refresh the list, and bump so Summary and the
+          // ledger stop showing a number the rule has already changed.
+          onCreated={() => afterWrite(true)}
+        />
+      )}
+
+      {mode === "active" && editing !== null && (
         <RuleForm
           // key remounts the form when you switch from one rule to another, which is what
           // resets the drafts. Without it React keeps the same component instance and its
@@ -74,15 +139,22 @@ export default function RulesView() {
         />
       )}
 
+      {mode === "active" && (
       <RulesList
         rules={rules.data?.rules ?? []}
         onEdit={(rule) => setEditing(rule)}
         onToggle={async (rule) => {
-          await fetch(`/rules/${rule.id}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ enabled: !rule.enabled }),
-          });
+          setWriteError(null);
+          try {
+            await mutate(`/rules/${rule.id}`, {
+              method: "PATCH",
+              body: JSON.stringify({ enabled: !rule.enabled }),
+            });
+          } catch (e) {
+            // Nothing changed, so nothing to refresh — just say so and stop.
+            setWriteError(errorText(e, "Could not change the rule"));
+            return;
+          }
           // Turning a rule off deletes its guesses; turning it back on has to re-make
           // them. Both are ledger mutations, so both re-run and bump.
           await afterWrite(true);
@@ -93,12 +165,19 @@ export default function RulesView() {
           if (!confirm(`Delete “${rule.name}”? Its provisional explanations go too.`)) {
             return;
           }
-          await fetch(`/rules/${rule.id}`, { method: "DELETE" });
+          setWriteError(null);
+          try {
+            await mutate(`/rules/${rule.id}`, { method: "DELETE" });
+          } catch (e) {
+            setWriteError(errorText(e, "Could not delete the rule"));
+            return;
+          }
           // Deleting a rule removes its allocations too, so this is a ledger mutation,
           // not just a change to this list. Nothing to re-apply — the rule is gone.
           await afterWrite(false);
         }}
       />
+      )}
     </>
   );
 }

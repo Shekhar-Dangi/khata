@@ -4,6 +4,8 @@ import { pool } from "./../db.ts";
 import { badRequest, intParam, notFound, route, withTransaction } from "./../http.ts";
 import { isSpendOnly, parseFilters, parsePaging } from "./../filters.ts";
 import { EXPLAINABLE_SPEND } from "./../spend.ts";
+import { merchantHint } from "./../mining.ts";
+import { LLM_MODEL, LlmUnavailable, suggestCategories } from "./../llm.ts";
 
 const router = Router();
 export { router as transactions };
@@ -206,3 +208,90 @@ router.get("/transactions", route(async (req, res) => {
 // UI can label its tabs without four extra requests.
 const TRANSFER_STATUSES = ["pending", "resolved", "suspected", "rejected"];
 
+
+// POST /transactions/suggest — ask the LOCAL model for a category, for specific rows.
+//
+// Takes the ids currently on screen rather than "all unexplained": ~1.6s per row means
+// latency is linear, and you can only review what you can see. A page is a batch.
+//
+// It WRITES NOTHING. The answer is a suggestion; accepting one goes through
+// POST /transactions/:id/allocations like any other human decision and lands as
+// source='user'. That is why no migration was needed and no invariant is touched — see
+// the design.
+//
+// Rows the model does not recognise are simply absent from the response. On the measured
+// one-off slice it abstains on 83%, so rendering "Unknown" would fill the screen with
+// identical badges and make a working feature look broken.
+router.post("/transactions/suggest", route(async (req, res) => {
+  const ids = req.body?.ids;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    throw badRequest("`ids` must be a non-empty array");
+  }
+  if (ids.length > 100) {
+    // A guard on wall-clock, not on correctness: 100 rows is already ~3 minutes.
+    throw badRequest("at most 100 ids per request");
+  }
+  // Transaction ids are BIGINT and arrive as strings. Number() never throws, so test the
+  // shape — an unchecked id reaches Postgres as NaN and comes back a 500 for what was
+  // only ever a bad request.
+  for (const id of ids) {
+    if (typeof id !== "string" || !/^\d+$/.test(id)) {
+      throw badRequest("every id must be a numeric string");
+    }
+  }
+
+  const txnResult = await pool.query(
+    `SELECT id, narration FROM transactions
+      WHERE id = ANY($1::bigint[]) AND ${EXPLAINABLE_SPEND}`,
+    [ids],
+  );
+  const catResult = await pool.query(
+    `SELECT c.id, c.name, p.name AS parent_name
+       FROM categories c LEFT JOIN categories p ON p.id = c.parent_id
+      ORDER BY COALESCE(p.name, c.name), c.parent_id NULLS FIRST, c.name`,
+  );
+
+  // The label the model chooses from, and the map back to an id. The model never sees a
+  // category id — a number carries no meaning for it, and a label it cannot read is a
+  // label it cannot choose well.
+  const byLabel = new Map<string, number>();
+  const labels: string[] = [];
+  for (const row of catResult.rows) {
+    const label = row.parent_name ? row.parent_name + " > " + row.name : row.name;
+    // Two categories can render the same label only if the tree has duplicates; keep the
+    // first so a label always maps to exactly one id.
+    if (!byLabel.has(label)) {
+      byLabel.set(label, Number(row.id));
+      labels.push(label);
+    }
+  }
+
+  const items = txnResult.rows.map((r) => ({
+    id: String(r.id),
+    merchant: merchantHint(r.narration),
+  }));
+
+  let answers: Map<string, string>;
+  try {
+    answers = await suggestCategories(items, labels);
+  } catch (err) {
+    if (err instanceof LlmUnavailable) {
+      // 503, not 500: nothing is wrong with the request or the ledger — the optional
+      // local model is not answering, and the UI should say exactly that.
+      return res.status(503).json({ error: err.message });
+    }
+    throw err;
+  }
+
+  const suggestions = [...answers.entries()].map(([id, label]) => ({
+    transaction_id: id,
+    category_id: byLabel.get(label) ?? null,
+    category_name: label,
+  }));
+
+  return res.json({
+    suggestions,
+    asked: items.filter((i) => i.merchant.trim() !== "").length,
+    model: LLM_MODEL,
+  });
+}));
