@@ -127,3 +127,33 @@ export function describe(c: Condition): string {
 export function describeRule(r: Rule): string {
   return r.conditions.map(describe).join(r.match_mode === "all" ? " and " : " or ");
 }
+
+// Mirrors GET /rules/candidates — rules that do not exist yet, mined from the narrations
+// of unexplained transactions. See finance/the design for why this is
+// deterministic clustering rather than a model.
+export type Candidate = {
+  /** The literal `contains` value a rule would carry. */
+  value: string;
+  /** 1 for a single word, 2 for a pair — a pair is more specific, so it gets priority. */
+  words: number;
+  unexplainedHits: number;
+  ledgerHits: number;
+  /** ledgerHits as a fraction of the spend ledger. Reach, NOT ambiguity. */
+  breadth: number;
+  explainedHits: number;
+  /**
+   * Distinct categories the already-explained matches carry. 0 or 1 means the pattern
+   * means one thing; 2+ means a single rule would be lying about some rows it claims.
+   */
+  spread: number;
+  spreadDetail: { category: string; count: number }[];
+  collidesWith: string | null;
+  ids: string[];
+};
+
+export type CandidatesResponse = {
+  candidates: Candidate[];
+  unexplained_total: number;
+  ledger_total: number;
+  covered: number;
+};

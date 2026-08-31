@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { rupees } from "./format";
+import CategorySelect from "./CategorySelect";
 
 type Allocation = {
   amount_paise: number;
@@ -89,8 +90,6 @@ export default function AllocationEditor({
     }
   }
 
-  const parents = categories.filter((c) => c.parent_id == null);
-
   // The rows above were prefilled from the transaction's existing allocations. If those
   // came from a rule, this is a SUGGESTION awaiting confirmation, not your own answer —
   // and saving is what converts it (the write path stamps source='user').
@@ -110,29 +109,11 @@ export default function AllocationEditor({
         // Index key is fine here: the inputs are fully controlled (value from state),
         // and rows aren't reordered — only added/removed.
         <div className="editor-row" key={i}>
-          <select
-            className="cat-select"
-            value={row.category_id ?? ""}
-            onChange={(e) =>
-              updateRow(i, {
-                category_id: e.target.value ? Number(e.target.value) : null,
-              })
-            }
-          >
-            <option value="">Category…</option>
-            {parents.map((p) => (
-              <optgroup key={p.id} label={p.name}>
-                <option value={p.id}>{p.name} (general)</option>
-                {categories
-                  .filter((c) => c.parent_id === p.id)
-                  .map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-              </optgroup>
-            ))}
-          </select>
+          <CategorySelect
+            value={row.category_id}
+            categories={categories}
+            onChange={(category_id) => updateRow(i, { category_id })}
+          />
           <span className="rupee">₹</span>
           <input
             className="amt-input mono"
