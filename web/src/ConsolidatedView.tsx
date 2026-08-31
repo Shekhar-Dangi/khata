@@ -28,6 +28,9 @@ const PAGE = 100;
 export default function ConsolidatedView() {
   const [query, setQuery] = useState("");
   const [accountId, setAccountId] = useState("");
+  // The `source` filter has existed in the shared vocabulary since the beginning; this
+  // screen simply never exposed it. "unexplained" is the soul metric made clickable.
+  const [source, setSource] = useState("");
   const [period, setPeriod] = useState<Period>(ALL_TIME);
   const [offset, setOffset] = useState(0);
   const { version, bump } = useLedgerVersion();
@@ -47,6 +50,13 @@ export default function ConsolidatedView() {
   });
   if (debouncedQuery.trim() !== "") params.set("q", debouncedQuery.trim());
   if (accountId !== "") params.set("account_id", accountId);
+  if (source !== "") params.set("source", source);
+  // "Unexplained" is the headline metric made clickable, and that metric is SPEND: not an
+  // opening balance, not a transfer. Without this the filter answers a different question
+  // than the number it is named after — 262 rows against a figure computed from 156 — and
+  // the rows it adds are transfers, which are not money you failed to explain but money
+  // that moved between your own accounts.
+  if (source === "unexplained") params.set("spend_only", "true");
   rangeParams(period, params);
 
   // keepPreviousData: the url here is built from filters, so a change means "same view,
@@ -70,7 +80,7 @@ export default function ConsolidatedView() {
     setOffset(0);
     // The period is two primitives, not the object — an inline `{from, to}` would be a
     // new reference every render and reset the page on each one.
-  }, [debouncedQuery, accountId, period.from, period.to]);
+  }, [debouncedQuery, accountId, source, period.from, period.to]);
 
   if (loading) return <p className="soft">Loading…</p>;
   if (error) return <p className="soft">{error}</p>;
@@ -99,6 +109,16 @@ export default function ConsolidatedView() {
             </option>
           ))}
         </select>
+        <select
+          className="cat-select"
+          value={source}
+          onChange={(e) => setSource(e.target.value)}
+        >
+          <option value="">Any state</option>
+          <option value="unexplained">Unexplained</option>
+          <option value="rule">Provisional — a rule guessed</option>
+          <option value="user">Confirmed — you said</option>
+        </select>
         <DateRange period={period} today={today} onChange={setPeriod} />
         {/* The range lives on the pager. This says how many rows the FILTER found, which
             is the question the box beside it just asked. */}
@@ -118,7 +138,17 @@ export default function ConsolidatedView() {
 
       {/* Softened, not replaced: these rows are real, just one filter behind. */}
       <div className={busy || isStale ? "is-stale" : undefined}>
-        <TransactionTable rows={rows} onSaved={bump} />
+        <TransactionTable
+          rows={rows}
+          onSaved={bump}
+          // Suggesting is offered ONLY while filtered to unexplained. Proposing a category
+          // for a row that already has one is either noise or an argument you did not ask
+          // for, and an absent button says that more clearly than one returning nothing.
+          suggestable={source === "unexplained"}
+          // Identity of this view. Change a filter and the rows underneath are a different
+          // set, so any suggestions held against the old ones are dropped.
+          resetKey={params.toString()}
+        />
       </div>
 
       <Pager
