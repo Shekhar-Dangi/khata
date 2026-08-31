@@ -4,6 +4,8 @@ import { pool } from "./../db.ts";
 import { badRequest, conflict, intParam, isUniqueViolation, notFound, route, withTransaction } from "./../http.ts";
 import { accountExists } from "./../accounts.ts";
 import { EXPLAINABLE_SPEND } from "./../spend.ts";
+import { mineCandidates } from "./../mining.ts";
+import type { MineableTxn } from "./../mining.ts";
 import { isIsoDate } from "./../filters.ts";
 import {
   MATCH_MODES,
@@ -14,6 +16,7 @@ import {
   isMatchMode,
   isRuleField,
   isRuleOp,
+  matches,
   sameAllocation,
 } from "./../rules.ts";
 import type { ApplicableRule } from "./../rules.ts";
@@ -525,4 +528,157 @@ router.post("/rules/apply", route(async (req, res) => {
   });
 
   return res.json(result);
+}));
+
+
+// GET /rules/candidates — mine the unexplained ledger for rules that do not exist yet.
+//
+// Computed on demand and stored NOWHERE. Candidates are a deterministic function of the
+// ledger, so a table would only be a cache that goes stale the moment a rule is created
+// or a statement imported. It also means this feature needs no migration.
+//
+// One query, not two: the whole spend ledger comes back with its allocated category names
+// and its explained total, and `unexplained` is partitioned out in JS. The miner needs
+// both sets anyway — the unexplained rows are what a candidate would newly explain, and
+// the full ledger is what it would collide with.
+router.get("/rules/candidates", route(async (req, res) => {
+  const rawMinHits = req.query.min_hits;
+  let minHits = 3;
+  if (rawMinHits !== undefined) {
+    // Number("") is 0 and Number("abc") is NaN, and neither throws. Test the shape.
+    if (typeof rawMinHits !== "string" || !/^\d+$/.test(rawMinHits)) {
+      throw badRequest("min_hits must be a positive integer");
+    }
+    minHits = Number(rawMinHits);
+    if (minHits < 2 || minHits > 100) {
+      throw badRequest("min_hits must be between 2 and 100");
+    }
+  }
+
+  const ledgerResult = await pool.query(
+    `SELECT t.id, t.narration, t.amount_paise, t.txn_date,
+            COALESCE(SUM(al.amount_paise), 0) AS explained_paise,
+            COALESCE(
+              json_agg(DISTINCT c.name) FILTER (WHERE c.name IS NOT NULL),
+              '[]'
+            ) AS categories
+       FROM transactions t
+       LEFT JOIN allocations al ON al.transaction_id = t.id
+       LEFT JOIN categories  c  ON c.id = al.category_id
+      WHERE ${EXPLAINABLE_SPEND}
+      GROUP BY t.id`,
+  );
+
+  // pg hands BIGINT and NUMERIC back as STRINGS. Comparing them as strings is the
+  // classic trap here ("-230000" < "-500000" is true), so both sides go through Number.
+  // Both sets in ONE pass. Deriving `unexplained` by index back into `rows` would couple
+  // the two arrays' ordering, and the coupling breaks silently the first time anyone adds
+  // a filter to the map above.
+  const ledger: MineableTxn[] = [];
+  const unexplained: MineableTxn[] = [];
+  for (const r of ledgerResult.rows) {
+    const txn: MineableTxn = {
+      id: r.id, // BIGINT PK — keep as string
+      narration: r.narration,
+      amount_paise: Number(r.amount_paise),
+      txn_date: r.txn_date,
+      categories: r.categories as string[],
+    };
+    ledger.push(txn);
+    // The remainder, same definition the ledger uses: amount minus everything allocated.
+    if (Number(r.amount_paise) !== Number(r.explained_paise)) unexplained.push(txn);
+  }
+
+  const rulesResult = await pool.query(
+    "SELECT name, conditions, match_mode FROM rules WHERE enabled = true",
+  );
+
+  const candidates = mineCandidates(unexplained, ledger, rulesResult.rows, { minHits });
+
+  return res.json({
+    candidates,
+    unexplained_total: unexplained.length,
+    ledger_total: ledger.length,
+    covered: new Set(candidates.flatMap((c) => c.ids)).size,
+  });
+}));
+
+
+// POST /rules/preview — what would this rule touch?
+//
+// The dry-run behind the mandatory preview on a candidate, and reusable for "what does
+// editing this rule change?". It runs the REAL matcher over the real ledger, which is the
+// whole point: a `q=` narration search is NOT the same thing, because `normalise` strips
+// separators, so `contains: "amazon india"` matches "AMAZON-INDIA" and a raw search does
+// not. A preview that disagrees with the rule is worse than no preview.
+//
+// Both traps found while mining — the "BRANCH ATM SERVICE" boilerplate and the discarded
+// `amazon` candidate — were visible only by looking at the rows a rule would claim.
+router.post("/rules/preview", route(async (req, res) => {
+  const { conditions, match_mode } = req.body ?? {};
+  const conditionError = validateConditions(conditions);
+  if (conditionError !== null) throw badRequest(conditionError);
+  const mode = match_mode ?? "all";
+  if (!isMatchMode(mode)) {
+    throw badRequest(`match_mode must be one of ${MATCH_MODES.join(", ")}`);
+  }
+
+  // Same projection GET /transactions returns, so TransactionTable renders these rows
+  // exactly as it renders the ledger — including whether each one is already explained.
+  const result = await pool.query(
+    `SELECT t.id, a.name AS account_name, t.txn_date, t.amount_paise, t.type,
+            t.transfer_status, t.narration,
+            COALESCE(SUM(al.amount_paise), 0) AS explained_paise,
+            COALESCE(
+              json_agg(
+                json_build_object(
+                  'amount_paise', al.amount_paise, 'category_id', al.category_id,
+                  'category_name', c.name, 'source', al.source
+                ) ORDER BY al.id
+              ) FILTER (WHERE al.id IS NOT NULL),
+              '[]'
+            ) AS allocations
+       FROM transactions t
+       JOIN accounts a ON a.id = t.account_id
+       LEFT JOIN allocations al ON al.transaction_id = t.id
+       LEFT JOIN categories  c  ON c.id = al.category_id
+      WHERE ${EXPLAINABLE_SPEND}
+      GROUP BY t.id, a.id
+      ORDER BY t.txn_date DESC, t.id`,
+  );
+
+  const rule = { conditions, match_mode: mode };
+  const transactions = result.rows
+    .filter((r) => matches(r, rule))
+    .map((r) => {
+      const amount = Number(r.amount_paise);
+      const explained = Number(r.explained_paise);
+      return {
+        id: r.id,
+        account_name: r.account_name,
+        txn_date: r.txn_date,
+        amount_paise: amount,
+        type: r.type,
+        transfer_status: r.transfer_status,
+        narration: r.narration,
+        explained_paise: explained,
+        allocations: r.allocations,
+        unexplained_paise: amount - explained,
+      };
+    });
+
+  // A rule may not overrule a person, so say up front how many of these it would skip.
+  const userLocked = transactions.filter((t: { allocations: { source: string }[] }) =>
+    t.allocations.some((al) => al.source === "user"),
+  ).length;
+
+  return res.json({
+    transactions,
+    total: transactions.length,
+    user_locked: userLocked,
+    would_explain: transactions.filter(
+      (t: { allocations: unknown[]; unexplained_paise: number }) =>
+        t.allocations.length === 0 || t.unexplained_paise !== 0,
+    ).length,
+  });
 }));
