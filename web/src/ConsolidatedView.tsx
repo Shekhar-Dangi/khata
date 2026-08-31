@@ -145,6 +145,10 @@ export default function ConsolidatedView() {
           // for a row that already has one is either noise or an argument you did not ask
           // for, and an absent button says that more clearly than one returning nothing.
           suggestable={source === "unexplained"}
+          // Confirming only means something on rows a rule guessed. On any other filter
+          // there is nothing to claim, and an absent control says so better than a
+          // disabled one.
+          confirmable={source === "rule"}
           // Identity of this view. Change a filter and the rows underneath are a different
           // set, so any suggestions held against the old ones are dropped.
           resetKey={params.toString()}

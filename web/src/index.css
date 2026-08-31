@@ -1452,3 +1452,80 @@ footer .shell {
   margin: 4px 0 8px;
   font-size: 0.85rem;
 }
+
+/* ── Month trend ───────────────────────────────────────────────────────────────
+   The soul metric over time. Stacked columns because the three states are parts of
+   one whole (they sum to money out exactly), and unexplained sits on the axis
+   because a segment with a fixed baseline is the only one whose height can be
+   compared across columns by eye. */
+
+.trend { margin: 0 0 26px; }
+.trend-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.trend-label {
+  display: block;
+  font-size: 0.72rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.trend-value {
+  font-size: 1.7rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.trend-delta {
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+.trend-delta.good { color: var(--st-confirmed); }
+.trend-delta.bad { color: var(--st-unexplained); }
+
+.trend-svg { display: block; width: 100%; height: auto; }
+.trend-svg g { cursor: default; }
+.trend-axis { stroke: var(--rule); stroke-width: 1; }
+.trend-tick {
+  fill: var(--ink-soft);
+  font-size: 10px;
+  text-anchor: middle;
+  font-family: inherit;
+}
+
+/* One hue per state, and nothing else on the page needs a hue. These three were
+   computed against a contrast validator, not picked — see the working notes. */
+.seg-unexplained { fill: var(--st-unexplained); }
+.seg-provisional { fill: var(--st-provisional); }
+.seg-confirmed { fill: var(--st-confirmed); }
+
+.trend-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 10px;
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+.trend-legend i {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  margin-right: 6px;
+}
+.trend-legend .seg-unexplained { background: var(--st-unexplained); }
+.trend-legend .seg-provisional { background: var(--st-provisional); }
+.trend-legend .seg-confirmed { background: var(--st-confirmed); }
+
+/* In confirm mode the last column shows the CATEGORIES being claimed, not the word
+   "provisional" — a state label is not something you can make a decision from. */
+.confirm-cats {
+  font-size: 0.82rem;
+  color: var(--st-provisional);
+}
