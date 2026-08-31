@@ -1270,3 +1270,185 @@ footer .shell {
 .daterange .link-btn {
   font-size: 11px;
 }
+
+/* ── Rule candidates ───────────────────────────────────────────────────────────
+   Rules that do not exist yet, mined from unexplained narrations. Two modes of the
+   Rules page rather than a seventh tab: judging a candidate means knowing what
+   already exists, so it belongs beside the rules it might join. */
+
+.mode-switch {
+  display: flex;
+  margin: 10px 0 12px;
+  border-bottom: 1px solid var(--rule);
+  width: 100%;
+  gap: 18px;
+}
+.mode-switch .mode {
+  font: inherit;
+  font-size: 0.86rem;
+  padding: 5px 1px 7px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--ink-soft);
+  cursor: pointer;
+  margin-bottom: -1px;
+}
+.mode-switch .mode:hover { color: var(--ink); }
+.mode-switch .mode.on {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+}
+.mode-count {
+  margin-left: 5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-soft);
+}
+
+/* The intro sits in the same slot in both modes; a fixed floor stops a one-line
+   difference in the prose from shifting the whole page on a tab switch. */
+.rules-intro { min-height: 3.2em; }
+
+.cand-stats { margin: 0 0 10px; }
+
+/* table-layout: fixed + a colgroup is what stops this table demanding a horizontal
+   scrollbar. Without it the narration-shaped first column sizes to its content and
+   pushes the rest off the edge. */
+.cand-table { width: 100%; table-layout: fixed; }
+.cand-table td { vertical-align: top; }
+.cand-table .num,
+.cand-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.cand-table .cand-spread { padding-right: 4px; }
+
+.cand-toggle {
+  font: inherit;
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--ink);
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  text-align: left;
+  max-width: 100%;
+}
+.cand-toggle .chev { color: var(--ink-soft); font-size: 0.72rem; flex: none; }
+.cand-value {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.cand-collide {
+  display: block;
+  margin-top: 3px;
+  font-size: 0.74rem;
+  color: var(--flag);
+}
+
+/* Spread: how many DIFFERENT categories the rows a rule would claim already carry.
+   The page is ink on warm paper with hairline rules, so this is a small-caps label
+   with a hairline marker — colour carries the state, the shape stays quiet. */
+.spread {
+  display: block;
+  font-size: 0.72rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  padding-left: 9px;
+  border-left: 2px solid var(--rule);
+  line-height: 1.35;
+}
+.spread.clean { color: var(--ink-soft); border-left-color: var(--credit); }
+.spread.one {
+  color: var(--ink-soft);
+  border-left-color: var(--rule);
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.78rem;
+}
+.spread.mixed { color: var(--debit); border-left-color: var(--debit); }
+.spread-label { display: block; font-weight: 600; }
+.spread-detail {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.72rem;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--ink-soft);
+}
+
+.cand-row.open > td { background: var(--paper-sunk); }
+.cand-detail > td {
+  background: var(--paper-sunk);
+  padding: 12px 14px 16px;
+}
+.cand-impact { margin: 0 0 10px; }
+
+/* Creating lives INSIDE the dry run, so there is nothing to leave behind on collapse
+   and no way to act on a summary you have not opened. */
+.cand-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  padding-bottom: 12px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--rule);
+}
+.cand-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.cand-input {
+  font: inherit;
+  font-size: 0.86rem;
+  padding: 5px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--ink);
+  min-width: 190px;
+}
+.cand-more { margin: 8px 0 0; font-size: 0.78rem; }
+
+/* ── Local-model suggestions ───────────────────────────────────────────────────
+   Pressing "Suggest categories" turns the ledger into a REVIEW screen: only rows the
+   model named, a pre-filled category picker per row, and tick boxes. A suggestion is
+   never written — accepting one goes through the ordinary allocations endpoint and
+   lands as source='user', which is why there is no fourth provenance and no migration. */
+
+.sugg-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 10px;
+  font-size: 0.82rem;
+  flex-wrap: wrap;
+}
+.sugg-batch {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink-soft);
+}
+.sugg-batch .cat-select { min-width: 0; width: auto; }
+
+/* A review row is a decision, not a drill-down — it does not expand, so it must not
+   invite a click by highlighting like the ledger rows do. */
+.txn-row.is-review { cursor: default; }
+.txn-row.is-review:hover { background: transparent; }
+.txn-row.is-review td:first-child { text-align: center; }
+.cand-table th input[type="checkbox"],
+.txn-row.is-review input[type="checkbox"] { cursor: pointer; }
+
+/* A write that was REFUSED, said without throwing away the list you are working in.
+   Distinct from a failed read, which replaces the page — losing your place is the right
+   response to "the data would not load" and the wrong one to "that one action failed". */
+.rules-error {
+  margin: 4px 0 8px;
+  font-size: 0.85rem;
+}
