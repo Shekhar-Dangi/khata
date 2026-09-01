@@ -1782,3 +1782,17 @@ footer .shell {
   color: var(--st-provisional);
   letter-spacing: 0.02em;
 }
+
+/* The hosted demo says what it is before you click anything. Amber, because it is the
+   same family as "unexplained" — something to be aware of — not an error. */
+.demo-banner {
+  background: color-mix(in srgb, var(--flag) 12%, var(--paper));
+  border-bottom: 1px solid color-mix(in srgb, var(--flag) 45%, transparent);
+  color: var(--ink);
+  padding: 9px 22px;
+  font-size: 0.84rem;
+  line-height: 1.5;
+  text-align: center;
+}
+.demo-banner strong { font-weight: 600; }
+.demo-banner a { color: var(--accent); }

@@ -6,6 +6,7 @@ import { isSpendOnly, parseFilters, parsePaging } from "./../filters.ts";
 import { EXPLAINABLE_SPEND } from "./../spend.ts";
 import { merchantHint } from "./../mining.ts";
 import { LLM_MODEL, LlmUnavailable, suggestCategories } from "./../llm.ts";
+import { DEMO_MODE } from "./../server.ts";
 
 const router = Router();
 export { router as transactions };
@@ -223,6 +224,18 @@ const TRANSFER_STATUSES = ["pending", "resolved", "suspected", "rejected"];
 // one-off slice it abstains on 83%, so rendering "Unknown" would fill the screen with
 // identical badges and make a working feature look broken.
 router.post("/transactions/suggest", route(async (req, res) => {
+  // The model is LOCAL by design — it runs on the machine holding the statements, which
+  // is the whole reason it is a small model at all. A hosted demo has no Ollama on
+  // loopback and never will, so say that plainly instead of letting the request time out
+  // and report a connection failure that sounds like a bug.
+  if (DEMO_MODE) {
+    return res.status(501).json({
+      error:
+        "Category suggestions run a model on YOUR machine — that is the privacy design, " +
+        "so they are unavailable in the hosted demo. Run Khata locally with Ollama to try them.",
+    });
+  }
+
   const ids = req.body?.ids;
   if (!Array.isArray(ids) || ids.length === 0) {
     throw badRequest("`ids` must be a non-empty array");

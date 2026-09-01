@@ -1,0 +1,33 @@
+# One service, one database, one origin.
+#
+# Express serves the built frontend as well as the API when SERVE_WEB=1, so there is no
+# second host, no CORS, and no production equivalent needed for the paths Vite proxies in
+# development. For a demo this is the whole deployment.
+#
+# Render is not special here — every line maps onto any host that can run a Node process
+# and hand it a DATABASE_URL. Swap the vendor, keep the shape.
+services:
+  - type: web
+    name: khata-demo
+    runtime: node
+    plan: free
+    # npm ci, not install: the lockfile is the answer, and a build that renegotiates it is
+    # a build that can ship versions nobody tested.
+    buildCommand: npm ci && npm ci --prefix web && npm run build --prefix web
+    startCommand: npm run start:demo
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: khata-demo-db
+          property: connectionString
+      - key: DEMO_MODE          # banner on; the local-model endpoint answers 501 honestly
+        value: "1"
+      - key: SERVE_WEB          # this process also serves web/dist
+        value: "1"
+      - key: NODE_VERSION       # load-bearing: the app runs TypeScript with no build step
+        value: "24"
+
+databases:
+  - name: khata-demo-db
+    plan: free

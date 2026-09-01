@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import Summary from "./shared/Summary";
+import DemoBanner from "./shared/DemoBanner";
 import { LedgerVersionProvider } from "./shared/ledgerVersion";
 import ConsolidatedView from "./ledger/ConsolidatedView";
 import TransfersView from "./transfers/TransfersView";
@@ -37,6 +38,7 @@ function App() {
 
   return (
     <LedgerVersionProvider>
+      <DemoBanner />
       <div className="topbar">
         <div className="shell">
           <div>
