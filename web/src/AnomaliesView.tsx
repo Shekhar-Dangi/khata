@@ -31,8 +31,18 @@ export default function AnomaliesView() {
   if (loading) return <p className="soft">Loading…</p>;
   if (error) return <p className="soft">{error}</p>;
   if (!data) return null;
+  // The best news this screen can give you. As a bare sentence at the top of an
+  // otherwise blank page it read as a load that had failed.
   if (data.accounts.length === 0)
-    return <p className="soft">No anomalies — everything reconciles.</p>;
+    return (
+      <div className="empty-state">
+        <h3>Everything reconciles</h3>
+        <p>
+          Every account's running balance agrees with the balance its statement states.
+          Nothing is missing and nothing is counted twice.
+        </p>
+      </div>
+    );
 
   return (
     <div>

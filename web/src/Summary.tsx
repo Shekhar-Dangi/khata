@@ -50,10 +50,14 @@ export default function Summary() {
         </div>
 
         {/* Kept separate from the hero on purpose: folding a rule's guess into
-            "explained" would let one sloppy rule deflate the number that matters. */}
+            "explained" would let one sloppy rule deflate the number that matters.
+            It also has to LOOK separate — this was --flag, the same amber as the hero
+            beside it, so the two states were one colour. */}
         <div>
-          <div className="label">Explained by a rule, unconfirmed</div>
-          <div className="net flag">{t ? rupees(t.provisional_paise) : "—"}</div>
+          <div className="label">Guessed by a rule</div>
+          <div className="net st-provisional">
+            {t ? rupees(t.provisional_paise) : "—"}
+          </div>
         </div>
 
         <div>

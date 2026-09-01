@@ -61,7 +61,12 @@ export default function CandidatesList({
             <tr>
               <th>Pattern</th>
               <th className="num">Unexplained</th>
-              <th className="num">In ledger</th>
+              {/* Was "In ledger", which printed unexplainedHits + explainedHits — a
+                  number that equals the column beside it for most candidates, so two
+                  lanes said one thing. The decision-relevant figure is how many rows
+                  this pattern would claim that you have ALREADY explained: that is the
+                  over-broadness warning, and it pairs with the spread beside it. */}
+              <th className="num">Also explained</th>
               <th>Already means</th>
             </tr>
           </thead>

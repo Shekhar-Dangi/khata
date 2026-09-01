@@ -54,8 +54,14 @@ export default function RulesToolbar({
         <button className="btn" onClick={apply} disabled={applying}>
           {applying ? "Applying…" : "Apply rules"}
         </button>
-        <button className="btn-ghost" onClick={onToggleForm}>
-          {showForm ? "Cancel" : "＋ New rule"}
+        {/* The tier follows what the button DOES. Creating a rule is a real action and
+            was reading as a footnote next to the filled primary; cancelling out of the
+            form is exactly what ghost is for. */}
+        <button
+          className={showForm ? "btn-ghost" : "btn-secondary"}
+          onClick={onToggleForm}
+        >
+          {showForm ? "Cancel" : "+ New rule"}
         </button>
       </div>
 

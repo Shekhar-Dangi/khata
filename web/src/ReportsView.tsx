@@ -14,6 +14,7 @@ import {
   type MonthRow,
   type Period,
 } from "./reports";
+import { STATE } from "./transactions";
 
 type Account = { id: number; name: string };
 
@@ -121,7 +122,11 @@ export default function ReportsView() {
               three months, and nothing in between. */}
           <DateRange period={period} today={today} onChange={setPeriod} />
 
+          {/* "showing", because the bare word sat between two controls with nothing to
+              attach it to — "everything" alone reads as a stray label, not as this
+              page's answer to "which period am I looking at". */}
           <span className="period-range mono soft">
+            showing{" "}
             {period.from === "" && period.to === ""
               ? "everything"
               : period.from === ""
@@ -174,25 +179,25 @@ export default function ReportsView() {
             </span>
           </div>
           <div className="tile">
-            <span className="label">You confirmed</span>
+            <span className="label">{STATE.user}</span>
             <b className="mono st-confirmed">{rupees(confirmed)}</b>
             <span className="tile-sub soft mono">of money out</span>
           </div>
           <div className="tile">
-            <span className="label">A rule guessed</span>
+            <span className="label">{STATE.rule}</span>
             <b className="mono st-provisional">{rupees(provisional)}</b>
             <span className="tile-sub soft mono">of money out</span>
           </div>
           <div className="tile">
-            <span className="label">Can't explain yet</span>
+            <span className="label">{STATE.unexplained}</span>
             <b className="mono st-unexplained">{rupees(unexplained)}</b>
             <span className="tile-sub soft mono">of money out</span>
           </div>
         </div>
 
         <div className="chart-legend">
-          <span className="lg"><i className="seg-confirmed" />you confirmed</span>
-          <span className="lg"><i className="seg-provisional" />a rule guessed</span>
+          <span className="lg"><i className="seg-confirmed" />confirmed</span>
+          <span className="lg"><i className="seg-provisional" />guessed</span>
           <span className="lg"><i className="seg-evidence" />from evidence</span>
         </div>
 

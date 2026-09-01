@@ -5,7 +5,7 @@ import { rupees } from "./format";
 import AllocationEditor from "./AllocationEditor";
 import CategorySelect from "./CategorySelect";
 import { errorText, mutate } from "./api";
-import { isTransfer, type Category, type Txn } from "./transactions";
+import { isTransfer, STATE, type Category, type Txn } from "./transactions";
 
 
 /** One row of POST /transactions/suggest. Absent rows are ones the model did not know. */
@@ -75,7 +75,7 @@ export default function TransactionTable({
   // Accepting one goes through the ordinary allocations endpoint and lands as
   // source='user', so there is no new provenance and no migration. What this trades away
   // is the record of what you REJECTED — the signal a persistent suggestions table would
-  // buy. Worth revisiting once the feature has earned it. See the design.
+  // buy. Worth revisiting once the feature has earned it.
   const [suggestions, setSuggestions] = useState<Map<string, Suggestion>>(new Map());
   const [asking, setAsking] = useState(false);
   const [askError, setAskError] = useState<string | null>(null);
@@ -296,7 +296,7 @@ export default function TransactionTable({
           <th>Account</th>
           <th>Narration</th>
           <th className="r">Amount</th>
-          <th className="r">{reviewing ? "Suggested" : "Explained"}</th>
+          <th className="r">{reviewing ? "Suggested" : "State"}</th>
         </tr>
       </thead>
       <tbody>
@@ -383,20 +383,24 @@ export default function TransactionTable({
                         transfer
                       </span>
                     ) : !hasAllocs ? (
+                      // The one cell in this column that is an INVITATION rather than a
+                      // label, so it stays a verb. The state it describes is called
+                      // "Unexplained" everywhere a state is named — the filter, the
+                      // reports, the summary.
                       <span className="soft">explain ▾</span>
                     ) : t.unexplained_paise !== 0 ? (
-                      <span className="flag mono">
+                      // nowrap: this used to break after the amount, making the one
+                      // partially-explained row ~22px taller than its neighbours, which
+                      // the eye reads as a section break in a hundred-row ledger.
+                      <span className="flag mono nowrap">
                         {rupees(Math.abs(t.unexplained_paise))} left
                       </span>
                     ) : provisional ? (
-                      <span
-                        className="prov"
-                        title="A rule guessed this. Open it to confirm."
-                      >
-                        provisional
+                      <span className="prov" title="A rule guessed this. Open it to confirm.">
+                        {STATE.rule}
                       </span>
                     ) : (
-                      <span className="credit">explained</span>
+                      <span className="credit">{STATE.user}</span>
                     )}
                   </td>
                 </tr>

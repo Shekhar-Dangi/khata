@@ -69,6 +69,12 @@ export default function RulesView() {
     bump();
   }
 
+  // Every rule has fired zero transactions — i.e. the engine has never been run against
+  // this ledger. Distinct from "no rules yet", which needs a different sentence.
+  const ruleCount = rules.data?.rules.length ?? 0;
+  const neverApplied =
+    ruleCount > 0 && (rules.data?.rules ?? []).every((r) => r.transactions === 0);
+
   return (
     <>
       {/* NOT .sect — that is a two-item flex row (label left, value right), so block
@@ -109,6 +115,17 @@ export default function RulesView() {
                looking is how you create it, because the summary hides the mistakes.`}
         </p>
         {writeError && <p className="debit rules-error">{writeError}</p>}
+        {/* Rules that exist but have never run are a STATE, not a table of zeroes. The
+            summary strip shows a real ₹0.00 for "guessed by a rule" in exactly this
+            situation, and a zero does not tell you the engine has simply never been
+            pressed. Said here because this is where the data is already loaded and
+            where the button that fixes it lives. */}
+        {neverApplied && (
+          <p className="note">
+            {ruleCount} rule{ruleCount === 1 ? "" : "s"}, none of them ever applied — so
+            nothing is being guessed yet. Press “Apply rules”.
+          </p>
+        )}
         <RulesToolbar
           showForm={editing === "new"}
           onToggleForm={() => setEditing((v) => (v === "new" ? null : "new"))}
