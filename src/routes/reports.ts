@@ -118,16 +118,30 @@ router.get("/reports/by-rule", route(async (req, res) => {
               COUNT(DISTINCT x.transaction_id)             AS transactions,
               COALESCE(SUM(ABS(x.amount_paise)), 0)        AS money_paise,
               COALESCE(SUM(x.amount_paise), 0)             AS net_paise,
+              -- Split so a rule can say how much of its work is still a guess and how much
+              -- you have claimed. Same total, two states — the whole point of the model.
+              COUNT(x.allocation_id) FILTER (WHERE x.source = 'rule') AS provisional_allocations,
+              COUNT(x.allocation_id) FILTER (WHERE x.source = 'user') AS confirmed_allocations,
               MIN(x.txn_date)                              AS first_seen,
               MAX(x.txn_date)                              AS last_seen
          FROM rules r
          LEFT JOIN categories c ON c.id = r.category_id
          LEFT JOIN (
-           SELECT al.id AS allocation_id, al.rule_id, al.amount_paise,
-                  al.transaction_id, t.txn_date
+           -- A rule's impact is everything it EXPLAINED, whether or not you have since
+           -- claimed it. Counting only source='rule' made a heavily-confirmed ledger
+           -- report every rule as dead: confirming nulls rule_id, so 253 confirmations in
+           -- one action took all 20 rules to zero. The work happened; it was just claimed.
+           --
+           -- COALESCE picks whichever link the row carries — rule_id while the engine owns
+           -- it, confirmed_from_rule_id once a human has. The two are mutually exclusive by
+           -- CHECK, so no row is ever counted twice.
+           SELECT al.id AS allocation_id,
+                  COALESCE(al.rule_id, al.confirmed_from_rule_id) AS rule_id,
+                  al.source, al.amount_paise, al.transaction_id, t.txn_date
              FROM allocations al
              JOIN transactions t ON t.id = al.transaction_id
-            WHERE al.source = 'rule' ${spendClause} ${filters.sql}
+            WHERE (al.source = 'rule' OR al.confirmed_from_rule_id IS NOT NULL)
+                  ${spendClause} ${filters.sql}
          ) x ON x.rule_id = r.id
         GROUP BY r.id, c.name
         ORDER BY COALESCE(SUM(ABS(x.amount_paise)), 0) DESC, r.id ASC`,
@@ -146,6 +160,8 @@ router.get("/reports/by-rule", route(async (req, res) => {
     // COUNT returns BIGINT, so these arrive as strings like every other BIGINT.
     allocations: Number(r.allocations),
     transactions: Number(r.transactions),
+    provisional_allocations: Number(r.provisional_allocations),
+    confirmed_allocations: Number(r.confirmed_allocations),
     money_paise: Number(r.money_paise), // magnitude — "how much did this touch"
     net_paise: Number(r.net_paise), // signed — separates an income rule from a spend one
     first_seen: r.first_seen,

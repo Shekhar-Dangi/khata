@@ -22,6 +22,10 @@ export type Category = { id: number; name: string; parent_id: number | null };
 // from a spend one when both are in the same list.
 export type RuleImpact = Rule & {
   allocations: number;
+  /** Still a guess — the engine owns these and a re-run can change them. */
+  provisional_allocations: number;
+  /** You claimed these. The engine skips their transactions from here on. */
+  confirmed_allocations: number;
   transactions: number;
   money_paise: number;
   net_paise: number;
@@ -129,8 +133,9 @@ export function describeRule(r: Rule): string {
 }
 
 // Mirrors GET /rules/candidates — rules that do not exist yet, mined from the narrations
-// of unexplained transactions. See finance/the design for why this is
-// deterministic clustering rather than a model.
+// of unexplained transactions. Deterministic clustering rather than a model, because the
+// unexplained tail turned out to be a few clusters, and a rule is inspectable and re-runnable
+// where a model call is neither.
 export type Candidate = {
   /** The literal `contains` value a rule would carry. */
   value: string;
