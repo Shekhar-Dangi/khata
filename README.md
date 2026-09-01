@@ -5,7 +5,7 @@
 **A local-first reconciliation tool for Indian bank statements, built around one number:
 _money you can't explain yet_.**
 
-A bank statement is the source of truth for *cash movement* — never for *meaning*. `UPI-Debit-987654321098-Amazon India-YESB0APLUPI` records that ₹1,204 left an account. It does not record what was bought. Khata is the layer that turns the first into the second, and is honest about the part it cannot.
+A bank statement is the source of truth for *cash movement* — never for *meaning*. `UPI-Debit-123456789012-AMAZON INDIA-YESB0APLUPI` records that money left an account. It does not record what was bought. Khata is the layer that turns the first into the second, and is honest about the part it cannot.
 
 Three months of real statements, 516 transactions, three banks, no data leaving the machine.
 
