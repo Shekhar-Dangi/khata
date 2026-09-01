@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 
 import { useFetch } from "./useFetch";
 import { useLedgerVersion } from "./ledgerVersion";
@@ -42,6 +42,19 @@ export default function CategoriesView() {
 
   const all = cats.data?.categories ?? [];
   const parents = all.filter((c) => c.parent_id === null);
+
+  // One scale for every bar on the page, so their lengths are comparable to each other
+  // rather than each row being drawn against itself. Parent rows roll their children up,
+  // so the largest parent total is the ceiling. Guarded at 1: with an empty ledger every
+  // count is 0 and the ratio would be 0/0.
+  const maxUse = Math.max(
+    1,
+    ...parents.map(
+      (p) =>
+        p.allocations +
+        all.filter((c) => c.parent_id === p.id).reduce((s, c) => s + c.allocations, 0),
+    ),
+  );
 
   // Every mutation here can change what the reports show (a rename retitles a bar, a
   // delete-with-reassign moves money between them), so the ledger version is bumped
@@ -145,68 +158,127 @@ export default function CategoriesView() {
         />
       )}
 
-      <div className="cat-tree">
-        {adding === "top" && (
-          <CategoryEditor
-            initialName=""
-            onCancel={() => setAdding(null)}
-            onSave={(name) => create(name, null)}
-          />
-        )}
+      {/* A table, like every other list in this app — and for the same reason the ledger
+          is one: the numbers only mean something lined up in labelled columns. As a
+          620px-wide flow of indented rows this page used under half the width, gave the
+          two counts no headings at all ("7 1r" was the entire label), and repeated the
+          action pair down a lane loud enough to out-read the category names.
 
-        {parents.map((p) => (
-          <div className="cat-group" key={p.id}>
-            {editingId === p.id ? (
-              <CategoryEditor
-                initialName={p.name}
-                onCancel={() => setEditingId(null)}
-                onSave={(name) => save(p.id, name, null)}
-              />
-            ) : (
-              <Row
-                cat={p}
-                onEdit={() => setEditingId(p.id)}
-                onDelete={() => remove(p)}
-                extra={
-                  <button className="link-btn" onClick={() => setAdding(p.id)}>
-                    ＋ sub
-                  </button>
-                }
-              />
-            )}
-
-            {all
-              .filter((c) => c.parent_id === p.id)
-              .map((c) =>
-                editingId === c.id ? (
+          The bar is the point of the redesign. A taxonomy page should answer "is this
+          taxonomy working" — which categories carry the money, which have never been
+          used — and a column of bare integers does not, because 103 and 2 occupy the
+          same space. */}
+      <div className="table-scroll">
+        <table className="cat-table">
+          <colgroup>
+            <col />
+            {/* Wide on purpose. Category names are short, so a narrow figure column left
+                a dead band across the middle of every row; giving the bar that space
+                turns the gap into the comparison this page exists to show. */}
+            <col style={{ width: "310px" }} />
+            <col style={{ width: "74px" }} />
+            <col style={{ width: "196px" }} />
+          </colgroup>
+          <thead>
+            <tr>
+              <th>Category</th>
+              <th className="r">Explained</th>
+              <th className="r">Rules</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {adding === "top" && (
+              <tr>
+                <td colSpan={4}>
                   <CategoryEditor
-                    key={c.id}
-                    initialName={c.name}
-                    parents={parents}
-                    parentId={p.id}
-                    onCancel={() => setEditingId(null)}
-                    onSave={(name, parentId) => save(c.id, name, parentId)}
+                    initialName=""
+                    onCancel={() => setAdding(null)}
+                    onSave={(name) => create(name, null)}
                   />
-                ) : (
-                  <Row
-                    key={c.id}
-                    cat={c}
-                    child
-                    onEdit={() => setEditingId(c.id)}
-                    onDelete={() => remove(c)}
-                  />
-                ),
-              )}
-
-            {adding === p.id && (
-              <CategoryEditor
-                initialName=""
-                onCancel={() => setAdding(null)}
-                onSave={(name) => create(name, p.id)}
-              />
+                </td>
+              </tr>
             )}
-          </div>
-        ))}
+
+            {parents.map((p) => {
+              const kids = all.filter((c) => c.parent_id === p.id);
+              return (
+                <Fragment key={p.id}>
+                  {editingId === p.id ? (
+                    <tr>
+                      <td colSpan={4}>
+                        <CategoryEditor
+                          initialName={p.name}
+                          onCancel={() => setEditingId(null)}
+                          onSave={(name) => save(p.id, name, null)}
+                        />
+                      </td>
+                    </tr>
+                  ) : (
+                    <Row
+                      cat={p}
+                      // A parent row totals itself AND its children: at the top level
+                      // "how much does Food & Dining carry" is the only reading of the
+                      // number that is useful, and the report rolls a parent up the same
+                      // way. The children below it still show their own.
+                      allocations={
+                        p.allocations + kids.reduce((s, c) => s + c.allocations, 0)
+                      }
+                      rules={p.rules + kids.reduce((s, c) => s + c.rules, 0)}
+                      max={maxUse}
+                      onEdit={() => setEditingId(p.id)}
+                      onDelete={() => remove(p)}
+                      extra={
+                        <button className="link-btn" onClick={() => setAdding(p.id)}>
+                          + sub
+                        </button>
+                      }
+                    />
+                  )}
+
+                  {kids.map((c) =>
+                    editingId === c.id ? (
+                      <tr key={c.id}>
+                        <td colSpan={4}>
+                          <CategoryEditor
+                            initialName={c.name}
+                            parents={parents}
+                            parentId={p.id}
+                            onCancel={() => setEditingId(null)}
+                            onSave={(name, parentId) => save(c.id, name, parentId)}
+                          />
+                        </td>
+                      </tr>
+                    ) : (
+                      <Row
+                        key={c.id}
+                        cat={c}
+                        child
+                        allocations={c.allocations}
+                        rules={c.rules}
+                        max={maxUse}
+                        onEdit={() => setEditingId(c.id)}
+                        onDelete={() => remove(c)}
+                      />
+                    ),
+                  )}
+
+                  {adding === p.id && (
+                    <tr>
+                      <td colSpan={4}>
+                        <CategoryEditor
+                          initialName=""
+                          onCancel={() => setAdding(null)}
+                          onSave={(name) => create(name, p.id)}
+                        />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </>
   );
@@ -215,50 +287,57 @@ export default function CategoriesView() {
 function Row({
   cat,
   child = false,
+  allocations,
+  rules,
+  max,
   onEdit,
   onDelete,
   extra,
 }: {
   cat: CategoryNode;
   child?: boolean;
+  /** Rolled up for a parent, its own for a child — the caller decides which. */
+  allocations: number;
+  rules: number;
+  /** The largest `allocations` on the page, so every bar shares one scale. */
+  max: number;
   onEdit: () => void;
   onDelete: () => void;
   extra?: React.ReactNode;
 }) {
-  // Only what is TRUE of this row. The list previously wrote "unused" against every empty
-  // category, which is most of them on a fresh install — twenty-odd lines of grey text
-  // saying nothing, in a list whose job is to let you find one name and change it.
-  // Silence is the correct rendering of zero.
-  const used = cat.allocations > 0 || cat.rules > 0;
-
   return (
-    <div className={"cat-row " + (child ? "child" : "parent")}>
-      <span className="cat-label">{cat.name}</span>
-      {used ? (
-        <span
-          className="cat-usage"
-          title={`${cat.allocations} explanation${cat.allocations === 1 ? "" : "s"}, ${cat.rules} rule${cat.rules === 1 ? "" : "s"}`}
-        >
-          {cat.allocations > 0 && cat.allocations}
-          {cat.rules > 0 && <em>{cat.rules}r</em>}
+    <tr className={"cat-tr " + (child ? "child" : "parent")}>
+      <td className="cat-label">{cat.name}</td>
+      {/* Zero renders as nothing at all, not as the word "unused". Writing "unused"
+          against every empty category was tried and reverted — on a starter tree most of
+          them are empty, so it was twenty lines of grey text saying nothing. In a table
+          the empty cell already says it, and it says it without taking a line. */}
+      <td className="r cat-use">
+        {allocations > 0 && (
+          <>
+            <span className="cat-bar" aria-hidden="true">
+              <i style={{ width: `${Math.max(3, (allocations / max) * 100)}%` }} />
+            </span>
+            <span className="mono">{allocations}</span>
+          </>
+        )}
+      </td>
+      <td className="r mono soft">{rules > 0 ? rules : ""}</td>
+      {/* Always visible — see the rationale on `.cat-actions` in index.css. Hiding these
+          until hover was tried and reverted, because an action you cannot see is an
+          action you do not know exists and on this screen the actions are the point. */}
+      <td className="r">
+        <span className="cat-actions">
+          {extra}
+          <button className="link-btn" onClick={onEdit}>
+            rename
+          </button>
+          <button className="link-btn danger" onClick={onDelete}>
+            delete
+          </button>
         </span>
-      ) : (
-        <span />
-      )}
-      {/* Revealed on hover, and on keyboard focus via :focus-within — three links on
-          every one of twenty-eight rows is eighty-four things competing with the names
-          you actually came here to read. Coarse pointers get them permanently (see the
-          @media rule): there is no hover to reveal them with. */}
-      <span className="cat-actions">
-        {extra}
-        <button className="link-btn" onClick={onEdit}>
-          rename
-        </button>
-        <button className="link-btn danger" onClick={onDelete}>
-          delete
-        </button>
-      </span>
-    </div>
+      </td>
+    </tr>
   );
 }
 

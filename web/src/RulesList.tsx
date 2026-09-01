@@ -44,7 +44,9 @@ export default function RulesList({
           {/* A yyyy-mm-dd in the mono face is 84px before padding; at 94 the date wrapped
               onto two lines and made every row in the table taller. */}
           <col style={{ width: "112px" }} />
-          <col style={{ width: "124px" }} />
+          {/* "edit · off · delete" plus the frame's 16px right gutter. At 124 the third
+              action wrapped under the first two. */}
+          <col style={{ width: "152px" }} />
         </colgroup>
         <thead>
           <tr>
@@ -88,9 +90,15 @@ export default function RulesList({
                       (dead ? "soft" : r.net_paise < 0 ? "debit" : "credit")
                     }
                   >
-                    {dead ? "never fired" : rupees(r.net_paise)}
+                    {dead ? "—" : rupees(r.net_paise)}
                   </td>
-                  <td className="r mono soft nowrap">{r.last_seen ?? "—"}</td>
+                  {/* "never" lives here, in the column that asks the question. It used to
+                      be "never fired" in the MONEY column, where it wrapped onto two lines
+                      and made the row taller, while Txns and Last fired each printed an
+                      em-dash saying the same nothing three times over. */}
+                  <td className="r mono soft nowrap">
+                    {r.last_seen ?? (dead ? "never" : "—")}
+                  </td>
                   {/* stopPropagation on every one: these sit inside the row that toggles
                       the drill-down, and editing a rule should not also open it. */}
                   <td className="r">
@@ -118,15 +126,19 @@ export default function RulesList({
                       >
                         {r.enabled ? "off" : "on"}
                       </button>
+                      {/* Was a bare ✕ sitting between two text links — three affordances
+                          in one lane for three actions of the same kind. Same shape as
+                          the Categories row now, and `danger` is what marks the
+                          destructive one, not a different control type. */}
                       <button
-                        className="row-x"
+                        className="link-btn danger"
                         title={`delete "${r.name}"`}
                         onClick={(e) => {
                           e.stopPropagation();
                           onDelete(r);
                         }}
                       >
-                        ✕
+                        delete
                       </button>
                     </span>
                   </td>

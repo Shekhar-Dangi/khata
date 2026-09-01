@@ -2,15 +2,38 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>Khata — money, explained</title>
+    <meta
+      name="description"
+      content="A local-first ledger for the Indian UPI and bank ecosystem. Reconciles your statements and answers one question: how much of your money can you not explain yet?"
+    />
+
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <!-- Matches --paper / the dark ground in index.css, so the browser chrome does not
+         flash a colour the app never uses. -->
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#faf7f0" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1f5136" />
+
+    <!-- Link previews. og:image needs an absolute URL, so it is added at deploy time
+         once there is a domain to point at. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Khata" />
+    <meta property="og:title" content="Khata — money, explained" />
+    <meta
+      property="og:description"
+      content="A local-first ledger for the Indian UPI and bank ecosystem. How much of your money can you not explain yet?"
+    />
+    <meta name="twitter:card" content="summary" />
+
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Hanken+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
       rel="stylesheet"
     />
-    <title>Khata — money, explained</title>
   </head>
   <body>
     <div id="root"></div>

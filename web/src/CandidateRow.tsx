@@ -120,7 +120,11 @@ export default function CandidateRow({
           )}
         </td>
         <td className="num">{candidate.unexplainedHits}</td>
-        <td className="num soft">{candidate.ledgerHits}</td>
+        {/* Zero is the common case and the quiet one — a dash, so the rows where this
+            pattern reaches into work you have already done are the ones that stand out. */}
+        <td className="num soft">
+          {candidate.explainedHits === 0 ? "—" : candidate.explainedHits}
+        </td>
         <td className="cand-spread">
           <SpreadBadge spread={candidate.spread} detail={candidate.spreadDetail} />
         </td>

@@ -11,6 +11,12 @@
   --credit: #2e6b4a; /* money in */
   --debit: #a2472f; /* money out */
   --flag: #b5731f; /* amber — unexplained / anomalies */
+
+  /* One control geometry for every input, select and button. Before this, a text input
+     was 37px tall and the select beside it was 30px, because each class set its own
+     padding and nothing set a height. */
+  --control-h: 32px;
+  --radius: 3px;
 }
 
 * {
@@ -19,6 +25,21 @@
 html,
 body {
   margin: 0;
+}
+html {
+  /* Reserve the scrollbar track whether or not it is showing. Without it the shell
+     lands 7-8px further left on a tab that scrolls than on one that does not, so
+     every tab change nudges the whole page sideways. */
+  scrollbar-gutter: stable;
+}
+
+/* Focus, said as quietly as it can be said while still being said.
+   A hairline, tight to the element — the earlier 2px ring at 2px offset drew a second
+   box floating outside the first, which on a bordered input read as a bolted-on
+   rectangle rather than as part of the control. */
+:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
 }
 
 body {
@@ -85,36 +106,69 @@ nav {
   display: flex;
   gap: 26px;
 }
-nav button {
+/* ── tabs: ONE tab, everywhere ─────────────────────────
+   There were three of these. The top nav and the Rules mode switch were two classes
+   drawing the same underline tab at two sizes with two different active colours; the
+   transfers status row was a set of bordered pills that filled solid green when active.
+   All three answer the same question — "which of these lists am I looking at" — and two
+   of the three carry a count ("Active rules 20", "Confirmed 53"), so the count is not a
+   distinction either. One control, one active treatment, an optional count. */
+.tab,
+nav button,
+.mode-switch .mode,
+.tf-tab {
   font: inherit;
   font-size: 13px;
   color: var(--ink-soft);
   background: none;
   border: 0;
+  border-bottom: 2px solid transparent;
   cursor: pointer;
-  padding: 0 0 4px;
-  border-bottom: 1.5px solid transparent;
+  padding: 4px 1px 6px;
   transition: color 0.15s;
+  white-space: nowrap;
 }
-nav button:hover {
+.tab:hover,
+nav button:hover,
+.mode-switch .mode:hover,
+.tf-tab:hover {
   color: var(--ink);
 }
-nav button[aria-current="true"] {
+.tab[aria-current="true"],
+.tab.on,
+nav button[aria-current="true"],
+.mode-switch .mode.on,
+.tf-tab[aria-current="true"] {
   color: var(--accent);
   border-bottom-color: var(--accent);
+}
+/* The count that rides along on a tab. Quiet — it is a fact about the tab, not the
+   label; the tab's own colour is what says "you are here". */
+.mode-count,
+.tf-tab b {
+  margin-left: 6px;
+  font-family: "IBM Plex Mono", monospace;
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+  font-size: 11.5px;
+  color: var(--ink-soft);
 }
 
 /* ── summary strip ───────────────────────────────────── */
 .summary {
   border-bottom: 1px solid var(--rule);
 }
+/* Slimmed so it can sit on every tab without dominating the one below it. At 26px
+   padding, a 38px hero and a 44px gap the strip forced the account chips onto a second
+   line hard against the right margin, which left the largest empty rectangle on the
+   home screen sitting between the hero and them. */
 .summary .shell {
   display: flex;
   align-items: flex-end;
-  gap: 44px;
+  gap: 32px;
   flex-wrap: wrap;
-  padding-top: 26px;
-  padding-bottom: 26px;
+  padding-top: 18px;
+  padding-bottom: 18px;
 }
 .label {
   font-size: 10.5px;
@@ -126,7 +180,7 @@ nav button[aria-current="true"] {
 .hero {
   font-family: "IBM Plex Mono", monospace;
   font-variant-numeric: tabular-nums;
-  font-size: 38px;
+  font-size: 31px;
   line-height: 1;
   color: var(--flag);
   letter-spacing: -0.025em;
@@ -213,24 +267,68 @@ tbody.muted td {
   color: #9a9484;
 }
 
-/* filter/search input — hairline underline, accent on focus */
-.search {
+/* ── controls ─────────────────────────────────────────
+   Every input and select is a box: one height, one hairline border, one radius, matching
+   the buttons. The old split — hairline-underlined text inputs beside natively boxed
+   selects — was never a choice. `.cat-select` asked for `border: 0; border-bottom: 1px`
+   and a <select>'s native `appearance` painted its own box straight over it, so the
+   stylesheet said underline and the screen said box. A box also gives the focus ring
+   somewhere to sit. */
+.field,
+.search,
+.cat-select,
+.amt-input,
+.kw-add input,
+.kw-add select,
+.cat-edit input,
+.daterange input[type="date"] {
   font: inherit;
   font-size: 13px;
   color: var(--ink);
-  background: none;
-  border: 0;
-  border-bottom: 1px solid var(--rule);
-  padding: 8px 2px;
-  margin: 10px 0 2px;
-  width: 280px;
-  outline: none;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  height: var(--control-h);
+  padding: 0 9px;
 }
-.search:focus {
-  border-bottom-color: var(--accent);
+/* Native select chrome ignores `border`, so it has to be turned off before the shared
+   box shows. The chevron is then ours to draw. */
+select.field,
+select.cat-select,
+.kw-add select,
+.daterange select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 26px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%236e685a' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  background-size: 9px 6px;
 }
-.search::placeholder {
+.search::placeholder,
+.amt-input::placeholder {
   color: var(--ink-soft);
+}
+/* A control that HAS a border shows focus in it, rather than wearing a second box
+   outside the first. This is what the stylesheet always intended — it only failed
+   before because a <select>'s native appearance painted over the border, and
+   `appearance: none` above is what fixes that. Everything without a border of its own
+   (buttons, tabs, links) still takes the hairline ring from :focus-visible.
+
+   Deliberately `:focus`, not `:focus-visible` — a control that has a border can afford
+   to show it on a click too, and `:focus-visible` leaves the decision to a browser
+   heuristic that does not always fire. The specificity here (0,2,0) beats the bare
+   `:focus-visible` rule above (0,1,0), so these keep their border and lose the ring. */
+.field:focus,
+.search:focus,
+.cat-select:focus,
+.amt-input:focus,
+.kw-add input:focus,
+.kw-add select:focus,
+.cat-edit input:focus,
+.daterange input[type="date"]:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 
 /* ── account rows + drill-in ─────────────────────────── */
@@ -294,23 +392,9 @@ tbody.muted td {
   gap: 10px;
   padding: 5px 0;
 }
-.cat-select,
-.amt-input {
-  font: inherit;
-  font-size: 13px;
-  color: var(--ink);
-  background: none;
-  border: 0;
-  border-bottom: 1px solid var(--rule);
-  padding: 5px 2px;
-  outline: none;
-}
+/* Geometry only — the box, the border and the focus ring come from the control system. */
 .cat-select {
   min-width: 220px;
-}
-.cat-select:focus,
-.amt-input:focus {
-  border-bottom-color: var(--accent);
 }
 .rupee {
   color: var(--ink-soft);
@@ -364,28 +448,52 @@ tbody.muted td {
 .save-error {
   font-size: 12px;
 }
-.btn {
-  font: inherit;
-  font-size: 13px;
-  color: var(--paper);
-  background: var(--accent);
-  border: 0;
-  border-radius: 3px;
-  padding: 6px 14px;
-  cursor: pointer;
-}
-.btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
+/* ── buttons: three tiers, and only three ──────────────
+   Primary is the one thing this screen is for. Secondary is a real action that is not
+   that one. Ghost is for cancel and dismiss. Actions used to come in two weights only —
+   filled green or bare grey text — so "+ New rule" beside "Apply rules" looked like a
+   footnote beside a verb, and a bare text link had to carry a mode switch. */
+.btn,
+.btn-secondary,
 .btn-ghost {
   font: inherit;
   font-size: 13px;
+  height: var(--control-h);
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  padding: 0 14px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.btn {
+  color: var(--paper);
+  background: var(--accent);
+}
+.btn-secondary {
+  color: var(--ink);
+  background: var(--paper);
+  border-color: var(--rule);
+}
+.btn-secondary:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.btn-ghost {
   color: var(--ink-soft);
   background: none;
-  border: 0;
-  cursor: pointer;
-  padding: 6px 4px;
+  padding: 0 8px;
+}
+.btn-ghost:hover {
+  color: var(--ink);
+}
+.btn:disabled,
+.btn-secondary:disabled,
+.btn-ghost:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 /* ── section headers (anomalies) ─────────────────────── */
@@ -630,20 +738,89 @@ footer .shell {
 }
 
 /* ── server-filtered ledger ───────────────────────────── */
+/* ── ledger filters ───────────────────────────────────
+   A row of controls, then a result line. This used to be one bare flex-wrap holding all
+   six children, which meant the browser chose the layout: `flex: 1 1 240px` let the
+   search box take every spare pixel (572px of it), which shoved both selects against the
+   right margin and pushed the date range onto a second row, where `margin-left: auto`
+   threw the match count to the opposite corner. Three control heights, two rows, nothing
+   aligned to anything.
+
+   Now: search is capped so it stops eating the row, every control is --control-h, and
+   the count moves out of the control row entirely — it is a RESULT, not a filter, and it
+   belongs with the chips that say which filters produced it. */
 .ledger-filters {
   display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-bottom: 12px;
+}
+.filter-row {
+  display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
-  margin-bottom: 6px;
 }
 .ledger-filters .search {
   margin: 0;
-  flex: 1 1 240px;
+  flex: 1 1 200px;
+  max-width: 320px;
+}
+/* Narrower than in the allocation editor — four controls share this row. */
+.filter-row .cat-select {
+  min-width: 168px;
+}
+.filter-row .daterange .cat-select {
+  min-width: 150px;
+}
+
+.ledger-result {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+  padding-top: 9px;
+  border-top: 1px solid var(--rule);
 }
 .ledger-count {
   font-size: 11.5px;
-  margin-left: auto;
+}
+/* What is actually filtering, said once, where the count is. Four dropdowns do not
+   answer "why am I seeing 12 rows" at a glance; two chips do. */
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  border: 1px solid var(--rule);
+  border-radius: 11px;
+  padding: 1px 4px 1px 10px;
+  background: var(--paper-sunk);
+}
+.filter-chip button {
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  border: 0;
+  background: none;
+  color: var(--ink-soft);
+  cursor: pointer;
+  padding: 1px 4px;
+  border-radius: 2px;
+}
+.filter-chip button:hover {
+  color: var(--debit);
+}
+.filter-clear {
+  font: inherit;
+  font-size: 11.5px;
+  background: none;
+  border: 0;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  padding: 2px;
 }
 /* Working = real rows, one filter behind. Softened rather than removed, so the table
    keeps its height and the page does not jump while the next result is in flight.
@@ -651,12 +828,13 @@ footer .shell {
    and a large blur on a hundred-row table is real compositing work for no extra clarity.
    pointer-events off so a row cannot be clicked while it is about to be replaced. */
 .is-stale {
-  opacity: 0.42;
-  filter: blur(1.2px);
+  /* Was 0.42 + a 1.2px blur. The two together read as "this page has failed", not
+     "these rows are one filter behind" — the busybar above the table is already
+     carrying the working signal, so the dimming only has to be enough to say the rows
+     are not current. */
+  opacity: 0.62;
   pointer-events: none;
-  transition:
-    opacity 0.16s ease-out,
-    filter 0.16s ease-out;
+  transition: opacity 0.16s ease-out;
 }
 
 /* Indeterminate progress. Only meaningful because useBusy gates it — bound directly to
@@ -726,6 +904,16 @@ footer .shell {
 .st-confirmed { color: var(--st-confirmed); }
 .st-provisional { color: var(--st-provisional); }
 .st-unexplained { color: var(--st-unexplained); }
+
+/* …and NOT chart-only any more, for the summary strip. Two reasons it had to move:
+   the strip drew "can't explain yet" in --flag and "explained by a rule" in --flag as
+   well, so the two states the product is built on distinguishing were the same colour
+   side by side; and the reports page already drew the same two states in this palette,
+   so the same number changed colour depending on which tab you were looking at.
+   This palette is the one that was validated against both surfaces, so it wins. */
+.summary .hero {
+  color: var(--st-unexplained);
+}
 
 .report-filters {
   display: flex;
@@ -904,6 +1092,16 @@ footer .shell {
   /* Anchors the scroll position to the top when the row count changes underneath,
      rather than trying to keep the row nearest the middle in view. */
   overflow-anchor: none;
+  /* Reserve the track always. With plain `overflow: auto` the 17px scrollbar appears
+     only once the rows overflow, and every column re-lays-out at that moment. */
+  scrollbar-gutter: stable;
+}
+/* The right-aligned last column used to end 10px from the content edge — its own cell
+   padding, and nothing else — with the scrollbar track hard against it. It read as
+   clipped even though it was not. */
+.table-scroll th:last-child,
+.table-scroll td:last-child {
+  padding-right: 16px;
 }
 .table-scroll.short {
   max-height: min(40vh, 340px);
@@ -947,35 +1145,17 @@ footer .shell {
    A proposal is a PAIR, so it is drawn as one card holding two legs rather than as two
    table rows that happen to be adjacent. The point of the screen is "are these two the
    same money", and a table makes that comparison the reader's job. */
+/* Same row treatment as the Rules mode switch — one hairline the active tab sits on. */
 .tf-tabs {
   display: flex;
-  gap: 4px;
-  padding: 0 10px 12px;
+  gap: 18px;
   flex-wrap: wrap;
+  width: 100%;
+  margin: 10px 0 12px;
+  border-bottom: 1px solid var(--rule);
 }
 .tf-tab {
-  font: inherit;
-  font-size: 12.5px;
-  background: none;
-  border: 1px solid var(--rule);
-  border-radius: 3px;
-  color: var(--ink-soft);
-  padding: 4px 11px;
-  cursor: pointer;
-}
-.tf-tab[aria-current="true"] {
-  color: var(--paper);
-  background: var(--accent);
-  border-color: var(--accent);
-}
-.tf-tab b {
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  margin-left: 7px;
-  opacity: 0.7;
-}
-.tf-tab[aria-current="true"] b {
-  opacity: 0.85;
+  margin-bottom: -1px;
 }
 .pair {
   border: 1px solid var(--rule);
@@ -1076,19 +1256,7 @@ footer .shell {
   flex-wrap: wrap;
 }
 .kw-add input {
-  font: inherit;
-  font-size: 13px;
-  padding: 4px 8px;
-  border: 1px solid var(--rule);
-  border-radius: 3px;
-  background: var(--paper);
-  color: var(--ink);
   min-width: 190px;
-}
-.kw-add input:focus,
-.kw-add select:focus {
-  outline: none;
-  border-color: var(--accent);
 }
 
 /* ── categories ───────────────────────────────────────────
@@ -1096,55 +1264,62 @@ footer .shell {
    an "unused" written against every empty category (which is most of them on a fresh
    install) and a tree-drawing glyph in front of every child. Both are gone; the names and
    the actions stay. */
-.cat-tree {
-  padding: 0 10px;
-  max-width: 620px;
-}
-.cat-group {
-  padding: 10px 0;
-  border-top: 1px solid var(--rule);
-}
-.cat-group:first-child {
-  border-top: 0;
-}
-.cat-row {
-  display: grid;
-  /* Fixed lanes. `auto` sized the action column to its content, so it started in a
-     different place on every row and the buttons stepped in and out down the page. */
-  grid-template-columns: 1fr 46px 150px;
-  gap: 10px;
-  align-items: center;
-  padding: 3px 4px;
-  border-radius: 3px;
-}
-.cat-row:hover {
-  background: var(--paper-sunk);
-}
-.cat-row.child {
-  padding-left: 18px;
+/* ── categories: a table, like every other list here ──────
+   This was a 620px-wide flow of indented rows: under half the available width, two
+   unlabelled counts wedged between the name and the actions ("7 1r" was the whole
+   label), and a permanently-visible action pair repeated down every row loudly enough
+   to out-read the category names it sat beside.
+
+   The bar is the reason for the change. This page's real question is "is this taxonomy
+   working" — which categories carry the money, which have never been used — and a
+   column of bare integers cannot answer it, because 103 and 2 take the same space. */
+.cat-table td {
+  vertical-align: middle;
 }
 .cat-label {
-  font-size: 13.5px;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.cat-row.parent .cat-label {
+/* Hierarchy carried by the face and the indent, not by a box. */
+.cat-tr.parent .cat-label {
   font-family: Fraunces, serif;
   font-size: 15px;
 }
-.cat-usage {
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 10.5px;
-  color: var(--ink-soft);
-  text-align: right;
-  white-space: nowrap;
+.cat-tr.parent > td {
+  padding-top: 17px;
 }
-.cat-usage em {
-  font-style: normal;
-  margin-left: 5px;
-  opacity: 0.75;
+.cat-tr.child .cat-label {
+  padding-left: 22px;
+  font-size: 13.5px;
+}
+
+/* Bar then figure, so the numbers stay flush right and the column still reads as a
+   column. One scale across the page — see maxUse in CategoriesView. */
+.cat-use {
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+.cat-bar {
+  display: inline-block;
+  width: 220px;
+  height: 5px;
+  background: var(--paper-sunk);
+  border-radius: 1px;
+  margin-right: 10px;
+  vertical-align: 1px;
+  overflow: hidden;
+}
+.cat-bar i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  opacity: 0.45;
+}
+.cat-tr.parent .cat-bar i {
+  opacity: 0.8;
 }
 /* Always visible. Hiding them until hover was tried and reverted: an action you cannot
    see is an action you do not know exists, and on this screen the actions ARE the point.
@@ -1165,19 +1340,6 @@ footer .shell {
 .cat-edit input {
   flex: 1 1 180px;
   min-width: 0;
-}
-.cat-edit input {
-  font: inherit;
-  font-size: 13px;
-  padding: 4px 8px;
-  border: 1px solid var(--rule);
-  border-radius: 3px;
-  background: var(--paper);
-  color: var(--ink);
-}
-.cat-edit input:focus {
-  outline: none;
-  border-color: var(--accent);
 }
 .link-btn {
   font: inherit;
@@ -1243,20 +1405,11 @@ footer .shell {
   align-items: center;
   gap: 6px;
 }
+/* Mono, because these are figures. The box, border and focus ring come from the
+   control system so a date input matches the select beside it. */
 .daterange input[type="date"] {
-  font: inherit;
   font-family: "IBM Plex Mono", monospace;
   font-size: 12px;
-  color: var(--ink);
-  background: none;
-  border: 0;
-  border-bottom: 1px solid var(--rule);
-  padding: 3px 2px;
-  border-radius: 0;
-}
-.daterange input[type="date"]:focus {
-  outline: none;
-  border-bottom-color: var(--accent);
 }
 /* An empty date input renders "dd-mm-yyyy" at full contrast, which reads as a value that
    has been set. Soften it until it holds one.
@@ -1283,27 +1436,11 @@ footer .shell {
   width: 100%;
   gap: 18px;
 }
+/* Geometry only — the tab itself is defined once, up with the nav. */
 .mode-switch .mode {
-  font: inherit;
-  font-size: 0.86rem;
-  padding: 5px 1px 7px;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: none;
-  color: var(--ink-soft);
-  cursor: pointer;
   margin-bottom: -1px;
 }
-.mode-switch .mode:hover { color: var(--ink); }
-.mode-switch .mode.on {
-  color: var(--ink);
-  border-bottom-color: var(--accent);
-}
-.mode-count {
-  margin-left: 5px;
-  font-variant-numeric: tabular-nums;
-  color: var(--ink-soft);
-}
+/* .mode-count is defined once, up with the tab it rides on. */
 
 /* The intro sits in the same slot in both modes; a fixed floor stops a one-line
    difference in the prose from shifting the whole page on a tab switch. */
@@ -1528,4 +1665,111 @@ footer .shell {
 .confirm-cats {
   font-size: 0.82rem;
   color: var(--st-provisional);
+}
+
+/* ── empty states ──────────────────────────────────────────────────────────────
+   "No anomalies — everything reconciles" is the best news this product can give
+   you, and as a left-aligned sentence at the top of an otherwise blank 700px page
+   it read as a failed load. A state worth reaching deserves to look like one. */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+  padding: 56px 20px 64px;
+  color: var(--ink-soft);
+}
+.empty-state h3 {
+  font-family: Fraunces, serif;
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--ink);
+  margin: 0;
+}
+.empty-state p {
+  margin: 0;
+  font-size: 13px;
+  max-width: 44ch;
+}
+.empty-state .btn,
+.empty-state .btn-secondary {
+  margin-top: 6px;
+}
+
+/* ── responsive ────────────────────────────────────────────────────────────────
+   There were no width media queries at all before this — the layout was built for
+   one window size. At 820px the wordmark, tagline and nav collided into one
+   run-on line; at 477px the page overflowed its own viewport by 119px and the last
+   nav item was off-screen and unreachable.
+
+   This is degradation, not a second design: the shell narrows, the header stacks,
+   and the ledger table scrolls sideways inside its own frame rather than crushing
+   five columns into a phone. */
+@media (max-width: 1080px) {
+  .shell {
+    padding: 0 20px;
+  }
+  footer .shell {
+    padding: 14px 20px;
+  }
+}
+
+@media (max-width: 900px) {
+  /* The wordmark and the nav stop competing for one line. */
+  .topbar .shell {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  nav {
+    flex-wrap: wrap;
+    gap: 18px;
+    width: 100%;
+  }
+  .summary .shell {
+    gap: 26px;
+    padding-top: 20px;
+    padding-bottom: 20px;
+  }
+  .chips {
+    margin-left: 0;
+  }
+  .hero {
+    font-size: 31px;
+  }
+}
+
+@media (max-width: 680px) {
+  .summary .shell {
+    gap: 18px;
+  }
+  .hero {
+    font-size: 27px;
+  }
+  .chips {
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  /* Below this width five columns cannot all be legible, so the frame scrolls
+     instead of squeezing. The sticky header and the fixed height still hold. */
+  .table-scroll table {
+    min-width: 620px;
+  }
+  .ledger-filters .search {
+    max-width: none;
+  }
+  .filter-row .cat-select,
+  .filter-row .daterange .cat-select {
+    min-width: 0;
+    flex: 1 1 150px;
+  }
+  .daterange {
+    width: 100%;
+  }
+  /* The bar is the first thing to go when there is no room for it — the figure beside
+     it carries the same fact, just without the comparison. */
+  .cat-bar {
+    display: none;
+  }
 }

@@ -175,11 +175,18 @@ export default function TransfersView() {
           for you. Every link says why, and can be undone.
         </p>
         {writeError && <p className="debit rules-error">{writeError}</p>}
+        {/* Two real actions, so two real buttons. This used to be a filled primary beside
+            bare grey text, which read as "one button and one footnote" — and the footnote
+            was the one that opens a whole panel. Ghost is for cancel and dismiss. */}
         <div className="head-actions">
           <button className="btn" onClick={detect} disabled={detecting}>
             {detecting ? "Looking…" : "Find transfers"}
           </button>
-          <button className="btn-ghost" onClick={() => setShowIds((v) => !v)}>
+          <button
+            className="btn-secondary"
+            aria-expanded={showIds}
+            onClick={() => setShowIds((v) => !v)}
+          >
             {showIds ? "Hide account identifiers" : "Account identifiers"}
           </button>
         </div>
@@ -228,11 +235,23 @@ export default function TransfersView() {
 
       <div className={busy || isStale ? "is-stale" : undefined}>
         {groups.length === 0 ? (
-          <p className="soft" style={{ padding: "0 10px" }}>
-            {tab === "suspected"
-              ? "Nothing to review. Press “Find transfers” to look again."
-              : "Nothing here yet."}
-          </p>
+          /* An empty queue here is the good outcome, not a failed load. As a bare
+             left-aligned sentence above 600px of nothing it read as the latter. */
+          <div className="empty-state">
+            <h3>
+              {tab === "suspected" ? "Nothing waiting on you" : "Nothing here yet"}
+            </h3>
+            <p>
+              {tab === "suspected"
+                ? "Every pair Khata proposed has been decided. Run detection again after your next import."
+                : "Pairs land here as detection finds them and you decide on them."}
+            </p>
+            {tab === "suspected" && (
+              <button className="btn-secondary" onClick={detect} disabled={detecting}>
+                {detecting ? "Looking…" : "Find transfers"}
+              </button>
+            )}
+          </div>
         ) : (
           groups.map((g) => (
             <TransferPair key={g.key} group={g} onDecide={decide} onUnlink={unlink} />
