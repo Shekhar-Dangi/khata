@@ -106,8 +106,17 @@ npm run start:demo
 curl -X POST $URL/rules/apply   # once, so the demo opens on rules having done something
 ```
 
-`render.yaml` wires exactly that up, but nothing about it is Render-specific — it maps onto
-any host that runs a Node process and hands it a `DATABASE_URL`.
+`fly.toml` + `Dockerfile` wire that up, and `render.yaml` is the alternative. Nothing in
+either is vendor-specific — both map onto any host that runs a Node process and hands it a
+`DATABASE_URL`.
+
+**Picking a host matters more than it sounds for a demo.** The question is not raw speed,
+it is what a visitor sees when nobody has used it for a day. A free tier that sleeps for
+~50s on wake is worse than having no demo; one that wakes in ~1s is invisible. The other
+trap is the database: some free Postgres tiers are time-limited and delete themselves after
+a few months, so the demo does not just sleep, it eventually dies without telling you.
+Serverless Postgres that scales to zero without expiring avoids that, and since it is only
+a `DATABASE_URL` it needs no code change at all.
 
 **On authentication.** Khata is local-first: the intended deployment is your own machine,
 where the operating-system account *is* the boundary, and adding a login would be
