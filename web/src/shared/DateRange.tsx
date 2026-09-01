@@ -1,4 +1,4 @@
-import { presets, type Period } from "./reports";
+import { presets, type Period } from "../reports/reports";
 
 // One date-range control, for every screen that filters by period.
 //

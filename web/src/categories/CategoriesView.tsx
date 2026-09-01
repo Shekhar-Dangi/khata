@@ -1,7 +1,7 @@
 import { Fragment, useState } from "react";
 
-import { useFetch } from "./useFetch";
-import { useLedgerVersion } from "./ledgerVersion";
+import { useFetch } from "../shared/useFetch";
+import { useLedgerVersion } from "../shared/ledgerVersion";
 
 export type CategoryNode = {
   id: number;

@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { useLedgerVersion } from "./ledgerVersion";
+import { useLedgerVersion } from "../shared/ledgerVersion";
 import type { ApplyResult } from "./rules";
 
 // The apply action and its result.

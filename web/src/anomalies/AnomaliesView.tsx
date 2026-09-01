@@ -1,8 +1,8 @@
 import { useState } from "react";
 
-import { useFetch } from "./useFetch";
-import { rupees } from "./format";
-import Pager from "./Pager";
+import { useFetch } from "../shared/useFetch";
+import { rupees } from "../shared/format";
+import Pager from "../shared/Pager";
 
 type Discrepancy = {
   transaction_id: string;

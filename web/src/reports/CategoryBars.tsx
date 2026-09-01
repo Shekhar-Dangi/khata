@@ -1,7 +1,7 @@
 import { useState } from "react";
 
-import { rupees } from "./format";
-import TransactionPeek from "./TransactionPeek";
+import { rupees } from "../shared/format";
+import TransactionPeek from "../shared/TransactionPeek";
 import { pctChange, type CategoryRow } from "./reports";
 
 // A ranked bar list, stacked by how much we trust each figure.

@@ -1,7 +1,7 @@
 import { Fragment, useState } from "react";
 
-import { rupees } from "./format";
-import TransactionPeek from "./TransactionPeek";
+import { rupees } from "../shared/format";
+import TransactionPeek from "../shared/TransactionPeek";
 import { describeRule, type RuleImpact } from "./rules";
 
 // The rules table, with what each rule actually did. Click a row to see the transactions

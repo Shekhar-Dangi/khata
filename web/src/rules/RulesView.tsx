@@ -1,9 +1,9 @@
 import { useState } from "react";
 
-import { errorText, mutate } from "./api";
+import { errorText, mutate } from "../shared/api";
 
-import { useFetch } from "./useFetch";
-import { useLedgerVersion } from "./ledgerVersion";
+import { useFetch } from "../shared/useFetch";
+import { useLedgerVersion } from "../shared/ledgerVersion";
 import RulesToolbar from "./RulesToolbar";
 import RuleForm from "./RuleForm";
 import RulesList from "./RulesList";

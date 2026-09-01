@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { useFetch } from "./useFetch";
+import { useFetch } from "../shared/useFetch";
 import {
   emptyDraft,
   toCondition,

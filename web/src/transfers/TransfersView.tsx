@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 
-import { errorText, mutate } from "./api";
-import { useBusy, useFetch } from "./useFetch";
-import { useLedgerVersion } from "./ledgerVersion";
-import { rupees } from "./format";
-import Pager from "./Pager";
+import { errorText, mutate } from "../shared/api";
+import { useBusy, useFetch } from "../shared/useFetch";
+import { useLedgerVersion } from "../shared/ledgerVersion";
+import { rupees } from "../shared/format";
+import Pager from "../shared/Pager";
 import AccountIdentifiers from "./AccountIdentifiers";
 
 type Leg = {
