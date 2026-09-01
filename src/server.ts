@@ -1,4 +1,5 @@
 import express from "express";
+import path from "node:path";
 
 import { errorHandler, notFoundHandler } from "./http.ts";
 import { accounts } from "./routes/accounts.ts";
@@ -23,6 +24,15 @@ import { transfers } from "./routes/transfers.ts";
 
 const PORT = Number(process.env.PORT) || 3000;
 
+// DEMO_MODE marks a PUBLIC deployment carrying generated data: a place to click around
+// before deciding whether to run it locally. It changes two things and nothing else —
+// the app shows a banner saying what this is, and the local-model endpoint stops
+// pretending it could work, because a hosted box has no Ollama on loopback.
+//
+// It is NOT a security boundary. There is no authentication in this app at all; see the
+// note on /health below.
+export const DEMO_MODE = process.env.DEMO_MODE === "1";
+
 const app = express();
 // Parse JSON request bodies into req.body. Returns 400 automatically if the body is
 // malformed — that rejection arrives at errorHandler as `entity.parse.failed`.
@@ -30,8 +40,11 @@ app.use(express.json());
 
 // Health is genuinely about the SERVER rather than any resource, so it is the one route
 // that belongs in this file.
+// `demo` is here so ONE build works everywhere: the frontend asks the server what it is
+// rather than being compiled for a particular deployment. A build-time flag would mean two
+// artefacts and a way to ship the wrong one.
 app.get("/health", (_req, res) => {
-  res.json({ ok: true });
+  res.json({ ok: true, demo: DEMO_MODE });
 });
 
 // Routers are mounted at the ROOT and declare their own full paths, rather than being
@@ -52,6 +65,26 @@ app.use(reports);
 app.use(rules);
 app.use(transactions);
 app.use(transfers);
+
+// In a deployment the API also serves the built frontend, so the whole thing is one
+// origin and one process: no CORS, no second host, and the paths the Vite proxy handles in
+// dev need no production equivalent.
+//
+// The fallback is deliberately NARROW. Serving index.html for anything unmatched would
+// recreate this codebase's most-documented trap: a mistyped or missing API path answering
+// 200 with HTML, which surfaces far away as "JSON.parse: unexpected character". So it
+// answers only GETs that actually asked for HTML — a browser navigating. An API client
+// sends Accept: application/json and falls through to the JSON 404 below, where it should.
+if (process.env.SERVE_WEB === "1") {
+  const dist = path.resolve(import.meta.dirname, "../web/dist");
+  app.use(express.static(dist));
+  app.get(/.*/, (req, res, next) => {
+    if (req.accepts("html") && !req.accepts("json")) {
+      return res.sendFile(path.join(dist, "index.html"));
+    }
+    return next();
+  });
+}
 
 // Anything unmatched, then the one place a thrown error becomes a response. Both must
 // come AFTER every router: Express walks this stack in order, and a 404 handler

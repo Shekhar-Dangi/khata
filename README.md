@@ -75,6 +75,48 @@ ingest/         Python parsers: Slice PDF (geometric), HDFC + Indian Bank (xlsx)
 
 The pure/impure split is deliberate and load-bearing: `rules.ts`, `mining.ts` and `transfers.ts` are the code that can silently reclassify real money, so they are the code that unit tests can reach without a database.
 
+## Trying it without setting anything up
+
+There is a hosted demo carrying **generated data** — somewhere to click around and decide
+whether it is worth running properly. It is deliberately limited, and the limits are the
+honest part:
+
+- **No sign-in, and no user model at all.** One shared database. Anything you change,
+  everyone sees, and it may be reset without warning. **Do not enter real financial
+  details.** Auth is not a missing feature here so much as an unmade decision — see below.
+- **No local model.** Category suggestions run a model on *your* machine, which is the
+  entire privacy design, so that one endpoint answers `501` on the demo and says so.
+- Everything else is real: import, transfer detection, rules, mining, bulk confirm,
+  reports, the trend.
+
+The app says all of this in a banner rather than leaving you to find out.
+
+### Deploying your own
+
+One process serves the API *and* the built frontend, so it is one service and one database:
+
+```sh
+DEMO_MODE=1     # banner on, local-model endpoint answers 501 honestly
+SERVE_WEB=1     # this process also serves web/dist
+DATABASE_URL=…  # provided by the host
+
+npm ci && npm ci --prefix web && npm run build --prefix web
+npm run seed:demo      # refuses to run against a database that already holds data
+npm run start:demo
+curl -X POST $URL/rules/apply   # once, so the demo opens on rules having done something
+```
+
+`render.yaml` wires exactly that up, but nothing about it is Render-specific — it maps onto
+any host that runs a Node process and hands it a `DATABASE_URL`.
+
+**On authentication.** Khata is local-first: the intended deployment is your own machine,
+where the operating-system account *is* the boundary, and adding a login would be
+ceremony guarding a database only you can reach. That stops being true the moment it is
+hosted, which is why the demo carries generated data and says so. Real multi-user auth is
+not a small change — it decides whether accounts, rules and categories become per-user, and
+that reaches the schema and every query — so it is deliberately unbuilt rather than
+half-built.
+
 ## Running it
 
 Requires **Node ≥ 24** (the server runs TypeScript directly, with no build step) and Postgres 18.
