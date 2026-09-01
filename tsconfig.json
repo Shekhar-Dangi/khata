@@ -11,5 +11,9 @@
     "verbatimModuleSyntax": true,
     "types": ["node"]
   },
-  "include": ["src"]
+  // scripts/ is IN the program on purpose. It used to be src-only, which meant
+  // scripts/migrate.ts — a real migration runner, the least type-safe code here — had
+  // never been typechecked. A pipeline running `npm run typecheck` would have gone green
+  // while covering less than it appeared to, which is the worst kind of green.
+  "include": ["src", "scripts"]
 }
