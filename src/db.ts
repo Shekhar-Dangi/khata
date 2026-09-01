@@ -10,6 +10,15 @@ types.setTypeParser(1082, (value) => value);
 // Why not just open a connection per query? Because each new connection to Postgres
 // costs a TCP handshake + authentication — slow if you do it on every request.
 // The pool hands you an already-open connection, you use it, and it goes back in the pool.
+//
+// `max` is configurable because the right answer depends on how the process is RUN, not on
+// what the code does. A long-running server wants a handful of connections it keeps warm.
+// A serverless function is the opposite case: many short-lived instances, each with its own
+// pool, all pointing at one Postgres — which exhausts connection slots long before it
+// exhausts anything else. There the answer is a small max per instance plus a connection
+// POOLER in front of the database (Neon's `-pooler` host), and the pooler does the real
+// multiplexing.
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
+  max: Number(process.env.PG_POOL_MAX) || 10,
 });

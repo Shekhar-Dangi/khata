@@ -10,7 +10,9 @@
     "typecheck": "tsc --noEmit",
     "migrate": "node --env-file=.env scripts/migrate.ts",
     "start:demo": "node src/server.ts",
-    "seed:demo": "node --env-file=.env scripts/seed-demo.ts"
+    "seed:demo": "node --env-file=.env scripts/seed-demo.ts",
+    "build:api": "esbuild api/index.ts --bundle --platform=node --format=esm --target=node20 --outfile=api/index.js --external:pg --external:express",
+    "build:vercel": "npm ci --prefix web && npm run build --prefix web && npm run build:api"
   },
   "dependencies": {
     "express": "^5.2.1",
@@ -20,7 +22,8 @@
     "@types/express": "^5.0.6",
     "@types/node": "^26.0.0",
     "@types/pg": "^8.20.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "esbuild": "^0.25.0"
   },
   "engines": {
     "node": ">=24"

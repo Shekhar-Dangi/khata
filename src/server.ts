@@ -33,7 +33,7 @@ const PORT = Number(process.env.PORT) || 3000;
 // note on /health below.
 export const DEMO_MODE = process.env.DEMO_MODE === "1";
 
-const app = express();
+export const app = express();
 // Parse JSON request bodies into req.body. Returns 400 automatically if the body is
 // malformed — that rejection arrives at errorHandler as `entity.parse.failed`.
 app.use(express.json());
@@ -92,6 +92,14 @@ if (process.env.SERVE_WEB === "1") {
 app.use(notFoundHandler);
 app.use(errorHandler);
 
-app.listen(PORT, () => {
-  console.log(`listening on http://localhost:${PORT}`);
-});
+// Listen ONLY when this file is the program being run.
+//
+// The ESM equivalent of `require.main === module`. A serverless host imports this module to
+// get the app and drives it itself — calling listen() there would bind a port nothing is
+// routing to, and on some platforms hang the invocation until it times out. Running
+// `node src/server.ts` still starts a server, unchanged.
+if (import.meta.filename === process.argv[1]) {
+  app.listen(PORT, () => {
+    console.log(`listening on http://localhost:${PORT}`);
+  });
+}
