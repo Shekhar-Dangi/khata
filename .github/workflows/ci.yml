@@ -1,0 +1,109 @@
+# CI — what must be true of `main`, checked somewhere that is not a laptop.
+#
+# Every line here is a consequence of something specific, not a template. The reasoning
+# lives beside each step rather than in a wiki nobody opens.
+#
+# What this pipeline deliberately does NOT need: a database, a .env, or a single secret.
+# All 97 tests are pure — no DB, no clock, no network — so the whole thing is a checkout,
+# two installs and three commands. That is a property worth protecting: the day a test
+# needs Postgres, it stops being free and starts being a service container.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A second push to the same branch makes the first run pointless. Cancelling it keeps the
+# queue short, and a pipeline people wait on is a pipeline people route around.
+# `main` is excluded: those runs are the record of what landed, so they finish.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  check:
+    name: typecheck · tests · build
+    runs-on: ubuntu-latest
+    # A guard, not a target. The job should take well under two minutes; if it ever hits
+    # this, something is hanging rather than merely slow.
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          # Read from .nvmrc so the pinned version has ONE home. The version is
+          # load-bearing here, not hygiene: the app runs TypeScript directly
+          # (`node src/server.ts`) with no build step, which needs Node >= 23.6 for
+          # unflagged type stripping. On Node 20 the server does not start, and the error
+          # does not say why.
+          node-version-file: .nvmrc
+
+          # Cache node_modules, keyed on the LOCKFILES.
+          #
+          # A cache key must capture everything that determines the contents. Key on a
+          # constant and a dependency bump silently reuses the old modules — the build goes
+          # green while testing code you are not shipping, intermittently, which is the
+          # worst kind of failure to chase.
+          #
+          # BOTH lockfiles are named on purpose. This repo has two independent dependency
+          # trees, and keying only the root one means a `web/` bump reuses a stale cache.
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            web/package-lock.json
+
+      # `ci`, never `install`. `npm install` may REWRITE the lockfile to satisfy
+      # package.json, so it can quietly test versions nobody ran; `npm ci` deletes
+      # node_modules, installs the lockfile exactly, and fails loudly if the lockfile and
+      # the manifest disagree. The name is the mnemonic: ci = clean install.
+      - name: Install (root)
+        run: npm ci
+
+      - name: Install (web)
+        working-directory: web
+        run: npm ci
+
+      # tsconfig.json includes `scripts` as well as `src`. It used to be src-only, which
+      # meant scripts/migrate.ts — a real migration runner, and the least type-safe code in
+      # the repo — had never been typechecked. This step would have gone green while
+      # covering less than it appeared to.
+      - name: Typecheck (backend + scripts)
+        run: npm run typecheck
+
+      # 97 tests, all pure. They would pass with the entire routes layer deleted, which is
+      # a known and recorded gap: route-level coverage is the next thing this job should
+      # gain, and it is the point at which a Postgres service container arrives.
+      - name: Test
+        run: npm test
+
+      # `tsc -b && vite build`, and the two halves matter. `tsc -b` follows project
+      # references and a stricter config than a bare `tsc --noEmit` — it has already caught
+      # an error the loose check missed. Running the real build is the only way to know the
+      # real build works.
+      - name: Build web
+        working-directory: web
+        run: npm run build
+
+      # Proves the repo is consistent with itself. `npm ci` will not rewrite a lockfile,
+      # but a build step can touch a tracked file, and a working tree that differs from the
+      # commit means the thing that was verified is not the thing that was committed.
+      #
+      # Multi-command steps get `set -euo pipefail`: without `-e` only the LAST command's
+      # exit code is reported, and without `pipefail` a failure upstream of a pipe is
+      # invisible. A CI step's entire definition of failure is a non-zero exit code.
+      - name: No uncommitted changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "$(git status --porcelain)" ]]; then
+            echo "::error::The build modified tracked files. Commit them or gitignore them."
+            git status --short
+            git diff
+            exit 1
+          fi
+          echo "working tree clean"
