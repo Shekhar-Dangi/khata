@@ -78,7 +78,19 @@ export default function RulesList({
                   </td>
                   <td className="soft">{describeRule(r)}</td>
                   <td>{r.category_name ?? <span className="soft">—</span>}</td>
-                  <td className="r mono soft">{dead ? "—" : r.transactions}</td>
+                  {/* The count is everything this rule EXPLAINED, claimed or not. The
+                      sub-line says how much is still a guess, which is the actionable half:
+                      it is exactly what bulk confirm has left to do on this rule. Silent
+                      when there is nothing left, because zero outstanding is the goal
+                      rather than a number worth a line of its own. */}
+                  <td className="r mono soft">
+                    {dead ? "—" : r.transactions}
+                    {!dead && r.provisional_allocations > 0 && (
+                      <span className="rule-pending">
+                        {r.provisional_allocations} to confirm
+                      </span>
+                    )}
+                  </td>
                   {/* SIGNED, and coloured by direction. money_paise is a magnitude, which
                       made a salary rule and a rent rule look like the same kind of thing.
                       net_paise carries the direction, and for a rule whose allocations all

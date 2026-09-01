@@ -1773,3 +1773,12 @@ footer .shell {
     display: none;
   }
 }
+
+/* How much of a rule's work is still a guess. Shown only when there IS something
+   outstanding — zero left to confirm is the goal, not a number worth a line. */
+.rule-pending {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--st-provisional);
+  letter-spacing: 0.02em;
+}

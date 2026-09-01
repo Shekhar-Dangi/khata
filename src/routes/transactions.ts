@@ -338,6 +338,12 @@ router.post("/transactions/confirm", route(async (req, res) => {
       `UPDATE allocations al
           SET source = 'user',
               rule_id = NULL,
+              -- rule_id says "a rule owns this and the engine manages it", which stops
+              -- being true the moment you claim the row. confirmed_from_rule_id says "a
+              -- rule proposed this and a human accepted it" — history, not ownership.
+              -- Two facts, two columns; collapsing them is what took every rule in
+              -- /reports/by-rule to zero the first time 253 rows were confirmed at once.
+              confirmed_from_rule_id = r.id,
               confidence = 1,
               note = COALESCE(al.note || ' | ', '') || 'confirmed from rule: ' || r.name
          FROM rules r

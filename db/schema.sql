@@ -138,6 +138,12 @@ CREATE TABLE allocations (
   source         TEXT NOT NULL CHECK (source IN ('rule', 'user', 'evidence')),
   rule_id        BIGINT REFERENCES rules(id),
   evidence_id    BIGINT REFERENCES evidence(id),
+  -- HISTORY, not ownership. `rule_id` means "a rule owns this row and the engine manages
+  -- it"; this means "a rule proposed it and a human accepted it". They are mutually
+  -- exclusive: confirming nulls rule_id (the CHECK below demands it) and sets this.
+  -- Without it, confirming destroys the link instead of moving it, and /reports/by-rule
+  -- reports every rule as dead the moment its guesses are claimed.
+  confirmed_from_rule_id BIGINT REFERENCES rules(id),
   note           TEXT,
   created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   -- Provenance integrity: make illegal states unrepresentable. A rule allocation must name
@@ -147,8 +153,15 @@ CREATE TABLE allocations (
     (source = 'rule'     AND rule_id IS NOT NULL AND evidence_id IS NULL) OR
     (source = 'evidence' AND evidence_id IS NOT NULL AND rule_id IS NULL) OR
     (source = 'user'     AND rule_id IS NULL AND evidence_id IS NULL)
-  )
+  ),
+  -- Only a USER row can have been confirmed from a rule: a 'rule' row still owns its rule
+  -- through rule_id, and an 'evidence' row was never proposed by one.
+  CONSTRAINT allocations_confirmed_from_rule_check
+    CHECK (confirmed_from_rule_id IS NULL OR source = 'user')
 );
 
 -- We read allocations per-transaction constantly (to compute the unexplained remainder).
 CREATE INDEX allocations_transaction_id_idx ON allocations (transaction_id);
+-- /reports/by-rule joins on this as well as rule_id, so it needs the same index.
+CREATE INDEX allocations_confirmed_from_rule_idx
+  ON allocations (confirmed_from_rule_id) WHERE confirmed_from_rule_id IS NOT NULL;
