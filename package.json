@@ -12,7 +12,8 @@
     "start:demo": "node src/server.ts",
     "seed:demo": "node --env-file=.env scripts/seed-demo.ts",
     "build:api": "esbuild src/vercel-entry.ts --bundle --platform=node --format=esm --target=node20 --outfile=api/index.js --external:pg --external:express",
-    "build:vercel": "npm ci --prefix web && npm run build --prefix web"
+    "build:vercel": "npm ci --prefix web && npm run build --prefix web",
+    "demo:activity": "node scripts/demo-activity.ts"
   },
   "dependencies": {
     "express": "^5.2.1",

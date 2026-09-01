@@ -62,6 +62,10 @@ async function main() {
   await run("seed.sql");
   await run("categories.sql");
   await run("mock.sql");
+  // AFTER mock.sql, which TRUNCATEs. These are the rows no starter rule matches; without
+  // them the demo's unexplained band is three transactions and the chart draws two colours
+  // where the model has three.
+  await run("demo-unexplained.sql");
   await run("rules.sql");
 
   const { rows } = await pool.query("SELECT COUNT(*)::int AS n FROM transactions");

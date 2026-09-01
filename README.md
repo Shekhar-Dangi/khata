@@ -7,7 +7,7 @@ _money you can't explain yet_.**
 
 A bank statement is the source of truth for *cash movement* — never for *meaning*. `UPI-Debit-123456789012-AMAZON INDIA-YESB0APLUPI` records that money left an account. It does not record what was bought. Khata is the layer that turns the first into the second, and is honest about the part it cannot.
 
-Three months of real statements, 516 transactions, three banks, no data leaving the machine.
+Built against real statements in three bank formats, with no data leaving the machine.
 
 ---
 
@@ -39,7 +39,7 @@ The design consequence that matters: **a confident wrong label is worse than no 
 
 ## The local LLM, and why it does almost nothing
 
-The most useful thing in this repo is a feature that was **built, measured, and then demoted on the evidence**. Full write-up: the design.
+The most useful thing in this repo is a feature that was **built, measured, and then demoted on the evidence**.
 
 The constraint was privacy — bank narrations never leave the machine — so the model is local (Ollama, `qwen3:4b`, loopback only). Running it over every unexplained transaction gave:
 
@@ -103,8 +103,15 @@ DATABASE_URL=…  # provided by the host
 npm ci && npm ci --prefix web && npm run build --prefix web
 npm run seed:demo      # refuses to run against a database that already holds data
 npm run start:demo
-curl -X POST $URL/rules/apply   # once, so the demo opens on rules having done something
+BASE=$URL npm run demo:activity   # applies rules, then confirms a slice
 ```
+
+`demo:activity` exists so the demo shows all **three** states rather than two. A freshly
+seeded database has unexplained rows and rule guesses, but nothing confirmed — because
+confirming is a human act — so the trend chart draws two bands and the three-state model,
+which is the thing the product is about, never appears in the picture meant to explain it.
+It drives the real endpoints rather than reproducing their SQL, and confirms the oldest
+guesses first, which is what a real backlog looks like: green early, amber recent.
 
 `fly.toml` + `Dockerfile` wire that up, and `render.yaml` is the alternative. Nothing in
 either is vendor-specific — both map onto any host that runs a Node process and hands it a
@@ -144,24 +151,17 @@ cd web && npm ci && npm run dev       # app on :5173
 Local-model suggestions are optional and need [Ollama](https://ollama.com) with `qwen3:4b`. Without it, that one feature reports that it cannot reach the model; everything else works.
 
 ```sh
-npm test            # 97 tests, all pure — no database required
+npm test            # unit tests, all pure — no database required
 npm run typecheck
 npm run migrate status
 ```
 
 ## Status
 
-Working end to end: import → reconcile → transfer detection → user-editable categories → manual explain → rules engine → bulk confirm → reports, including the unexplained trend over time.
+Working end to end: import → reconcile → transfer detection → user-editable categories → manual explain → rules engine → bulk confirm → reports, including the unexplained trend over time. On top of that: Splitwise import with a consumption view (what you used, whoever paid), and invoice ingestion — PDFs are stored first, parsed, reviewed and confirmed onto the ledger. Amazon invoices have a deterministic parser; anything else can be read by a local model, and four checks (is it an invoice, is it complete, does it add up to the paise, is every line actually in the document) decide whether to believe it. The model is never asked how confident it is.
 
-**Known gaps, recorded rather than hidden:** every test is pure, so the routes layer has no automated coverage. `scripts/snapshot.sh` captures every read plus every deliberate validation failure to one file per request, which is enough to prove a refactor changed nothing — but it is a manual tool, it has not been extended to the endpoints added most recently, and integration tests are the next thing CI should gain. Rows come back from `pg` untyped and are cast by hand at ~85 query sites. Connectors for Splitwise and email receipts — the only things that can reach payments to people, which no rule and no model can categorise — are designed in the design and unbuilt.
+**Known gaps, recorded rather than hidden:** every test is pure, so the routes layer has no automated coverage. `scripts/snapshot.sh` captures every read plus every deliberate validation failure to one file per request, which is enough to prove a refactor changed nothing — but it is a manual tool, it has not been extended to the endpoints added most recently, and integration tests are the next thing CI should gain. Rows come back from `pg` untyped and are cast by hand at ~85 query sites. Refunds (credit notes) are stored and recognised but not yet posted.
 
-## Docs
+## Where the reasoning lives
 
-The reasoning lives next to the code, not in commit messages:
-
-- the design — how the pieces fit
-- the design — convergence, the user lock, the scoped sweep
-- the design — three passes, ordered by evidence strength
-- the design — the balance walk, and why mid-history imports anchor to the bank's first stated balance
-- the design — the design that changed its own conclusion
-- the design — shared expenses, connectors, and why scraped APIs are ruled out
+Next to the code, not in commit messages. Every non-obvious decision is explained in a comment at the place it applies, and each file in `db/migrations/` opens with why that schema change was made.
