@@ -89,6 +89,14 @@ jobs:
         working-directory: web
         run: npm run build
 
+      # api/index.js is a COMMITTED artefact, because Vercel discovers functions from the
+      # source tree before it runs any build command — so the bundle has to be there
+      # already. Regenerating it here means the "no uncommitted changes" step below fails
+      # whenever the committed bundle has drifted from its source, which is the only thing
+      # that makes a checked-in build output safe to live with.
+      - name: Rebuild the deploy bundle
+        run: npm run build:api
+
       # Proves the repo is consistent with itself. `npm ci` will not rewrite a lockfile,
       # but a build step can touch a tracked file, and a working tree that differs from the
       # commit means the thing that was verified is not the thing that was committed.
@@ -101,7 +109,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -n "$(git status --porcelain)" ]]; then
-            echo "::error::The build modified tracked files. Commit them or gitignore them."
+            echo "::error::Tracked files changed. If api/index.js is listed, run 'npm run build:api' and commit it."
             git status --short
             git diff
             exit 1
