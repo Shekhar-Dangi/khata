@@ -44,9 +44,9 @@ export default function MonthTrend({ months }: { months: MonthRow[] }) {
   // Month over month, NOT first versus last.
   //
   // First-versus-last is fragile precisely where it matters: the earliest month in a
-  // statement import is usually a PARTIAL one. On this ledger the first month held a quarter of
-// the next month's rows, so anchoring to it reported "up 440%" in red while unexplained money had in fact fallen by two thirds — a large improvement shown as a
-  // regression. A chart that inverts the direction of the thing it exists to show is worse
+  // statement import is usually a PARTIAL one. Observed here: the first month held a
+  // quarter of the next month's rows, so anchoring to it reported a large RISE in red
+  // while unexplained money had in fact fallen by two thirds across the full months. A chart that inverts the direction of the thing it exists to show is worse
   // than no chart.
   //
   // The comparison is NAMED in the label rather than left implicit, because the last month

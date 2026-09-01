@@ -12,10 +12,11 @@ TRUNCATE transactions, accounts RESTART IDENTITY CASCADE;
 -- We list columns explicitly ON PURPOSE: positional inserts silently break the day the
 -- schema changes. Explicit column lists > terse-but-fragile.
 
+-- Display names only; the `bank` codes are functional (the parsers emit them) and stay.
 INSERT INTO accounts (name, bank) VALUES
-  ('Salary Account', 'hdfc'),      -- becomes id 1
+  ('Salary Account',  'hdfc'),        -- becomes id 1
   ('Savings Account', 'indian_bank'), -- becomes id 2
-  ('Credit Line', 'slice');       -- becomes id 3
+  ('Credit Line',     'slice');       -- becomes id 3
 
 -- No seed transactions on purpose: real data now comes via ingestion (ingest/ingest.py),
 -- so the DB starts with just the 3 empty accounts.

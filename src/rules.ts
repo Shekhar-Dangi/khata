@@ -301,7 +301,7 @@ export function chooseWinner<T extends RankableRule>(
 
 // ── Deciding what to write ──────────────────────────────────────────────────
 // Still pure. This produces the DESIRED state for one transaction; making the
-// database match it is the runner's job.
+// database match it is the runner's job (src/rules-apply.ts).
 
 // How much we trust a rule's guess. Below 1 on purpose: a rule knows the merchant,
 // not the basket, so its allocation is provisional until a human or itemised
@@ -324,7 +324,7 @@ export type DesiredAllocation = {
 // What SHOULD this transaction's rule-allocations be?
 //
 // `remaining` is supplied by the caller and must be computed EXCLUDING existing
-// source='rule' rows — see the design. Counting our own previous output
+// source='rule' rows. Counting our own previous output
 // makes the desired state depend on the last run, and the engine oscillates:
 // full allocation -> remainder 0 -> desired empty -> swept -> rewritten next run.
 //
