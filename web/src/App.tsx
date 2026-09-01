@@ -1,13 +1,13 @@
 import { useState } from "react";
 
-import Summary from "./Summary";
-import { LedgerVersionProvider } from "./ledgerVersion";
-import ConsolidatedView from "./ConsolidatedView";
-import TransfersView from "./TransfersView";
-import AnomaliesView from "./AnomaliesView";
-import RulesView from "./RulesView";
-import ReportsView from "./ReportsView";
-import CategoriesView from "./CategoriesView";
+import Summary from "./shared/Summary";
+import { LedgerVersionProvider } from "./shared/ledgerVersion";
+import ConsolidatedView from "./ledger/ConsolidatedView";
+import TransfersView from "./transfers/TransfersView";
+import AnomaliesView from "./anomalies/AnomaliesView";
+import RulesView from "./rules/RulesView";
+import ReportsView from "./reports/ReportsView";
+import CategoriesView from "./categories/CategoriesView";
 
 type View =
   | "transactions"

@@ -1,6 +1,6 @@
-import { useFetch } from "./useFetch";
+import { useFetch } from "../shared/useFetch";
 import CandidateRow from "./CandidateRow";
-import type { Category } from "./transactions";
+import type { Category } from "../shared/transactions";
 import type { CandidatesResponse } from "./rules";
 
 // Rules that do not exist yet, mined from the narrations of unexplained transactions.

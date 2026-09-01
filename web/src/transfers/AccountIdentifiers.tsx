@@ -1,7 +1,7 @@
 import { useState } from "react";
 
-import { errorText, mutate } from "./api";
-import { useFetch } from "./useFetch";
+import { errorText, mutate } from "../shared/api";
+import { useFetch } from "../shared/useFetch";
 
 type Account = { id: number; name: string };
 type Keyword = {

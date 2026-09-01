@@ -1,9 +1,9 @@
 import { useState } from "react";
 
-import TransactionTable from "./TransactionTable";
-import CategorySelect from "./CategorySelect";
+import TransactionTable from "../shared/TransactionTable";
+import CategorySelect from "../shared/CategorySelect";
 import SpreadBadge from "./SpreadBadge";
-import type { Category, Txn } from "./transactions";
+import type { Category, Txn } from "../shared/transactions";
 import type { Candidate } from "./rules";
 
 // How many preview rows to render inside an expanded candidate.

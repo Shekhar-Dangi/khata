@@ -1,11 +1,11 @@
 import { useState } from "react";
 
-import { useBusy, useFetch } from "./useFetch";
-import { useLedgerVersion } from "./ledgerVersion";
-import { rupees } from "./format";
+import { useBusy, useFetch } from "../shared/useFetch";
+import { useLedgerVersion } from "../shared/ledgerVersion";
+import { rupees } from "../shared/format";
 import CategoryBars from "./CategoryBars";
 import MonthTrend from "./MonthTrend";
-import DateRange, { rangeParams } from "./DateRange";
+import DateRange, { rangeParams } from "../shared/DateRange";
 import {
   monthLabel,
   presets,
@@ -14,7 +14,7 @@ import {
   type MonthRow,
   type Period,
 } from "./reports";
-import { STATE } from "./transactions";
+import { STATE } from "../shared/transactions";
 
 type Account = { id: number; name: string };
 

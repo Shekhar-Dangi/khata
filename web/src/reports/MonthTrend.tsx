@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { rupees } from "./format";
+import { rupees } from "../shared/format";
 import { monthLabel, type MonthRow } from "./reports";
 
 // The soul metric over TIME.
