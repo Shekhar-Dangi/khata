@@ -785,7 +785,26 @@ footer .shell {
   flex: 0 1 auto;
 }
 .ledger-filters .daterange .cat-select { min-width: 108px; }
-.ledger-count { margin-left: auto; white-space: nowrap; flex: none; }
+/* A FIXED width, not an intrinsic one. A native date input is wider showing 01-08-2026
+   than showing its dd-mm-yyyy placeholder, and in a nowrap row that difference is taken
+   out of the flexible search box — so picking a period nudged every control left. Pinning
+   the width means choosing a date changes the dates and nothing else. */
+.ledger-filters .daterange input[type="date"] {
+  flex: none;
+  width: 9.2rem;
+}
+/* A RESERVED footprint, not a fitted one. At the end of a nowrap row any width change
+   here is taken out of the flexible search box, so "2 matches" -> "144 matches" would
+   shift every control. min-width holds the space; tabular-nums stops the digits
+   themselves changing width as the count changes. */
+.ledger-count {
+  margin-left: auto;
+  white-space: nowrap;
+  flex: none;
+  min-width: 12ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
 
 @media (max-width: 900px) {
   .ledger-filters { flex-wrap: wrap; }

@@ -11,6 +11,10 @@ import { presets, type Period } from "../reports/reports";
 // Controlled: the range lives in the view that fetches with it. This component owns no
 // state at all — which is what lets the ledger and the reports page share it without
 // either of them having to sync a draft.
+// No "clear" control. It appeared only when a range was set, which meant applying a filter
+// changed the width of the row it sits in and shifted every control beside it — and it did
+// exactly what choosing "All time" from the preset dropdown two elements to its left does.
+// A control that duplicates a neighbour and costs a layout shift is worse than absent.
 export default function DateRange({
   period,
   today,
@@ -79,15 +83,6 @@ export default function DateRange({
           min={period.from === "" ? undefined : period.from}
           onChange={(e) => setTo(e.target.value)}
         />
-        {(period.from !== "" || period.to !== "") && (
-          <button
-            className="link-btn"
-            title="Clear the date range"
-            onClick={() => onChange({ from: "", to: "", label: "All time" })}
-          >
-            clear
-          </button>
-        )}
       </span>
 
       {invalid && <span className="debit save-error">start is after end</span>}

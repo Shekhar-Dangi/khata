@@ -28,9 +28,14 @@ const PAGE = 100;
 export default function ConsolidatedView() {
   const [query, setQuery] = useState("");
   const [accountId, setAccountId] = useState("");
-  // The `source` filter has existed in the shared vocabulary since the beginning; this
-  // screen simply never exposed it. "unexplained" is the soul metric made clickable.
-  const [source, setSource] = useState("");
+  // Opens on UNEXPLAINED rather than on everything.
+  //
+  // This is the home screen of a tool whose entire claim is "money you can't explain yet",
+  // so the default view should be the work rather than the archive. The cost is real and
+  // worth naming: looking for a specific transaction now starts with switching this to
+  // "Any state", because a row you have already explained is not in the default list.
+  // That trade only holds while the unexplained pile is the interesting one.
+  const [source, setSource] = useState("unexplained");
   const [period, setPeriod] = useState<Period>(ALL_TIME);
   const [offset, setOffset] = useState(0);
   const { version, bump } = useLedgerVersion();
@@ -135,13 +140,13 @@ export default function ConsolidatedView() {
             that says "Unexplained" is the same fact twice, and it cost a whole extra
             line the moment any filter was applied. Resetting a filter is setting its own
             control back — where you set it. */}
-        <span className="ledger-count mono soft">
-          {total === 0
-            ? "no matches"
-            : `${total.toLocaleString("en-IN")} match${total === 1 ? "" : "es"}`}
-          {busy && " · updating…"}
-        </span>
       </div>
+
+      {/* The match count is NOT here. The pager below already reads "1–100 of 144
+          transactions", so a "144 matches" beside the filters was the same number twice —
+          and being variable-width at the end of a nowrap row, it took its width out of the
+          search box and shifted every control each time the number changed. One number,
+          one place, and a row with no conditional children left in it to move. */}
 
       {/* An indeterminate bar above the table: the clearest "working" signal there is,
           and it costs one animated div rather than re-rendering anything. */}
