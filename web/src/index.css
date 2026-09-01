@@ -749,29 +749,47 @@ footer .shell {
    Now: search is capped so it stops eating the row, every control is --control-h, and
    the count moves out of the control row entirely — it is a RESULT, not a filter, and it
    belongs with the chips that say which filters produced it. */
+/* ONE row. It was a column of two rows plus a chip strip, which meant applying any
+   filter grew the header by a line and pushed the table down — the page moving under you
+   as a direct result of narrowing it.
+
+   The controls shrink instead of wrapping: `min-width: 0` lets a flex item go below its
+   content width (the default `auto` is what makes selects refuse to shrink and wrap
+   instead), and the search box carries the flexible share. Below the breakpoint at the
+   bottom of this block it wraps deliberately, because at phone widths one line is not a
+   goal worth an unreadable row. */
 .ledger-filters {
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-  margin-bottom: 12px;
-}
-.filter-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  flex-wrap: wrap;
+  margin-bottom: 12px;
+  flex-wrap: nowrap;
 }
+.ledger-filters > * { min-width: 0; }
 .ledger-filters .search {
   margin: 0;
-  flex: 1 1 200px;
+  flex: 1 1 120px;
+  min-width: 90px;
   max-width: 320px;
 }
 /* Narrower than in the allocation editor — four controls share this row. */
-.filter-row .cat-select {
-  min-width: 168px;
+.ledger-filters > .cat-select {
+  flex: 0 1 auto;
+  min-width: 120px;
 }
-.filter-row .daterange .cat-select {
-  min-width: 150px;
+.ledger-filters .daterange {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+.ledger-filters .daterange .cat-select { min-width: 108px; }
+.ledger-count { margin-left: auto; white-space: nowrap; flex: none; }
+
+@media (max-width: 900px) {
+  .ledger-filters { flex-wrap: wrap; }
+  .ledger-count { margin-left: 0; }
 }
 
 .ledger-result {

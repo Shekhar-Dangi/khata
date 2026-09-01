@@ -6,12 +6,7 @@ import Pager from "../shared/Pager";
 import TransactionTable from "../shared/TransactionTable";
 import DateRange, { rangeParams } from "../shared/DateRange";
 import type { Period } from "../reports/reports";
-import {
-  STATE,
-  STATE_KEYS,
-  type StateKey,
-  type TransactionsResponse,
-} from "../shared/transactions";
+import { STATE, STATE_KEYS, type TransactionsResponse } from "../shared/transactions";
 
 type Account = { id: number; name: string };
 
@@ -93,41 +88,9 @@ export default function ConsolidatedView() {
   const rows = data?.transactions ?? [];
   const total = data?.total ?? 0;
 
-  const accountName =
-    accounts.data?.accounts.find((a) => String(a.id) === accountId)?.name ?? "";
-
-  // What is actually narrowing this list, said once, beside the count it produced.
-  // Four dropdowns do not answer "why am I looking at twelve rows" at a glance; two
-  // chips do, and each one can be taken off where it is read.
-  const chips: { key: string; label: string; clear: () => void }[] = [];
-  if (debouncedQuery.trim() !== "")
-    chips.push({
-      key: "q",
-      label: `“${debouncedQuery.trim()}”`,
-      clear: () => setQuery(""),
-    });
-  if (accountId !== "" && accountName !== "")
-    chips.push({ key: "account", label: accountName, clear: () => setAccountId("") });
-  if (source !== "")
-    chips.push({
-      key: "source",
-      label: STATE[source as StateKey],
-      clear: () => setSource(""),
-    });
-  if (period.from !== "" || period.to !== "")
-    chips.push({ key: "period", label: period.label, clear: () => setPeriod(ALL_TIME) });
-
-  function clearAll() {
-    setQuery("");
-    setAccountId("");
-    setSource("");
-    setPeriod(ALL_TIME);
-  }
-
   return (
     <>
       <div className="ledger-filters">
-        <div className="filter-row">
           <input
             className="search"
             value={query}
@@ -162,32 +125,22 @@ export default function ConsolidatedView() {
             ))}
           </select>
           <DateRange period={period} today={today} onChange={setPeriod} />
-        </div>
 
-        {/* The RESULT, not a filter — so it sits below the controls rather than being
-            thrown to the far corner of their row by `margin-left: auto`. The page
-            range lives on the pager; this is how many rows the filter found. */}
-        <div className="ledger-result">
-          <span className="ledger-count mono soft">
-            {total === 0
-              ? "no matches"
-              : `${total.toLocaleString("en-IN")} match${total === 1 ? "" : "es"}`}
-            {busy && " · updating…"}
-          </span>
-          {chips.map((c) => (
-            <span className="filter-chip" key={c.key}>
-              {c.label}
-              <button onClick={c.clear} title="Remove this filter" aria-label={`Remove filter ${c.label}`}>
-                ×
-              </button>
-            </span>
-          ))}
-          {chips.length > 1 && (
-            <button className="filter-clear" onClick={clearAll}>
-              Clear all
-            </button>
-          )}
-        </div>
+        {/* The RESULT, not a filter — so it sits with the controls rather than being
+            thrown to the far corner by `margin-left: auto`. The page range lives on the
+            pager; this is how many rows the filter found.
+
+            No removable chips here. The controls ARE the state: each dropdown already
+            shows what it is set to, so a chip repeating "Unexplained" beside a select
+            that says "Unexplained" is the same fact twice, and it cost a whole extra
+            line the moment any filter was applied. Resetting a filter is setting its own
+            control back — where you set it. */}
+        <span className="ledger-count mono soft">
+          {total === 0
+            ? "no matches"
+            : `${total.toLocaleString("en-IN")} match${total === 1 ? "" : "es"}`}
+          {busy && " · updating…"}
+        </span>
       </div>
 
       {/* An indeterminate bar above the table: the clearest "working" signal there is,
