@@ -1,5 +1,7 @@
 # Khata
 
+[![CI](https://github.com/Shekhar-Dangi/khata/actions/workflows/ci.yml/badge.svg)](https://github.com/Shekhar-Dangi/khata/actions/workflows/ci.yml)
+
 **A local-first reconciliation tool for Indian bank statements, built around one number:
 _money you can't explain yet_.**
 
