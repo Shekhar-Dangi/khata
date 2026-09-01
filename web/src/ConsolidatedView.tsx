@@ -6,7 +6,12 @@ import Pager from "./Pager";
 import TransactionTable from "./TransactionTable";
 import DateRange, { rangeParams } from "./DateRange";
 import type { Period } from "./reports";
-import type { TransactionsResponse } from "./transactions";
+import {
+  STATE,
+  STATE_KEYS,
+  type StateKey,
+  type TransactionsResponse,
+} from "./transactions";
 
 type Account = { id: number; name: string };
 
@@ -88,46 +93,101 @@ export default function ConsolidatedView() {
   const rows = data?.transactions ?? [];
   const total = data?.total ?? 0;
 
+  const accountName =
+    accounts.data?.accounts.find((a) => String(a.id) === accountId)?.name ?? "";
+
+  // What is actually narrowing this list, said once, beside the count it produced.
+  // Four dropdowns do not answer "why am I looking at twelve rows" at a glance; two
+  // chips do, and each one can be taken off where it is read.
+  const chips: { key: string; label: string; clear: () => void }[] = [];
+  if (debouncedQuery.trim() !== "")
+    chips.push({
+      key: "q",
+      label: `“${debouncedQuery.trim()}”`,
+      clear: () => setQuery(""),
+    });
+  if (accountId !== "" && accountName !== "")
+    chips.push({ key: "account", label: accountName, clear: () => setAccountId("") });
+  if (source !== "")
+    chips.push({
+      key: "source",
+      label: STATE[source as StateKey],
+      clear: () => setSource(""),
+    });
+  if (period.from !== "" || period.to !== "")
+    chips.push({ key: "period", label: period.label, clear: () => setPeriod(ALL_TIME) });
+
+  function clearAll() {
+    setQuery("");
+    setAccountId("");
+    setSource("");
+    setPeriod(ALL_TIME);
+  }
+
   return (
     <>
       <div className="ledger-filters">
-        <input
-          className="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search narration…"
-        />
-        <select
-          className="cat-select"
-          value={accountId}
-          onChange={(e) => setAccountId(e.target.value)}
-        >
-          <option value="">All accounts</option>
-          {(accounts.data?.accounts ?? []).map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name}
-            </option>
+        <div className="filter-row">
+          <input
+            className="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search narration…"
+            aria-label="Search narration"
+          />
+          <select
+            className="cat-select"
+            aria-label="Account"
+            value={accountId}
+            onChange={(e) => setAccountId(e.target.value)}
+          >
+            <option value="">All accounts</option>
+            {(accounts.data?.accounts ?? []).map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+          <select
+            className="cat-select"
+            aria-label="State"
+            value={source}
+            onChange={(e) => setSource(e.target.value)}
+          >
+            <option value="">Any state</option>
+            {STATE_KEYS.map((k) => (
+              <option key={k} value={k}>
+                {STATE[k]}
+              </option>
+            ))}
+          </select>
+          <DateRange period={period} today={today} onChange={setPeriod} />
+        </div>
+
+        {/* The RESULT, not a filter — so it sits below the controls rather than being
+            thrown to the far corner of their row by `margin-left: auto`. The page
+            range lives on the pager; this is how many rows the filter found. */}
+        <div className="ledger-result">
+          <span className="ledger-count mono soft">
+            {total === 0
+              ? "no matches"
+              : `${total.toLocaleString("en-IN")} match${total === 1 ? "" : "es"}`}
+            {busy && " · updating…"}
+          </span>
+          {chips.map((c) => (
+            <span className="filter-chip" key={c.key}>
+              {c.label}
+              <button onClick={c.clear} title="Remove this filter" aria-label={`Remove filter ${c.label}`}>
+                ×
+              </button>
+            </span>
           ))}
-        </select>
-        <select
-          className="cat-select"
-          value={source}
-          onChange={(e) => setSource(e.target.value)}
-        >
-          <option value="">Any state</option>
-          <option value="unexplained">Unexplained</option>
-          <option value="rule">Provisional — a rule guessed</option>
-          <option value="user">Confirmed — you said</option>
-        </select>
-        <DateRange period={period} today={today} onChange={setPeriod} />
-        {/* The range lives on the pager. This says how many rows the FILTER found, which
-            is the question the box beside it just asked. */}
-        <span className="ledger-count mono soft">
-          {total === 0
-            ? "no matches"
-            : `${total.toLocaleString("en-IN")} match${total === 1 ? "" : "es"}`}
-          {busy && " · updating…"}
-        </span>
+          {chips.length > 1 && (
+            <button className="filter-clear" onClick={clearAll}>
+              Clear all
+            </button>
+          )}
+        </div>
       </div>
 
       {/* An indeterminate bar above the table: the clearest "working" signal there is,

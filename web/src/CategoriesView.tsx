@@ -245,10 +245,11 @@ function Row({
       ) : (
         <span />
       )}
-      {/* Revealed on hover, and on keyboard focus via :focus-within — three links on
-          every one of twenty-eight rows is eighty-four things competing with the names
-          you actually came here to read. Coarse pointers get them permanently (see the
-          @media rule): there is no hover to reveal them with. */}
+      {/* Always visible — see the rationale on `.cat-actions` in index.css. Hiding these
+          until hover was tried and reverted, because an action you cannot see is an
+          action you do not know exists and on this screen the actions are the point.
+          (This comment used to describe the reverted hover behaviour and pointed at an
+          @media rule that does not exist.) */}
       <span className="cat-actions">
         {extra}
         <button className="link-btn" onClick={onEdit}>

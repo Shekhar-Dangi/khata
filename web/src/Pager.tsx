@@ -25,7 +25,13 @@ export default function Pager({
   unit?: string;
   busy?: boolean;
 }) {
-  const from = total === 0 ? 0 : offset + 1;
+  // Nothing to page through is not a page position — it is an empty result, and the
+  // view above has already said so. Rendering "‹ Newer  no transfers  Older ›" under an
+  // empty state gives the reader two disabled controls and a third statement of the
+  // same fact.
+  if (total === 0) return null;
+
+  const from = offset + 1;
   const to = Math.min(offset + shown, total);
   const atStart = offset === 0;
   const atEnd = offset + limit >= total;
@@ -40,9 +46,7 @@ export default function Pager({
         ‹ Newer
       </button>
       <span className="pager-count mono soft">
-        {total === 0
-          ? `no ${unit}`
-          : `${from}–${to} of ${total.toLocaleString("en-IN")}`}
+        {`${from}–${to} of ${total.toLocaleString("en-IN")} ${unit}`}
         {busy && " · updating…"}
       </span>
       <button className="btn-ghost" disabled={atEnd} onClick={() => onOffset(offset + limit)}>

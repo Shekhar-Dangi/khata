@@ -29,11 +29,11 @@ const TABS: { key: View; label: string }[] = [
 function App() {
   const [view, setView] = useState<View>("transactions");
 
-  // The summary answers "what can't I explain / how much do I have". That belongs on the
-  // ledger now that the ledger IS the home page — it is where you arrive and where you
-  // explain things, so the number you are moving should be in front of you.
-  const showSummary =
-    view === "transactions" || view === "anomalies" || view === "rules";
+  // The summary answers "what can't I explain / how much do I have" — the question the
+  // product exists for. It used to render on three of the six tabs, which moved the
+  // whole page up or down by ~200px on every switch between a tab that had it and one
+  // that did not; a navigation should not read as a reload. It is slimmer now (see
+  // .summary in index.css) precisely so it can afford to be permanent.
 
   return (
     <LedgerVersionProvider>
@@ -57,7 +57,7 @@ function App() {
         </div>
       </div>
 
-      {showSummary && <Summary />}
+      <Summary />
 
       <main>
         <div className="shell">
