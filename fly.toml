@@ -1,0 +1,39 @@
+# Fly deployment for the demo.
+#
+# The property that matters for a portfolio demo is not raw speed, it is what a visitor
+# sees when nobody has used it for a day. Machines here stop when idle and start on the
+# next request in about a second, which is close enough to always-on that nobody notices —
+# as opposed to a ~50s wake, which is worse than having no demo at all.
+app = "khata-demo"
+primary_region = "sin"          # closest region to the intended audience
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  DEMO_MODE = "1"               # banner on; the local-model endpoint answers 501 honestly
+  SERVE_WEB = "1"               # this process also serves web/dist
+  PORT = "8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Stop when idle, start on request. `min_machines_running = 0` is what makes it free;
+  # `auto_start_machines` is what makes that acceptable.
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  # A health check the platform can act on. /health touches no database on purpose: it
+  # answers "is this process alive", and conflating that with "is the database reachable"
+  # means a DB blip restarts a perfectly healthy process.
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

@@ -1,0 +1,13 @@
+# Everything that would bloat the image or leak into it.
+# node_modules especially: it holds binaries compiled for the HOST, and copying them into
+# a Linux image is both large and wrong — the Dockerfile installs its own.
+node_modules
+web/node_modules
+web/dist
+.git
+.github
+data
+.snapshots
+.env
+*.log
+ingest/.venv
