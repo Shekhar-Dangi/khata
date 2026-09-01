@@ -33,13 +33,13 @@ html {
   scrollbar-gutter: stable;
 }
 
-/* ONE focus indicator, for everything. The controls used to set `outline: none` and
-   replace it with a 1px border-bottom colour change — which a <select> never shows at
-   all, because its native appearance paints over the border. A focused select was
-   pixel-identical to an unfocused one. */
+/* Focus, said as quietly as it can be said while still being said.
+   A hairline, tight to the element — the earlier 2px ring at 2px offset drew a second
+   box floating outside the first, which on a bordered input read as a bolted-on
+   rectangle rather than as part of the control. */
 :focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
 }
 
 body {
@@ -308,6 +308,27 @@ select.cat-select,
 .search::placeholder,
 .amt-input::placeholder {
   color: var(--ink-soft);
+}
+/* A control that HAS a border shows focus in it, rather than wearing a second box
+   outside the first. This is what the stylesheet always intended — it only failed
+   before because a <select>'s native appearance painted over the border, and
+   `appearance: none` above is what fixes that. Everything without a border of its own
+   (buttons, tabs, links) still takes the hairline ring from :focus-visible.
+
+   Deliberately `:focus`, not `:focus-visible` — a control that has a border can afford
+   to show it on a click too, and `:focus-visible` leaves the decision to a browser
+   heuristic that does not always fire. The specificity here (0,2,0) beats the bare
+   `:focus-visible` rule above (0,1,0), so these keep their border and lose the ring. */
+.field:focus,
+.search:focus,
+.cat-select:focus,
+.amt-input:focus,
+.kw-add input:focus,
+.kw-add select:focus,
+.cat-edit input:focus,
+.daterange input[type="date"]:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 
 /* ── account rows + drill-in ─────────────────────────── */
