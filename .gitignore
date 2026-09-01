@@ -12,3 +12,4 @@ __pycache__/
 
 # Refactor safety net — regenerated on demand, never committed.
 .snapshots/
+api/index.js
