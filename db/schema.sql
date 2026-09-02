@@ -165,3 +165,45 @@ CREATE INDEX allocations_transaction_id_idx ON allocations (transaction_id);
 -- /reports/by-rule joins on this as well as rule_id, so it needs the same index.
 CREATE INDEX allocations_confirmed_from_rule_idx
   ON allocations (confirmed_from_rule_id) WHERE confirmed_from_rule_id IS NOT NULL;
+
+-- connections: a token we hold for an external service, on the user's behalf. Not `.env`,
+-- because a token is not configuration — it is obtained at runtime, the other side can
+-- revoke it at any moment, and re-connecting must replace it without a redeploy.
+-- source_type is UNIQUE so re-connecting UPSERTs instead of accumulating tokens where the
+-- newest is only PROBABLY the live one. Stored in plaintext deliberately: the same
+-- database already holds the ledger, which is more sensitive than a read-scoped token.
+-- See the design.
+CREATE TABLE connections (
+  id                 BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  source_type        TEXT NOT NULL UNIQUE,          -- 'splitwise' | ...
+  access_token       TEXT NOT NULL,
+  -- Both nullable, honestly: this provider's token lifetime is UNVERIFIED. A wrong
+  -- default expiry either refreshes a live token or trusts a dead one.
+  refresh_token      TEXT,
+  expires_at         TIMESTAMPTZ,
+  external_user_id   TEXT,                          -- who the provider says we are
+  external_user_name TEXT,                          -- the acceptance test for slice 1
+  scope              TEXT,                          -- as RETURNED, not as requested
+  connected_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- oauth_states: the CSRF nonce, alive for one handshake. The flow spans two unconnected
+-- requests (we redirect out; the provider redirects back), and nothing else in this app
+-- needs to remember anything between requests — there is no auth, no cookie parser, no
+-- session middleware. An in-memory Map loses the state whenever `npm start` restarts
+-- mid-handshake and then rejects a legitimate callback with the same error as an attack.
+CREATE TABLE oauth_states (
+  state       TEXT PRIMARY KEY,                     -- crypto.randomBytes; predictable = no state at all
+  source_type TEXT NOT NULL,
+  expires_at  TIMESTAMPTZ NOT NULL,                 -- minutes: it only spans one click of "Allow"
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Consume the nonce in ONE statement:
+--   DELETE FROM oauth_states WHERE state = $1 AND source_type = $2 AND expires_at > now()
+--   RETURNING state;
+-- rowCount = 0 rejects invalid, expired and already-used alike. A SELECT then a DELETE is
+-- the check-then-act race src/http.ts warns about, and it makes a single-use nonce
+-- replayable. Unredeemed rows are swept opportunistically when the next handshake starts.
+CREATE INDEX oauth_states_expires_idx ON oauth_states (expires_at);
