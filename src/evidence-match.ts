@@ -168,6 +168,50 @@ export function nearMisses(
     .sort((a, b) => a.dayGap - b.dayGap);
 }
 
+/**
+ * Divide an amount across several transactions in proportion to their sizes, in whole paise.
+ *
+ * A Rs 6,000 expense paid as Rs 1,000 + Rs 5,000 has to put SOME of your share on each
+ * transaction, or the unexplained remainder on one of them will be wrong. Proportional is the
+ * least-wrong convention available: the per-category totals stay exactly right, and only the
+ * attribution between two payments — which the source does not record — is conventional.
+ *
+ * This is NOT the "never scale to fit the bank" rule from the design. That forbids
+ * fabricating per-ITEM amounts that were never charged. Here the split is known and correct;
+ * it is being distributed across payments that are also known.
+ *
+ * THE ROUNDING MATTERS. A third of Rs 1,000 is 33333.33 paise, and three naive `Math.round`s
+ * give back 99,999 or 100,001 — money invented or destroyed by a rounding mode. So every
+ * share but the last is rounded down, and the LAST one takes whatever is left. The result
+ * sums to `totalPaise` exactly, always, which is the only property a ledger cares about.
+ */
+export function splitProportionally(totalPaise: number, weights: number[]): number[] {
+  if (weights.length === 0) return [];
+  if (weights.length === 1) return [totalPaise];
+
+  const totalWeight = weights.reduce((a, w) => a + Math.abs(w), 0);
+  // Every weight zero would divide by zero. It cannot happen from real transactions (an
+  // amount of 0 is rejected at import) but a caller could construct it, and silently
+  // returning NaN into an INSERT is a worse answer than an even split.
+  if (totalWeight === 0) {
+    const even = Math.trunc(totalPaise / weights.length);
+    const out = weights.map(() => even);
+    out[out.length - 1] = totalPaise - even * (weights.length - 1);
+    return out;
+  }
+
+  const out: number[] = [];
+  let assigned = 0;
+  for (let i = 0; i < weights.length - 1; i++) {
+    // trunc, not round: rounding each share independently is what lets the total drift.
+    const share = Math.trunc((totalPaise * Math.abs(weights[i])) / totalWeight);
+    out.push(share);
+    assigned += share;
+  }
+  out.push(totalPaise - assigned);
+  return out;
+}
+
 /** An allocation already sitting on the transaction we are about to explain. */
 export type ExistingAllocation = {
   id: string;

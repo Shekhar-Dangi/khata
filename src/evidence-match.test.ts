@@ -9,6 +9,7 @@ import {
   matchToTransaction,
   nearMisses,
   resolvePrecedence,
+  splitProportionally,
 } from "./evidence-match.ts";
 
 const txn = (id: string, txn_date: string, amount_paise: number, narration = ""): Candidate =>
@@ -214,5 +215,55 @@ describe("nearMisses", () => {
     // The real cases were both BEFORE the Splitwise date — paid at the shop, entered later.
     const found = nearMisses(request(-50000), [txn("1", "2026-01-08", -50000)]);
     assert.equal(found[0]?.dayGap, 7);
+  });
+});
+
+describe("splitProportionally", () => {
+  const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
+
+  it("splits a 6,000 expense across a 1,000 and a 5,000 payment", () => {
+    // The case that motivated the link table: one record, two bank rows.
+    assert.deepEqual(splitProportionally(-600000, [-100000, -500000]), [-100000, -500000]);
+  });
+
+  it("splits a share proportionally, not evenly", () => {
+    // Your Rs 3,000 half of that expense follows the same 1:5 shape.
+    assert.deepEqual(splitProportionally(-300000, [-100000, -500000]), [-50000, -250000]);
+  });
+
+  it("ALWAYS sums to the total, whatever the rounding", () => {
+    // Three-way splits are where naive rounding invents or destroys a paise. 1000/3 is
+    // 33333.33 each; three independent Math.rounds give 100,001 or 99,999.
+    const parts = splitProportionally(-100000, [-1, -1, -1]);
+    assert.equal(sum(parts), -100000);
+    assert.equal(parts.length, 3);
+  });
+
+  it("keeps the total exact across many awkward divisions", () => {
+    for (const total of [-100000, -1, -7, -999999, 123457]) {
+      for (const n of [2, 3, 7, 11]) {
+        const weights = Array.from({ length: n }, (_, i) => -(i + 1));
+        assert.equal(sum(splitProportionally(total, weights)), total, `${total} over ${n}`);
+      }
+    }
+  });
+
+  it("gives a single transaction the whole amount", () => {
+    assert.deepEqual(splitProportionally(-274500, [-274500]), [-274500]);
+  });
+
+  it("returns nothing for no transactions", () => {
+    assert.deepEqual(splitProportionally(-1000, []), []);
+  });
+
+  it("falls back to an even split rather than NaN when every weight is zero", () => {
+    const parts = splitProportionally(-1000, [0, 0]);
+    assert.equal(sum(parts), -1000);
+  });
+
+  it("does not care that the selected total differs from the amount being split", () => {
+    // Paid 2,745 but entered 2,700: the record's own 2,700 is what gets allocated, and the
+    // 45 difference becomes the transaction's unexplained remainder.
+    assert.deepEqual(splitProportionally(-270000, [-274500]), [-270000]);
   });
 });

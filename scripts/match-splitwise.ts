@@ -4,7 +4,7 @@
 //   npm run match:splitwise -- --me "Your Name" [--dry-run]
 //
 // Safe to re-run: already-linked records are skipped, so a second run finds only what the
-// first could not. Design in the design.
+// first could not.
 
 import { pool } from "../src/db.ts";
 import { matchSplitwiseEvidence } from "../src/evidence-detect.ts";
@@ -35,7 +35,8 @@ try {
         WHERE a.evidence_id = ev.id AND a.source = 'evidence' AND ev.source_type = 'splitwise'`,
     );
     const unlinked = await client.query(
-      "UPDATE evidence SET transaction_id = NULL WHERE source_type = 'splitwise'",
+      `DELETE FROM evidence_transactions et USING evidence ev
+        WHERE et.evidence_id = ev.id AND ev.source_type = 'splitwise'`,
     );
     console.log(`  reset: ${undone.rowCount} allocation(s) removed, ` +
       `${unlinked.rowCount} record(s) unlinked`);

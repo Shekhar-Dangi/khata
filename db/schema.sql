@@ -130,9 +130,25 @@ CREATE TABLE evidence (
   amount_paise   BIGINT,                          -- the external record's amount
   description    TEXT,                            -- merchant / item description
   payload        JSONB,                           -- raw normalized record (line items, etc.)
-  transaction_id BIGINT REFERENCES transactions(id),  -- set once matched (nullable)
   created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Which bank transactions paid for a record. A TABLE, not a column on `evidence`, because a
+-- column holds one value and a Rs 6,000 expense can leave the account as Rs 1,000 + Rs 5,000.
+--
+-- `allocations` already pairs transaction_id with evidence_id, so this looks redundant -- but
+-- an invoice whose line items cannot be categorised produces NO allocations, and reading the
+-- pairing off them would then report a matched record as unmatched. Matching and allocating
+-- are two facts and the first can exist without the second. See migration 010.
+CREATE TABLE evidence_transactions (
+  evidence_id    BIGINT NOT NULL REFERENCES evidence(id) ON DELETE CASCADE,
+  transaction_id BIGINT NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- The pair is the identity: linking the same two twice is the same fact, not a second one.
+  PRIMARY KEY (evidence_id, transaction_id)
+);
+-- The primary key serves "what pays for this record"; this serves "what explains this row".
+CREATE INDEX evidence_transactions_txn_idx ON evidence_transactions (transaction_id);
 
 -- The RECORD-level idempotency boundary: "this order is already in the
 -- ledger". The layer that actually prevents duplication -- an artifact hash catches a re-drag

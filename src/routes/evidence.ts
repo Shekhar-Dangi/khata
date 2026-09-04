@@ -2,7 +2,7 @@ import { Router } from "express";
 
 import { pool } from "./../db.ts";
 import { badRequest, intParam, route, withTransaction } from "./../http.ts";
-import { acceptNearMiss, listNearMisses, matchSplitwiseEvidence } from "./../evidence-detect.ts";
+import { linkEvidence, listNearMisses, listUnmatched, matchSplitwiseEvidence } from "./../evidence-detect.ts";
 import { importEvidenceFile } from "./../evidence-import.ts";
 
 const router = Router();
@@ -100,26 +100,63 @@ router.get("/evidence/near-misses", route(async (_req, res) => {
 }));
 
 /**
- * POST /evidence/:id/match   { transaction_id }
+ * GET /evidence/unmatched
  *
- * Accept one near miss. Goes through the same writer as an automatic match, so precedence
- * still applies: this may displace a rule's guess, and is refused when a human authored the
- * allocation already. Deciding the DATE is not overruling another person's decision.
+ * EVERY record still waiting for a transaction, including the ones nothing plausible was
+ * found for — those are exactly the ones a person has to go and find a payment for. The
+ * preview uses /near-misses instead, which is the same query narrowed to quick yes/no rows.
+ */
+router.get("/evidence/unmatched", route(async (_req, res) => {
+  const client = await pool.connect();
+  try {
+    return res.status(200).json({ unmatched: await listUnmatched(client, owner(), false) });
+  } finally {
+    client.release();
+  }
+}));
+
+/**
+ * POST /evidence/:id/match   { transaction_ids: [...] }
  *
- * 409 rather than 400 on a refusal — the request is well formed and the STATE is what
- * rejects it, and the UI needs to tell those apart to say something useful.
+ * Link a record to one or more transactions. SEVERAL, because a Rs 6,000 expense can leave
+ * the account as Rs 1,000 + Rs 5,000 and the record is still one record (migration 010).
+ *
+ * The selected transactions need not sum to the record's amount: paid 2,745 and entered 2,700
+ * is ordinary, and the 45 becomes that transaction's unexplained remainder rather than a
+ * reason to refuse.
+ *
+ * Goes through the same writer as an automatic match, so precedence still applies — it may
+ * displace a rule's guess, and is refused where a human authored the allocation already.
+ * Deciding a date, or which payments a bill went out as, is not overruling another person.
+ *
+ * 409 rather than 400 on a refusal: the request is well formed and the STATE rejects it, and
+ * the UI needs to tell those apart to say something useful.
  */
 router.post("/evidence/:id/match", route(async (req, res) => {
-  const transactionId = req.body?.transaction_id;
-  if (typeof transactionId !== "string" && typeof transactionId !== "number") {
-    return res.status(400).json({ error: "transaction_id is required" });
+  // Accepts either shape. `transaction_id` was the original single-value contract and there is
+  // no reason to break a caller for a field that widened.
+  const body = req.body ?? {};
+  const raw = Array.isArray(body.transaction_ids)
+    ? body.transaction_ids
+    : body.transaction_id !== undefined
+      ? [body.transaction_id]
+      : [];
+  if (raw.length === 0) {
+    return res.status(400).json({ error: "transaction_ids is required" });
+  }
+  // Shape-checked HERE, not left to the database. An id like "" or "abc" reaches Postgres as
+  // part of `= ANY($1)`, fails the bigint cast, and surfaces to the caller as "internal
+  // error" — which blames us for their typo and says nothing about how to fix it.
+  const ids: string[] = raw.map((v: unknown) => String(v));
+  if (!ids.every((v) => /^\d+$/.test(v))) {
+    return res.status(400).json({ error: "transaction_ids must be positive integers" });
   }
   // intParam, not req.params.id directly: Express types a route param as string | string[],
   // and this project's discipline (see http.ts) is to fail the shape test rather than coerce.
   const evidenceId = intParam(req.params.id, "evidence id");
 
   const result = await withTransaction((client) =>
-    acceptNearMiss(client, String(evidenceId), String(transactionId), owner()),
+    linkEvidence(client, String(evidenceId), ids, owner()),
   );
   if (!result.ok) return res.status(409).json({ error: result.error });
   return res.status(200).json(result);
