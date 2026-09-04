@@ -42,6 +42,19 @@ FROM (VALUES
   ('Medical',          'Health'),
   ('Salary',           'Income'),
   ('Interest',         'Income'),
-  ('Refunds',          'Income')
+  ('Refunds',          'Income'),
+  -- Money that moved between you and a PERSON rather than to a merchant: the part of a bill
+  -- you fronted for others, a settlement you receive, a settlement you pay. ONE bucket, not
+  -- a pair, because both directions are the same flow; a balance is a different kind of
+  -- thing entirely. See the design.
+  ('Shared',           'Transfers')
 ) AS child(name, parent_name)
 JOIN parents p ON p.name = child.parent_name;
+
+-- Neither of these is spending: allocations here are money that moved but was not consumed.
+-- The flag is what reports filter on — a partial exclusion (half of a shared bill) cannot be
+-- expressed by EXPLAINABLE_SPEND, which is a predicate over whole transactions.
+UPDATE categories SET excluded_from_spend = true
+ WHERE (name = 'Transfers' AND parent_id IS NULL)
+    OR (name = 'Shared' AND parent_id = (SELECT id FROM categories
+                                          WHERE name = 'Transfers' AND parent_id IS NULL));

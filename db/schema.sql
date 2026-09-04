@@ -82,6 +82,12 @@ CREATE TABLE categories (
   id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   name        TEXT NOT NULL,
   parent_id   BIGINT REFERENCES categories(id),   -- NULL = top level
+  -- Allocations here are money that moved but was NOT consumption. Needed because a shared
+  -- expense is a PARTIAL exclusion (2,000 of a 4,000 debit is spend, 2,000 is not), and
+  -- EXPLAINABLE_SPEND is a predicate over transactions, which cannot express "half of this
+  -- one". A flag rather than a name checked in code, because a name in code is the
+  -- a category named debit lexical trap. See the design.
+  excluded_from_spend BOOLEAN NOT NULL DEFAULT false,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   -- No two siblings share a name. NOTE: for top-level rows parent_id IS NULL, and
   -- Postgres treats NULLs as distinct in UNIQUE, so this does NOT stop two top-level
@@ -207,3 +213,39 @@ CREATE TABLE oauth_states (
 -- the check-then-act race src/http.ts warns about, and it makes a single-use nonce
 -- replayable. Unredeemed rows are swept opportunistically when the next handshake starts.
 CREATE INDEX oauth_states_expires_idx ON oauth_states (expires_at);
+
+-- consumption: burden that never moved through the bank — someone else paid for your share.
+-- 43 of 93 expenses in the verified Splitwise sample were this, so it is not an edge case.
+--
+-- A SEPARATE slice table rather than a nullable allocations.transaction_id, and the reason is
+-- measured: EXPLAINABLE_SPEND is a predicate over transactions and cannot gate allocations,
+-- and four of the ~19 queries touching `allocations` never join a transaction, so they would
+-- silently start counting non-cash rows with no single place to fix it. The default would be
+-- wrong. A category_id on `evidence` fails differently — one evidence row can carry many
+-- categories, which is why the design keeps categories out of it.
+--
+-- The consumption FIGURE is a union of this table and allocations-excluding-shared. That union
+-- belongs in ONE module (src/consumption.ts), for the reason src/spend.ts already argues about
+-- EXPLAINABLE_SPEND. See the design.
+CREATE TABLE consumption (
+  id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  evidence_id  BIGINT NOT NULL REFERENCES evidence(id) ON DELETE CASCADE,
+  category_id  BIGINT NOT NULL REFERENCES categories(id),
+  -- Signed like allocations. One convention beats two: these rows are UNIONed with
+  -- allocations, and mixed sign conventions inside a UNION is how a report subtracts.
+  amount_paise BIGINT NOT NULL CHECK (amount_paise <> 0),
+  -- The EXPENSE date. A settlement often lands in a different month from what it paid for.
+  consumed_on  DATE NOT NULL,
+  -- Same provenance vocabulary as allocations, so the override invariant carries over: a
+  -- 'user' row is never overwritten by a re-import.
+  source       TEXT NOT NULL CHECK (source IN ('evidence', 'user', 'rule')),
+  -- Deliberately NO `confidence`, unlike allocations: the category comes from a static map of
+  -- a closed taxonomy, so it would be a constant. Same disease as the parked constant-0.8
+  -- per-rule confidence; the design measured that self-reported confidence carries no
+  -- information. A model handling the catch-all should ABSTAIN, not record a number.
+  note         TEXT,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX consumption_evidence_idx ON consumption (evidence_id);
+CREATE INDEX consumption_consumed_on_idx ON consumption (consumed_on);
