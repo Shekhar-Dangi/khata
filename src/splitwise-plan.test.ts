@@ -4,7 +4,13 @@ import path from "node:path";
 import { describe, it } from "node:test";
 
 import { parseSplitwiseExport, type SplitwiseRow } from "./splitwise.ts";
-import { type CategoryMap, externalRef, planImport } from "./splitwise-plan.ts";
+import {
+  type CategoryMap,
+  MAX_GROUP_LENGTH,
+  externalRef,
+  normaliseGroup,
+  planImport,
+} from "./splitwise-plan.ts";
 
 const FIXTURE = readFileSync(
   path.join(import.meta.dirname, "fixtures", "splitwise-sample.csv"),
@@ -134,5 +140,99 @@ describe("planImport", () => {
     const { paid, owedByMe, notMine, payments } = plan.stats;
     assert.equal(paid + owedByMe + notMine + payments, plan.evidence.length);
     assert.equal(plan.consumption.length + plan.unclassified.length, owedByMe);
+  });
+});
+
+// The group is the first field of the natural key AND the key the Sources screen groups
+// imports by. Those used to be two different strings — `externalRef` lowercased it and
+// `payload.group` kept whatever the caller passed — so "Flat" and "flat" were one record and
+// two imports. These tests exist to keep them one string.
+describe("normaliseGroup", () => {
+  it("folds the spellings of one name together", () => {
+    for (const spelling of ["Flat", "FLAT", "  flat  ", "flat\t", "  FLAT\n"]) {
+      assert.equal(normaliseGroup(spelling), "flat", `${JSON.stringify(spelling)} should fold`);
+    }
+  });
+
+  it("collapses runs of whitespace, the way the description already is", () => {
+    assert.equal(normaliseGroup("my   flat  a101"), "my flat a101");
+  });
+
+  // Not cosmetic: the same NAME reaching the key as two different byte sequences is the
+  // duplicate this function exists to prevent.
+  it("folds the two spellings of a composed character", () => {
+    const composed = "test-groupā"; // ā as one code point
+    const decomposed = "test-groupā"; // a + combining macron
+    assert.equal(normaliseGroup(composed), normaliseGroup(decomposed));
+  });
+
+  // A NUL cannot be stored in a Postgres text column at all, so this is the difference
+  // between a normalised name and a 500 on import.
+  it("drops control characters", () => {
+    // Written as escapes, not literal bytes: a NUL in a source file makes git treat the
+    // whole file as binary, and a test whose diff nobody can read is worse than no test.
+    assert.equal(normaliseGroup("fl\u0000a\u0007t"), "flat");
+  });
+
+  // The separator of the composite key. A group containing one would shift every field
+  // after it, so two different rows could produce the same ref.
+  it("removes the field separator rather than letting it into the key", () => {
+    assert.ok(!normaliseGroup("a|b").includes("|"));
+    assert.equal(normaliseGroup("a|b"), "a b");
+  });
+
+  it("caps the length, so the unique index cannot refuse the row", () => {
+    assert.equal(normaliseGroup("x".repeat(500)).length, MAX_GROUP_LENGTH);
+  });
+
+  // `slice` cuts UTF-16 units and can halve a surrogate pair, leaving a lone surrogate that
+  // Postgres rejects as invalid UTF-8. Counting code points is what avoids that.
+  it("caps by code point, never leaving half a character", () => {
+    const capped = normaliseGroup("😀".repeat(100));
+    assert.equal([...capped].length, MAX_GROUP_LENGTH);
+    assert.ok(!/[\uD800-\uDFFF]/.test(capped.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, "")));
+  });
+
+  // Both entry points call it, so it has to survive being applied twice.
+  it("is idempotent", () => {
+    for (const raw of ["  Flat A|101 ", "😀".repeat(100), "x".repeat(500), "a\u0000b"]) {
+      assert.equal(normaliseGroup(normaliseGroup(raw)), normaliseGroup(raw));
+    }
+  });
+
+  it("answers empty for a name that was only ever separators and space", () => {
+    // The route tests THIS value rather than the raw string: "  |  " is a non-empty string
+    // and an empty group name.
+    assert.equal(normaliseGroup("  |  "), "");
+  });
+});
+
+describe("planImport — the group it keys by", () => {
+  it("reports the normalised name rather than what it was handed", () => {
+    const plan = planImport(fixtureRows(), "  Test-Group  ", MAP);
+    assert.equal(plan.group, "test-group");
+  });
+
+  // The bug this replaces exactly: the ref was lowercased and the payload was not, so the
+  // same import could split into two batches in the UI.
+  it("puts the SAME string in the payload as in the ref", () => {
+    const plan = planImport(fixtureRows(), "Test-Group", MAP);
+    for (const e of plan.evidence) {
+      assert.equal(e.payload.group, plan.group);
+      assert.equal(e.externalRef.split("|")[0], plan.group);
+    }
+  });
+
+  it("keys two spellings of one group to the same rows", () => {
+    const upper = planImport(fixtureRows(), "TEST-GROUP", MAP);
+    const lower = planImport(fixtureRows(), "test-group", MAP);
+    assert.deepEqual(
+      upper.evidence.map((e) => e.externalRef),
+      lower.evidence.map((e) => e.externalRef),
+    );
+    assert.deepEqual(
+      upper.evidence.map((e) => e.payload.group),
+      lower.evidence.map((e) => e.payload.group),
+    );
   });
 });

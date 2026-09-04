@@ -6,7 +6,7 @@
 // the export does not name the group inside the file. It is part of the natural key, so
 // pass --group explicitly if you ever rename the file.
 //
-// Local-only, like ingest/ingest.py. Design in the design.
+// Local-only, like ingest/ingest.py.
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -114,7 +114,7 @@ async function main() {
           AND con.source = 'evidence'
           AND ev.source_type = $1
           AND ev.payload->>'group' = $2`,
-      [SOURCE, group],
+      [SOURCE, plan.group],
     );
 
     for (const c of plan.consumption) {

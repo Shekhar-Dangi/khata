@@ -7,6 +7,7 @@
 // allocation a human made.
 
 import { pool } from "../src/db.ts";
+import { normaliseGroup } from "../src/splitwise-plan.ts";
 
 const SOURCE = "splitwise";
 
@@ -15,7 +16,10 @@ function arg(name: string): string | undefined {
   return i === -1 ? undefined : process.argv[i + 1];
 }
 
-const group = arg("group");
+// Through the same normaliser the importer used, or `--group Flat` scopes to a spelling the
+// database does not hold and the purge silently removes nothing while reporting success.
+const raw = arg("group");
+const group = raw === undefined ? undefined : normaliseGroup(raw);
 const dryRun = process.argv.includes("--dry-run");
 const scope = group ? " AND ev.payload->>'group' = $2" : "";
 const params: unknown[] = group ? [SOURCE, group] : [SOURCE];
@@ -55,7 +59,7 @@ try {
   // rule allocation the import overrode is already gone and nothing here brings it back.
   // Re-running the rules engine regenerates it as `source = 'rule'` — provisional again,
   // because whether it was previously confirmed is not recorded anywhere once the row is
-  // deleted. Two rows were displaced in this ledger.
+  // deleted.
   console.log(
     `\n  NOTE: allocations DISPLACED by matching are not restored — that information is\n` +
     `  gone once the row is deleted. Run POST /rules/apply to regenerate them as\n` +

@@ -1,7 +1,7 @@
 // Importing an external record file into the ledger — the DB half of the parsers.
 //
 // Lives in src/ rather than in the script that used to hold it, so the HTTP route and the
-// CLI are both thin callers of one implementation. the design states the rule: the
+// CLI are both thin callers of one implementation. The rule: the
 // logic is a pure function, and the UI and the CLI are both thin callers. Two copies would
 // drift on exactly the thing that matters — what counts as a duplicate.
 
@@ -15,7 +15,7 @@ const SOURCE = "splitwise";
 /**
  * Which parser handles this file, by CONTENT rather than by filename.
  *
- * the design: filenames are user-controlled and meaningless, and a file renamed on
+ * Filenames are user-controlled and meaningless, and a file renamed on
  * the way out of a phone would silently pick the wrong parser. The header signature is the
  * thing the format actually guarantees.
  *
@@ -89,6 +89,10 @@ export async function importEvidenceFile(
     ]),
   );
 
+  // The raw group goes IN; `plan.group` — the normalised name the rows were actually keyed
+  // by — is what comes out and what everything below uses. Scoping the sweep with a
+  // differently-spelled version of the same name would delete nothing and then insert,
+  // doubling a group's consumption on every re-import instead of replacing it.
   const plan = planImport(parsed.data.rows, opts.group, map);
 
   for (const e of plan.evidence) {
@@ -119,7 +123,7 @@ export async function importEvidenceFile(
         AND con.source = 'evidence'
         AND ev.source_type = $1
         AND ev.payload->>'group' = $2`,
-    [SOURCE, opts.group],
+    [SOURCE, plan.group],
   );
 
   for (const c of plan.consumption) {
@@ -135,7 +139,7 @@ export async function importEvidenceFile(
     ok: true,
     outcome: {
       source: SOURCE,
-      group: opts.group,
+      group: plan.group,
       warnings: parsed.data.warnings,
       rows: parsed.data.rows.length,
       stats: plan.stats,
