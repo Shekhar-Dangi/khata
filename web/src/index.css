@@ -1833,3 +1833,157 @@ footer .shell {
 }
 .demo-banner strong { font-weight: 600; }
 .demo-banner a { color: var(--accent); }
+
+/* ── sources: bringing outside records in ─────────────
+   Paper and ink like everything else. No shadowed card, no dashed novelty border in a
+   colour the palette does not have — a hairline panel on sunk paper is the same language
+   the tables already speak, and it stops the one screen you use monthly from looking like
+   it came from a different app. */
+.dropzone {
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--paper-sunk);
+  padding: 40px 24px;
+  margin: 22px 10px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+  /* Colour only, never geometry: shifting a border width on hover moves the content
+     inside it, and a panel that twitches under the cursor reads as broken. */
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.dropzone.over {
+  border-color: var(--accent);
+  background: var(--paper);
+}
+.dropzone-lead {
+  font-family: Fraunces, serif;
+  font-size: 17px;
+  margin: 0;
+}
+.dropzone p.soft {
+  margin: 0;
+  font-size: 13px;
+  max-width: 46ch;
+}
+.dropzone .btn-secondary {
+  margin-top: 8px;
+}
+
+/* Figures: label above number, hairline-separated. Not stat CARDS — a border and a shadow
+   on each would make four equal boxes shouting equally, when the point is that these are
+   one sentence read left to right. */
+.figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0;
+  margin: 0 10px;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+.figure {
+  padding: 14px 16px 15px;
+  border-left: 1px solid var(--rule);
+}
+.figure:first-child {
+  border-left: 0;
+}
+.figure dt {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.figure dd {
+  margin: 3px 0 0;
+  font-size: 21px;
+  font-variant-numeric: tabular-nums;
+}
+.figure p.soft {
+  margin: 2px 0 0;
+  font-size: 12px;
+}
+.figure .credit {
+  color: var(--credit);
+}
+
+/* The one figure that gets a sentence instead of a tile, because it is the only number
+   here a bank statement could never produce. */
+.lede {
+  font-family: Fraunces, serif;
+  font-size: 16px;
+  line-height: 1.5;
+  margin: 22px 10px 0;
+  max-width: 62ch;
+}
+
+.preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 10px 0;
+}
+.preview-actions .soft {
+  font-size: 12px;
+}
+
+/* A near miss: the claim, then the candidate under it. Indented and rule-joined so the
+   two read as one question — "is this the same thing?" — rather than as two rows that
+   happen to sit near each other. */
+.near-miss {
+  margin: 0 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.near-miss-claim {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.near-miss-what {
+  font-weight: 500;
+  flex: 1;
+}
+.near-miss-candidate {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+  padding-left: 18px;
+  border-left: 2px solid var(--rule);
+}
+.near-miss-candidate .narration {
+  /* .narration sets max-width: 0 — that is a TABLE trick: inside table-layout it is what
+     forces a cell to shrink so text-overflow can ellipsis at all. In a flex row the same
+     declaration collapses the element to zero width and the narration silently disappears,
+     which is fatal here because seeing both strings at once is the entire point of this
+     screen. Reclaim the width; keep the truncation. */
+  flex: 1;
+  min-width: 0;
+  max-width: none;
+}
+.near-miss-gap {
+  font-size: 12px;
+  white-space: nowrap;
+}
+.near-miss .debit {
+  color: var(--debit);
+}
+.sources-tail {
+  margin: 26px 10px 0;
+  font-size: 13px;
+  max-width: 56ch;
+}
+
+/* Consumption share bar. Same device as CategoryBars so the two panels read as one
+   system: a flat accent-tinted rule, no gradient, no rounded pill. */
+.consumed-bar {
+  display: block;
+  height: 8px;
+  min-width: 1px;
+  background: var(--accent);
+  opacity: 0.45;
+  border-radius: 1px;
+}

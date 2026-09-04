@@ -9,6 +9,7 @@ import AnomaliesView from "./anomalies/AnomaliesView";
 import RulesView from "./rules/RulesView";
 import ReportsView from "./reports/ReportsView";
 import CategoriesView from "./categories/CategoriesView";
+import SourcesView from "./sources/SourcesView";
 
 type View =
   | "transactions"
@@ -16,6 +17,7 @@ type View =
   | "transfers"
   | "rules"
   | "categories"
+  | "sources"
   | "anomalies";
 
 const TABS: { key: View; label: string }[] = [
@@ -24,6 +26,9 @@ const TABS: { key: View; label: string }[] = [
   { key: "transfers", label: "Internal transfers" },
   { key: "rules", label: "Rules" },
   { key: "categories", label: "Categories" },
+  // Rules, Categories and Sources are the machinery that adds meaning; Anomalies stays
+  // last because it is the integrity check, not another place to configure something.
+  { key: "sources", label: "Sources" },
   { key: "anomalies", label: "Anomalies" },
 ];
 
@@ -70,6 +75,7 @@ function App() {
             {view === "reports" && <ReportsView />}
             {view === "rules" && <RulesView />}
             {view === "categories" && <CategoriesView />}
+          {view === "sources" && <SourcesView />}
             {view === "anomalies" && <AnomaliesView />}
           </div>
         </div>

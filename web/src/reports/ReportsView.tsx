@@ -5,6 +5,7 @@ import { useLedgerVersion } from "../shared/ledgerVersion";
 import { rupees } from "../shared/format";
 import CategoryBars from "./CategoryBars";
 import MonthTrend from "./MonthTrend";
+import ConsumptionPanel from "./ConsumptionPanel";
 import DateRange, { rangeParams } from "../shared/DateRange";
 import {
   monthLabel,
@@ -217,6 +218,14 @@ export default function ReportsView() {
             <CategoryBars rows={income} compare={compareMap} baseQuery={baseQuery} />
           </>
         )}
+
+        {/* Consumption is STACKED under cash rather than toggled against it. Everything
+            above answers "what left my account"; this answers "what did I actually use".
+            A toggle would hide one to show the other, and the GAP between them is the
+            meaningful part — the design: reconcile the two views, do not merge
+            them. It reads all-time regardless of the filters above, which is why it
+            carries its own heading rather than pretending to obey them. */}
+        <ConsumptionPanel />
       </div>
     </>
   );
