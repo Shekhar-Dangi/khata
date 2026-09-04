@@ -7,6 +7,7 @@ import {
   type ExistingAllocation,
   expectedCash,
   matchToTransaction,
+  nearMisses,
   resolvePrecedence,
 } from "./evidence-match.ts";
 
@@ -170,5 +171,48 @@ describe("resolvePrecedence", () => {
   it("prefers the authored-row conflict message over the evidence one", () => {
     const decision = resolvePrecedence([alloc("1", "evidence"), alloc("2", "user", null)]);
     assert.match(decision.action === "conflict" ? decision.reason : "", /authored/);
+  });
+});
+
+describe("nearMisses", () => {
+  it("surfaces an exact-amount candidate just outside the accept window", () => {
+    // The real case: "weekly veg" against "Sharma Traders", 7 days apart.
+    const found = nearMisses(request(-174100), [txn("186", "2026-01-22", -174100, "Sharma Traders")]);
+    assert.equal(found.length, 1);
+    assert.equal(found[0].dayGap, 7);
+    assert.equal(found[0].narration, "Sharma Traders");
+  });
+
+  it("excludes anything already inside the accept window", () => {
+    // Those are matched outright; a near miss is only what the date rule held back.
+    assert.deepEqual(nearMisses(request(-50000), [txn("1", "2026-01-16", -50000)]), []);
+  });
+
+  it("excludes anything past the near bound", () => {
+    assert.deepEqual(nearMisses(request(-50000), [txn("1", "2026-02-20", -50000)]), []);
+  });
+
+  it("still demands an exact amount and the right direction", () => {
+    const found = nearMisses(request(-50000), [
+      txn("1", "2026-01-23", -50001),  // a paise out
+      txn("2", "2026-01-23", 50000),   // a credit
+    ]);
+    assert.deepEqual(found, []);
+  });
+
+  it("returns every candidate, nearest first, rather than choosing one", () => {
+    // Two qualifying rows is information for the human, not a tiebreak for us.
+    const found = nearMisses(request(-50000), [
+      txn("1", "2026-01-24", -50000, "later"),
+      txn("2", "2026-01-20", -50000, "nearer"),
+    ]);
+    assert.deepEqual(found.map((f) => f.narration), ["nearer", "later"]);
+    assert.deepEqual(found.map((f) => f.dayGap), [5, 9]);
+  });
+
+  it("looks backwards as well as forwards", () => {
+    // The real cases were both BEFORE the Splitwise date — paid at the shop, entered later.
+    const found = nearMisses(request(-50000), [txn("1", "2026-01-08", -50000)]);
+    assert.equal(found[0]?.dayGap, 7);
   });
 });

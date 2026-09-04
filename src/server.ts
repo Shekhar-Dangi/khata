@@ -4,6 +4,7 @@ import path from "node:path";
 import { errorHandler, notFoundHandler } from "./http.ts";
 import { accounts } from "./routes/accounts.ts";
 import { categories } from "./routes/categories.ts";
+import { evidence } from "./routes/evidence.ts";
 import { reports } from "./routes/reports.ts";
 import { rules } from "./routes/rules.ts";
 import { transactions } from "./routes/transactions.ts";
@@ -61,6 +62,7 @@ app.get("/health", (_req, res) => {
 // alphabetical so that stays easy to check.
 app.use(accounts);
 app.use(categories);
+app.use(evidence);
 app.use(reports);
 app.use(rules);
 app.use(transactions);

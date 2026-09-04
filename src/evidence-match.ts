@@ -115,6 +115,59 @@ export function matchToTransaction(
  * appears in the export as a second payer with a negative net and is invisible. The
  * consequence is a missed match, never a wrong one, because the amount filter is exact.
  */
+/**
+ * How far past the accept window a candidate may sit and still be worth a human's glance.
+ *
+ * MEASURED alongside DEFAULT_WINDOW_DAYS: in this ledger, exactly two records gain a unique
+ * exact-amount candidate by looking past 3 days, and BOTH are within 7. Nothing between 8 and
+ * 90 days adds one. So 10 covers the entire useful range with slack, and stops well short of
+ * the 14-day region where ambiguity starts to dominate.
+ *
+ * A near miss is never auto-accepted. The judgement it needs is the kind this matcher
+ * structurally cannot make: "Sharma Traders" against a Splitwise line reading "weekly veg"
+ * is obvious to the person who typed it and invisible here, because a bank narration and a
+ * free-text description share no vocabulary. Meanwhile a person's name against "Auto" is
+ * equally consistent with paying the driver and with coincidence. One of those a human
+ * accepts instantly and the other they want to think about — which is precisely why this is a
+ * queue and not a wider threshold.
+ */
+export const DEFAULT_NEAR_DAYS = 10;
+
+export type NearMiss = {
+  transactionId: string;
+  txnDate: string;
+  dayGap: number;
+  narration: string | null;
+};
+
+/**
+ * Exact-amount candidates that fall JUST outside the accept window.
+ *
+ * Same amount and same direction as `matchToTransaction` demands — only the date failed. That
+ * is the whole point: these are rows the matcher already believes in on every axis it can
+ * measure, held back by the one axis it cannot judge.
+ *
+ * Returns every such candidate, nearest first. Deliberately not filtered down to one: if two
+ * qualify, the human should see both rather than be handed a pre-made choice.
+ */
+export function nearMisses(
+  request: MatchRequest,
+  candidates: Candidate[],
+  windowDays = DEFAULT_WINDOW_DAYS,
+  nearDays = DEFAULT_NEAR_DAYS,
+): NearMiss[] {
+  return candidates
+    .filter((c) => c.amount_paise === request.expectedPaise)
+    .map((c) => ({
+      transactionId: c.id,
+      txnDate: c.txn_date,
+      dayGap: dayGap(c.txn_date, request.date),
+      narration: c.narration,
+    }))
+    .filter((m) => m.dayGap > windowDays && m.dayGap <= nearDays)
+    .sort((a, b) => a.dayGap - b.dayGap);
+}
+
 /** An allocation already sitting on the transaction we are about to explain. */
 export type ExistingAllocation = {
   id: string;
