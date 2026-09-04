@@ -32,9 +32,15 @@ export const CONSUMPTION_ROWS = `
     --    a name matched in code is the "debit" lexical trap.
     SELECT t.txn_date AS consumed_on, al.category_id, al.amount_paise
       FROM allocations al
-      JOIN transactions t  ON t.id = al.transaction_id
-      JOIN categories cat  ON cat.id = al.category_id
+      JOIN transactions t   ON t.id = al.transaction_id
+      JOIN categories cat   ON cat.id = al.category_id
+      LEFT JOIN categories par ON par.id = cat.parent_id
+     -- The flag counts on the category OR ITS PARENT. Allocations point at leaves
+     -- (Income > Salary, Transfers > Shared), so checking only the leaf would mean
+     -- flagging a parent did nothing, and every child added later would have to be
+     -- remembered separately. Flagging the parent covers the subtree, now and in future.
      WHERE NOT cat.excluded_from_spend
+       AND NOT COALESCE(par.excluded_from_spend, false)
        AND ${EXPLAINABLE_SPEND}
 
     UNION ALL

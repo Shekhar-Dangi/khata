@@ -87,6 +87,9 @@ CREATE TABLE categories (
   -- EXPLAINABLE_SPEND is a predicate over transactions, which cannot express "half of this
   -- one". A flag rather than a name checked in code, because a name in code is the
   -- a category named debit lexical trap. See the design.
+  -- Checked on a category OR ITS PARENT by src/consumption.ts, so flagging a parent covers
+  -- its whole subtree. Set on Transfers (own money moving) and Income (a real inflow, but
+  -- not something consumed).
   excluded_from_spend BOOLEAN NOT NULL DEFAULT false,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   -- No two siblings share a name. NOTE: for top-level rows parent_id IS NULL, and

@@ -46,7 +46,7 @@ FROM (VALUES
   -- Money that moved between you and a PERSON rather than to a merchant: the part of a bill
   -- you fronted for others, a settlement you receive, a settlement you pay. ONE bucket, not
   -- a pair, because both directions are the same flow; a balance is a different kind of
-  -- thing entirely. See the design.
+  -- thing entirely, derived from the records rather than stored as a category.
   ('Shared',           'Transfers')
 ) AS child(name, parent_name)
 JOIN parents p ON p.name = child.parent_name;
@@ -56,5 +56,9 @@ JOIN parents p ON p.name = child.parent_name;
 -- expressed by EXPLAINABLE_SPEND, which is a predicate over whole transactions.
 UPDATE categories SET excluded_from_spend = true
  WHERE (name = 'Transfers' AND parent_id IS NULL)
+    -- Income is a real inflow and not something consumed. src/consumption.ts checks the
+    -- flag on a category OR ITS PARENT, so flagging the parent covers Salary/Interest/
+    -- Refunds and anything added under it later.
+    OR (name = 'Income' AND parent_id IS NULL)
     OR (name = 'Shared' AND parent_id = (SELECT id FROM categories
                                           WHERE name = 'Transfers' AND parent_id IS NULL));
