@@ -131,6 +131,19 @@ CREATE TABLE evidence (
   created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- The RECORD-level idempotency boundary: "this order is already in the
+-- ledger". The layer that actually prevents duplication -- an artifact hash catches a re-drag
+-- of the same bytes, but the same order downloaded twice can differ byte-for-byte and land
+-- twice. Enforced by the database, not a SELECT-then-INSERT, for the reason src/http.ts gives
+-- about the uniqueness race.
+--
+-- PARTIAL on purpose: some sources expose no stable id (a Splitwise export has no expense id).
+-- A NULL external_ref says "not identifiable", and NULLs are distinct in a unique index, so
+-- such rows neither collide nor pretend to be deduplicated.
+CREATE UNIQUE INDEX evidence_source_ref_uniq
+  ON evidence (source_type, external_ref)
+  WHERE external_ref IS NOT NULL;
+
 -- allocations: the heart. One slice of a transaction's amount, with ONE category and its
 -- own confidence + provenance. A transaction has N allocations; the unexplained remainder
 -- (txn.amount_paise - SUM(allocations)) is COMPUTED, never stored.
