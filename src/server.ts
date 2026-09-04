@@ -38,6 +38,13 @@ export const app = express();
 // Parse JSON request bodies into req.body. Returns 400 automatically if the body is
 // malformed — that rejection arrives at errorHandler as `entity.parse.failed`.
 app.use(express.json());
+// An evidence file is POSTed as its own body rather than as multipart: a Splitwise export is
+// a CSV, and this reads it without adding an upload dependency to a two-dependency project.
+// A binary format (an invoice PDF) will want express.raw() on the same route, which is a
+// smaller change later than adding multipart now for a format we cannot yet parse.
+// Scoped to the import route: every other endpoint takes JSON, and a global text parser
+// would quietly swallow a malformed JSON body instead of rejecting it.
+app.use("/evidence/import", express.text({ type: "*/*", limit: "5mb" }));
 
 // Health is genuinely about the SERVER rather than any resource, so it is the one route
 // that belongs in this file.

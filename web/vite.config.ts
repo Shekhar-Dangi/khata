@@ -27,6 +27,7 @@ export default defineConfig({
       '/rules': 'http://localhost:3000',
       '/summary': 'http://localhost:3000',
       '/reports': 'http://localhost:3000',
+      '/evidence': 'http://localhost:3000',
       '/health': 'http://localhost:3000',
     },
   },

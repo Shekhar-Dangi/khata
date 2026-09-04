@@ -4,6 +4,7 @@ import { pool } from "./../db.ts";
 import { route } from "./../http.ts";
 import { isSpendOnly, parseFilters } from "./../filters.ts";
 import { EXPLAINABLE_SPEND } from "./../spend.ts";
+import { CONSUMPTION_ROWS } from "./../consumption.ts";
 
 const router = Router();
 export { router as reports };
@@ -271,5 +272,69 @@ router.get("/reports/by-month", route(async (req, res) => {
       unexplained_paise: Number(r.unexplained_paise),
       transactions: Number(r.transactions),
     })),
+  });
+}));
+
+// What you actually CONSUMED, by category — the second view the design
+// argue for, and deliberately a sibling of /reports/by-category rather than a replacement.
+//
+// Spend and consumption answer different questions and are allowed to disagree: a shared
+// bill you fronted for three people is all spend and a third of it consumption, while a bill
+// a flatmate paid for you is none of the first and all of the second. The GAP between the
+// two is the meaningful number, which is why they belong side by side and not merged.
+//
+// The union itself lives in src/consumption.ts, for the reason src/spend.ts already argues:
+// two copies of a definition drift, and then the headline metric and the engine quietly
+// disagree about what they are talking about.
+router.get("/reports/consumption", route(async (_req, res) => {
+  // All-time, deliberately: no date filter is accepted YET. Parsing filters and then not
+  // applying them would answer ?from=2026-01-01 with every row and look correct, which is a
+  // worse failure than not offering the parameter. Add it here and in the SQL together.
+  const result = await pool.query(
+    `WITH rows AS (${CONSUMPTION_ROWS})
+     SELECT c.id, c.name, c.parent_id, p.name AS parent_name,
+            COALESCE(SUM(-rows.amount_paise), 0) AS consumed_paise,
+            COUNT(*)                             AS entries
+       FROM rows
+       JOIN categories c ON c.id = rows.category_id
+       LEFT JOIN categories p ON p.id = c.parent_id
+      GROUP BY c.id, p.name
+      ORDER BY SUM(-rows.amount_paise) DESC`,
+  );
+
+  // Cash that never moved through the bank at all — someone else paid our share. Reported
+  // separately because it is the part a bank statement can NEVER show, and a single total
+  // would hide the one number that only this feature can produce.
+  const nonCash = await pool.query(
+    `SELECT COALESCE(SUM(-amount_paise), 0) AS paise, COUNT(*) AS entries FROM consumption`,
+  );
+
+  // Consumption we know happened and cannot categorise: the source category has no mapping
+  // yet. Surfaced rather than absent — otherwise the total quietly understates and looks fine.
+  const unclassified = await pool.query(
+    `SELECT COALESCE(SUM(ABS((ev.payload->'nets_paise'->>$1)::bigint)), 0) AS paise
+       FROM evidence ev
+      WHERE ev.source_type = 'splitwise'
+        AND ev.payload->>'kind' = 'expense'
+        AND (ev.payload->'nets_paise'->>$1)::bigint < 0
+        AND (SELECT m.category_id FROM source_category_map m
+              WHERE m.source_type = 'splitwise'
+                AND m.source_category = ev.payload->>'source_category') IS NULL`,
+    [process.env.SPLITWISE_ME ?? ""],
+  );
+
+  // pg returns BIGINT as a STRING; coerced once here rather than hopefully in the browser.
+  return res.json({
+    categories: result.rows.map((r) => ({
+      id: Number(r.id),
+      name: r.name,
+      parent_id: r.parent_id === null ? null : Number(r.parent_id),
+      parent_name: r.parent_name,
+      consumed_paise: Number(r.consumed_paise),
+      entries: Number(r.entries),
+    })),
+    non_cash_paise: Number(nonCash.rows[0].paise),
+    non_cash_entries: Number(nonCash.rows[0].entries),
+    unclassified_paise: Number(unclassified.rows[0].paise),
   });
 }));
