@@ -15,7 +15,8 @@
     "build:vercel": "npm ci --prefix web && npm run build --prefix web",
     "demo:activity": "node scripts/demo-activity.ts",
     "import:splitwise": "node --env-file=.env scripts/import-splitwise.ts",
-    "match:splitwise": "node --env-file=.env scripts/match-splitwise.ts"
+    "match:splitwise": "node --env-file=.env scripts/match-splitwise.ts",
+    "purge:splitwise": "node --env-file=.env scripts/purge-splitwise.ts"
   },
   "dependencies": {
     "express": "^5.2.1",
