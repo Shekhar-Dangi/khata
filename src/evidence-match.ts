@@ -115,6 +115,74 @@ export function matchToTransaction(
  * appears in the export as a second payer with a negative net and is invisible. The
  * consequence is a missed match, never a wrong one, because the amount filter is exact.
  */
+/** An allocation already sitting on the transaction we are about to explain. */
+export type ExistingAllocation = {
+  id: string;
+  source: "rule" | "user" | "evidence";
+  /** Set when a rule proposed this row and a human accepted it (migration 003). */
+  confirmed_from_rule_id: string | null;
+};
+
+export type PrecedenceDecision =
+  | { action: "write" }
+  | { action: "displace"; allocationIds: string[] }
+  | { action: "conflict"; reason: string; allocationIds: string[] };
+
+/**
+ * May an evidence-derived split replace what is already on this transaction?
+ *
+ * The bug this exists to prevent: writing an evidence split on top of an existing allocation
+ * DOUBLES the explained amount. A Rs 250 debit already carrying `Groceries = -250` plus a
+ * receipt's `Shared = -166.67, Bills = -83.33` sums to Rs 500 against a Rs 250 transaction.
+ *
+ * Three tiers, all read from columns that already exist:
+ *
+ *   1. user, authored directly    a deliberate human decision      NEVER displaced
+ *   2. evidence                   a record of what happened
+ *   3. rule, or user ACCEPTED FROM a rule                          displaced by evidence
+ *
+ * Tier 3 is the important one. `source = 'user'` conflates two very different things: 254
+ * rows accepted in one bulk action, and 15 authored one at a time. Migration 003 already
+ * preserved the difference in `confirmed_from_rule_id` — it was simply never read for
+ * AUTHORITY. Nodding at a rule's guess in bulk is weaker evidence than an order receipt;
+ * deciding a row yourself is not.
+ *
+ * So tier 1 keeps the invariant from the design — a deliberate human
+ * decision is never overwritten by a machine — while a bulk-confirmed guess gives way to a
+ * record of what actually happened. A conflict is surfaced, never silently resolved.
+ *
+ * Allocations belonging to THIS evidence row must be filtered out by the caller; they are
+ * our own previous run and are replaced, not competed with.
+ */
+export function resolvePrecedence(existing: ExistingAllocation[]): PrecedenceDecision {
+  if (existing.length === 0) return { action: "write" };
+
+  const authored = existing.filter(
+    (a) => a.source === "user" && a.confirmed_from_rule_id === null,
+  );
+  if (authored.length > 0) {
+    return {
+      action: "conflict",
+      reason: "a human authored this allocation directly",
+      allocationIds: authored.map((a) => a.id),
+    };
+  }
+
+  // A second evidence record claiming the same transaction is the one-debit-many-orders case
+  // that the design says to queue. Neither record outranks the other, and picking
+  // one would be a guess.
+  const otherEvidence = existing.filter((a) => a.source === "evidence");
+  if (otherEvidence.length > 0) {
+    return {
+      action: "conflict",
+      reason: "another external record already explains this transaction",
+      allocationIds: otherEvidence.map((a) => a.id),
+    };
+  }
+
+  return { action: "displace", allocationIds: existing.map((a) => a.id) };
+}
+
 export function expectedCash(
   kind: "expense" | "payment",
   costPaise: number,

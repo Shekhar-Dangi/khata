@@ -24,6 +24,22 @@ if (!me) {
 const client = await pool.connect();
 try {
   await client.query("BEGIN");
+
+  // --reset unwinds only what the matcher itself produced, so its logic can be changed and
+  // re-run over the same data. Scoped to source = 'evidence': a rule's allocations and a
+  // human's are not this script's to undo, and a reset that could touch them would be a
+  // far more dangerous thing to keep in the repo than it is useful.
+  if (process.argv.includes("--reset")) {
+    const undone = await client.query(
+      `DELETE FROM allocations a USING evidence ev
+        WHERE a.evidence_id = ev.id AND a.source = 'evidence' AND ev.source_type = 'splitwise'`,
+    );
+    const unlinked = await client.query(
+      "UPDATE evidence SET transaction_id = NULL WHERE source_type = 'splitwise'",
+    );
+    console.log(`  reset: ${undone.rowCount} allocation(s) removed, ` +
+      `${unlinked.rowCount} record(s) unlinked`);
+  }
   const s = await matchSplitwiseEvidence(client, me);
 
   // --dry-run still does the work, then throws it away. The alternative is a second code
@@ -37,7 +53,11 @@ try {
   console.log(`    ambiguous (queued)       : ${s.ambiguous}`);
   console.log(`    no candidate found       : ${s.noCandidate}`);
   console.log(`  records expecting no cash  : ${s.noCashExpected}  (someone else paid)`);
+  console.log(`    conflicted (left alone)  : ${s.conflicted}`);
   console.log(`  allocations written        : ${s.allocationsWritten}`);
+  if (s.displaced > 0) {
+    console.log(`    rule guesses displaced   : ${s.displaced}  (outranked by a record)`);
+  }
   if (s.partiallyAllocated > 0) {
     console.log(`    of which partial         : ${s.partiallyAllocated}  ` +
       `(category unmapped — our share left as unexplained remainder)`);

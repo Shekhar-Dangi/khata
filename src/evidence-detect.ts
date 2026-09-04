@@ -6,7 +6,13 @@
 
 import type { PoolClient } from "pg";
 
-import { type Candidate, expectedCash, matchToTransaction } from "./evidence-match.ts";
+import {
+  type Candidate,
+  type ExistingAllocation,
+  expectedCash,
+  matchToTransaction,
+  resolvePrecedence,
+} from "./evidence-match.ts";
 
 const SOURCE = "splitwise";
 
@@ -20,6 +26,11 @@ export type MatchSummary = {
   allocationsWritten: number;
   /** Matched, but the source category has no mapping, so only the shared slice was written. */
   partiallyAllocated: number;
+  /** A bank row was found, but something we may not overrule already explains it. */
+  conflicted: number;
+  /** Rule guesses (including bulk-confirmed ones) this evidence outranked and removed. */
+  displaced: number;
+  conflicts: { externalRef: string; transactionId: string; reason: string }[];
 };
 
 type EvidenceRow = {
@@ -42,6 +53,7 @@ export async function matchSplitwiseEvidence(
   const summary: MatchSummary = {
     considered: 0, matched: 0, ambiguous: 0, noCandidate: 0,
     noCashExpected: 0, allocationsWritten: 0, partiallyAllocated: 0,
+    conflicted: 0, displaced: 0, conflicts: [],
   };
 
   const shared = await client.query<{ id: string }>(
@@ -96,15 +108,44 @@ export async function matchSplitwiseEvidence(
     if (outcome.kind === "none") { summary.noCandidate++; continue; }
     if (outcome.kind === "ambiguous") { summary.ambiguous++; continue; }
 
+    // What already explains this transaction? Rows produced by THIS evidence are excluded:
+    // they are our own previous run, replaced rather than competed with.
+    const existing = await client.query<ExistingAllocation>(
+      `SELECT id, source, confirmed_from_rule_id
+         FROM allocations
+        WHERE transaction_id = $1 AND (evidence_id IS DISTINCT FROM $2)`,
+      [outcome.transactionId, ev.id],
+    );
+    const decision = resolvePrecedence(existing.rows);
+
+    // Writing on top of an existing allocation DOUBLES the explained amount — a Rs 250 debit
+    // ends up carrying Rs 500 of allocations. So a conflict means write NOTHING and leave the
+    // link unset, so the row stays visible as work to do rather than silently half-applied.
+    if (decision.action === "conflict") {
+      summary.conflicted++;
+      summary.conflicts.push({
+        externalRef: ev.external_ref,
+        transactionId: outcome.transactionId,
+        reason: decision.reason,
+      });
+      continue;
+    }
+
     await client.query("UPDATE evidence SET transaction_id = $1 WHERE id = $2",
       [outcome.transactionId, ev.id]);
     summary.matched++;
 
-    // Clear only what THIS evidence produced before, and only machine-made rows. A 'user'
-    // allocation is a decision and re-running may never overwrite a decision — the same
-    // scoped sweep the rules engine does with `AND source = 'rule'`.
+    // Clear what THIS evidence produced before...
     await client.query(
       "DELETE FROM allocations WHERE evidence_id = $1 AND source = 'evidence'", [ev.id]);
+
+    // ...and, where precedence allows, the guess this record outranks. A rule's guess and a
+    // bulk-confirmed nod both give way to a record of what actually happened; an allocation a
+    // human authored directly never does, and never reaches here.
+    if (decision.action === "displace" && decision.allocationIds.length > 0) {
+      await client.query("DELETE FROM allocations WHERE id = ANY($1)", [decision.allocationIds]);
+      summary.displaced += decision.allocationIds.length;
+    }
 
     // Confidence is 1.00 and that is a claim, not a shrug: an evidence allocation is not a
     // guess. The amounts come from a record of something that happened, and the link behind

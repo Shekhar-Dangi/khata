@@ -4,8 +4,10 @@ import { describe, it } from "node:test";
 import {
   type Candidate,
   DEFAULT_WINDOW_DAYS,
+  type ExistingAllocation,
   expectedCash,
   matchToTransaction,
+  resolvePrecedence,
 } from "./evidence-match.ts";
 
 const txn = (id: string, txn_date: string, amount_paise: number, narration = ""): Candidate =>
@@ -113,5 +115,60 @@ describe("matchToTransaction", () => {
     const big = "9007199254740993"; // beyond Number.MAX_SAFE_INTEGER
     const result = matchToTransaction(request(-400000), [txn(big, "2026-01-15", -400000)]);
     assert.equal(result.kind === "matched" && result.transactionId, big);
+  });
+});
+
+describe("resolvePrecedence", () => {
+  const alloc = (
+    id: string,
+    source: "rule" | "user" | "evidence",
+    confirmed_from_rule_id: string | null = null,
+  ): ExistingAllocation => ({ id, source, confirmed_from_rule_id });
+
+  it("writes freely when nothing explains the transaction yet", () => {
+    assert.deepEqual(resolvePrecedence([]), { action: "write" });
+  });
+
+  it("displaces a rule's guess", () => {
+    assert.deepEqual(resolvePrecedence([alloc("1", "rule")]), {
+      action: "displace",
+      allocationIds: ["1"],
+    });
+  });
+
+  it("displaces a BULK-CONFIRMED rule guess", () => {
+    // The case that motivated this: 254 rows were accepted in one action and recorded with
+    // the same authority as a deliberate decision. An order receipt outranks a nod.
+    const decision = resolvePrecedence([alloc("1", "user", "42")]);
+    assert.deepEqual(decision, { action: "displace", allocationIds: ["1"] });
+  });
+
+  it("REFUSES to displace an allocation a human authored directly", () => {
+    const decision = resolvePrecedence([alloc("1", "user", null)]);
+    assert.equal(decision.action, "conflict");
+    assert.match(decision.action === "conflict" ? decision.reason : "", /authored/);
+  });
+
+  it("lets one authored row veto a whole set of displaceable ones", () => {
+    // Mixed: the deliberate decision wins, and nothing is touched.
+    const decision = resolvePrecedence([
+      alloc("1", "rule"),
+      alloc("2", "user", "42"),
+      alloc("3", "user", null),
+    ]);
+    assert.equal(decision.action, "conflict");
+    assert.deepEqual(decision.action === "conflict" ? decision.allocationIds : [], ["3"]);
+  });
+
+  it("queues when another external record already explains the transaction", () => {
+    // One debit covering two orders — the design says queue, never pick.
+    const decision = resolvePrecedence([alloc("1", "evidence")]);
+    assert.equal(decision.action, "conflict");
+    assert.match(decision.action === "conflict" ? decision.reason : "", /another external record/);
+  });
+
+  it("prefers the authored-row conflict message over the evidence one", () => {
+    const decision = resolvePrecedence([alloc("1", "evidence"), alloc("2", "user", null)]);
+    assert.match(decision.action === "conflict" ? decision.reason : "", /authored/);
   });
 });
