@@ -1987,3 +1987,73 @@ footer .shell {
   opacity: 0.45;
   border-radius: 1px;
 }
+
+/* ── manual matching ──────────────────────────────────
+   The tally is the control surface: a person steers by these three numbers while ticking
+   rows, so it sits ABOVE the list and stays put, rather than being a validation message
+   that appears after a mistake. */
+.matcher {
+  margin: 10px 0 4px 18px;
+  padding-left: 18px;
+  border-left: 2px solid var(--rule);
+}
+.matcher-tally {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 22px;
+  padding: 9px 0 11px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--rule);
+}
+.matcher-tally b {
+  font-weight: 500;
+}
+.matcher-tally .credit {
+  color: var(--credit);
+}
+.matcher-tally .flag {
+  color: var(--flag);
+}
+.matcher-hint {
+  margin: 10px 0 2px;
+  font-size: 12px;
+}
+.matcher-search {
+  width: 100%;
+  height: var(--control-h);
+  margin: 12px 0 4px;
+  padding: 0 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+}
+/* A label, not a div: ticking is the whole interaction, so the entire row is the target. */
+.matcher-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 8px;
+  margin: 0 -8px;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.matcher-row:hover {
+  background: var(--paper-sunk);
+}
+.matcher-row.picked {
+  background: var(--paper-sunk);
+}
+.matcher-row .narration {
+  flex: 1;
+  min-width: 0;
+  max-width: none; /* .narration's max-width:0 is a table trick — see the near-miss note */
+}
+.matcher-row .matcher-note {
+  font-size: 12px;
+  white-space: nowrap;
+}
+.matcher-row input {
+  accent-color: var(--accent);
+}

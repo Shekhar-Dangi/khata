@@ -5,7 +5,7 @@ import { useFetch } from "../shared/useFetch";
 import { useLedgerVersion } from "../shared/ledgerVersion";
 import EvidenceDrop from "./EvidenceDrop";
 import ImportPreview from "./ImportPreview";
-import NearMissQueue from "./NearMissQueue";
+import ManualMatch from "./ManualMatch";
 import { groupFromFilename, type ImportResponse, type NearMiss } from "./sources";
 
 // Where outside records come in, and what state they are in.
@@ -27,7 +27,9 @@ export default function SourcesView() {
   const [error, setError] = useState<string | null>(null);
   const { bump } = useLedgerVersion();
 
-  const queue = useFetch<{ near_misses: NearMiss[] }>("/evidence/near-misses");
+  // The FULL queue, not just near misses: a record nothing was found for is exactly the
+  // one a person has to go and find a payment for themselves.
+  const queue = useFetch<{ unmatched: NearMiss[] }>("/evidence/unmatched");
 
   async function send(text: string, group: string, dryRun: boolean) {
     setBusy(true);
@@ -61,7 +63,7 @@ export default function SourcesView() {
     setError(null);
   }
 
-  const rows = queue.data?.near_misses ?? [];
+  const rows = queue.data?.unmatched ?? [];
 
   return (
     <div>
@@ -103,9 +105,9 @@ export default function SourcesView() {
           judge today is still waiting next week, and it would be lost if it only ever
           appeared on the screen that produced it. */}
       {preview === null && (
-        <NearMissQueue
+        <ManualMatch
           rows={rows}
-          onAccepted={() => {
+          onLinked={() => {
             void queue.refetch();
             bump();
           }}

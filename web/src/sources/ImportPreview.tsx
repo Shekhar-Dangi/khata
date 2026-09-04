@@ -89,6 +89,53 @@ export default function ImportPreview({
         .
       </p>
 
+      {/* WHAT matched, not just how many. A count of 12 is a number to trust or not; the
+          pairs are the thing you can actually check, and checking a couple is how you come
+          to trust the other ten. */}
+      {match.pairs.length > 0 && (
+        <>
+          <div className="sect">
+            <span>Matched to your bank</span>
+            <span className="soft">{match.pairs.length}</span>
+          </div>
+          <div className="table-scroll short">
+            <table>
+              <colgroup>
+                {/* 112px, not 100: a mono YYYY-MM-DD does not fit in 100 and wraps onto two
+                    lines, which makes every row in the table a different height. */}
+                <col style={{ width: "112px" }} />
+                <col style={{ width: "180px" }} />
+                <col />
+                <col style={{ width: "90px" }} />
+                <col style={{ width: "120px" }} />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Record</th>
+                  <th>Bank row</th>
+                  <th className="r">Apart</th>
+                  <th className="r">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {match.pairs.map((p) => (
+                  <tr key={p.evidenceId + p.transactionId}>
+                    <td className="mono soft">{p.evidenceDate}</td>
+                    <td>{p.description ?? p.externalRef}</td>
+                    <td className="narration">{p.narration}</td>
+                    <td className="mono r soft">
+                      {p.dayGap === 0 ? "same day" : `${p.dayGap}d`}
+                    </td>
+                    <td className="mono r">{rupees(p.txnAmountPaise)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
       {match.conflicts.length > 0 && (
         <>
           <div className="sect">

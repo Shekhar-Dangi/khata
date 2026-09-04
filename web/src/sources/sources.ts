@@ -14,8 +14,24 @@ export type NearMiss = {
   description: string | null;
   evidenceDate: string;
   amountPaise: number;
+  /** What the bank should show, signed: negative means cash should have left. */
+  expectedPaise: number;
   sourceCategory: string;
   candidates: NearMissCandidate[];
+};
+
+/** One record linked to one transaction — what the preview shows as "matched". */
+export type MatchedPair = {
+  evidenceId: string;
+  externalRef: string;
+  description: string | null;
+  evidenceDate: string;
+  amountPaise: number;
+  transactionId: string;
+  txnDate: string;
+  txnAmountPaise: number;
+  narration: string | null;
+  dayGap: number;
 };
 
 export type ImportResponse = {
@@ -45,6 +61,7 @@ export type ImportResponse = {
     displaced: number;
     nearMissed: number;
     conflicts: { externalRef: string; transactionId: string; reason: string }[];
+    pairs: MatchedPair[];
   };
   near_misses: NearMiss[];
 };
