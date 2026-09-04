@@ -25,6 +25,8 @@ export type Candidate = {
   txn_date: string;
   amount_paise: number;
   narration: string | null;
+  /** Optional: the pure matcher never reads it, but every UI that shows a candidate does. */
+  account_name?: string | null;
 };
 
 /** What we are looking for: an amount that should have moved, on or near a date. */
@@ -138,6 +140,15 @@ export type NearMiss = {
   txnDate: string;
   dayGap: number;
   narration: string | null;
+  /** Which account it left. Carried so a candidate row looks like every other transaction row. */
+  accountName: string | null;
+  /**
+   * What a MANUAL link to this candidate would do to what already explains it, if anything.
+   * Set by the DB half, which has the allocations loaded anyway; ABSENT from the pure
+   * `nearMisses`, which cannot know. A caller that renders a candidate a person can tick
+   * must treat absent as UNKNOWN, not as "free".
+   */
+  claim?: Claim;
 };
 
 /**
@@ -163,6 +174,7 @@ export function nearMisses(
       txnDate: c.txn_date,
       dayGap: dayGap(c.txn_date, request.date),
       narration: c.narration,
+      accountName: c.account_name ?? null,
     }))
     .filter((m) => m.dayGap > windowDays && m.dayGap <= nearDays)
     .sort((a, b) => a.dayGap - b.dayGap);
@@ -222,8 +234,32 @@ export type ExistingAllocation = {
 
 export type PrecedenceDecision =
   | { action: "write" }
-  | { action: "displace"; allocationIds: string[] }
+  | {
+      action: "displace";
+      allocationIds: string[];
+      /**
+       * The subset a person authored directly, and therefore the destructive part.
+       * Always empty under "auto" — tier 1 never reaches `displace` there. Non-empty only
+       * when someone chose this link themselves, and the UI says so before and after.
+       */
+      authoredIds: string[];
+    }
   | { action: "conflict"; reason: string; allocationIds: string[] };
+
+/**
+ * WHO is asking to write this split.
+ *
+ * The tier-1 rule — "a deliberate human decision is never overwritten" — is about protecting
+ * a person from a MACHINE, not from themselves. The matcher running over a whole import has
+ * no idea whether the row it is about to overwrite was a considered decision, so it must
+ * never take one. A person ticking one specific transaction on one specific record has
+ * exactly that idea, and refusing them is not protection, it is a dead end with no way out
+ * but SQL.
+ *
+ * So the tier applies to `auto` and is a WARNING under `user`. The two paths still share
+ * this one function, so there is no second copy of what precedence means.
+ */
+export type Authority = "auto" | "user";
 
 /**
  * May an evidence-derived split replace what is already on this transaction?
@@ -250,14 +286,20 @@ export type PrecedenceDecision =
  *
  * Allocations belonging to THIS evidence row must be filtered out by the caller; they are
  * our own previous run and are replaced, not competed with.
+ *
+ * @param authority see `Authority`. Tier 1 stops the automatic matcher and only warns a
+ *                  person who picked this transaction themselves.
  */
-export function resolvePrecedence(existing: ExistingAllocation[]): PrecedenceDecision {
+export function resolvePrecedence(
+  existing: ExistingAllocation[],
+  authority: Authority = "auto",
+): PrecedenceDecision {
   if (existing.length === 0) return { action: "write" };
 
   const authored = existing.filter(
     (a) => a.source === "user" && a.confirmed_from_rule_id === null,
   );
-  if (authored.length > 0) {
+  if (authored.length > 0 && authority === "auto") {
     return {
       action: "conflict",
       reason: "a human authored this allocation directly",
@@ -268,6 +310,13 @@ export function resolvePrecedence(existing: ExistingAllocation[]): PrecedenceDec
   // A second evidence record claiming the same transaction is the one-debit-many-orders case
   // that the design says to queue. Neither record outranks the other, and picking
   // one would be a guess.
+  //
+  // REFUSED FOR BOTH authorities, unlike tier 1 — and not out of caution. Displacing the
+  // other record's allocations would leave that record still LINKED (the pairing lives in
+  // `evidence_transactions`, which this decision does not touch) but explaining nothing: it
+  // would read as "matched" in the worklist while carrying no money. There is a way to say
+  // "this one, not that one" and it is to unlink the other record first, which leaves both
+  // rows in a state that means what it says.
   const otherEvidence = existing.filter((a) => a.source === "evidence");
   if (otherEvidence.length > 0) {
     return {
@@ -277,7 +326,36 @@ export function resolvePrecedence(existing: ExistingAllocation[]): PrecedenceDec
     };
   }
 
-  return { action: "displace", allocationIds: existing.map((a) => a.id) };
+  return {
+    action: "displace",
+    allocationIds: existing.map((a) => a.id),
+    authoredIds: authored.map((a) => a.id),
+  };
+}
+
+/**
+ * What a MANUAL link to this transaction would do to whatever already explains it.
+ *
+ * The screen where a person picks the transaction needs the same answer `resolvePrecedence`
+ * will give, said BEFORE the button rather than after it. So it is DERIVED from that
+ * function rather than written beside it — the display and the decision cannot drift:
+ *
+ *   free       nothing there; the link writes onto a blank transaction
+ *   yours      a person wrote the explanation; linking REMOVES it, and no undo brings it
+ *              back — the half `displacedAuthored` exists to report after the fact
+ *   replaces   only a rule's guess stands there; linking removes it, and a rules re-run
+ *              regenerates it
+ *   refused    the server would refuse even a person — another record's evidence. The way
+ *              to say "this one, not that one" is to unlink that record first.
+ */
+export type Claim = "free" | "yours" | "replaces" | "refused";
+
+export function claimOn(existing: ExistingAllocation[]): Claim {
+  if (existing.length === 0) return "free";
+  const decision = resolvePrecedence(existing, "user");
+  if (decision.action === "conflict") return "refused";
+  if (decision.action === "write") return "free";
+  return decision.authoredIds.length > 0 ? "yours" : "replaces";
 }
 
 export function expectedCash(

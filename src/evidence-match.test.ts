@@ -3,8 +3,10 @@ import { describe, it } from "node:test";
 
 import {
   type Candidate,
+  type Claim,
   DEFAULT_WINDOW_DAYS,
   type ExistingAllocation,
+  claimOn,
   expectedCash,
   matchToTransaction,
   nearMisses,
@@ -135,14 +137,15 @@ describe("resolvePrecedence", () => {
     assert.deepEqual(resolvePrecedence([alloc("1", "rule")]), {
       action: "displace",
       allocationIds: ["1"],
+      authoredIds: [],
     });
   });
 
   it("displaces a BULK-CONFIRMED rule guess", () => {
-    // The case that motivated this: 254 rows were accepted in one action and recorded with
+    // The case that motivated this: hundreds of rows were accepted in one action and recorded with
     // the same authority as a deliberate decision. An order receipt outranks a nod.
     const decision = resolvePrecedence([alloc("1", "user", "42")]);
-    assert.deepEqual(decision, { action: "displace", allocationIds: ["1"] });
+    assert.deepEqual(decision, { action: "displace", allocationIds: ["1"], authoredIds: [] });
   });
 
   it("REFUSES to displace an allocation a human authored directly", () => {
@@ -163,7 +166,7 @@ describe("resolvePrecedence", () => {
   });
 
   it("queues when another external record already explains the transaction", () => {
-    // One debit covering two orders — the design says queue, never pick.
+    // One debit covering two orders — queue it, never pick one.
     const decision = resolvePrecedence([alloc("1", "evidence")]);
     assert.equal(decision.action, "conflict");
     assert.match(decision.action === "conflict" ? decision.reason : "", /another external record/);
@@ -173,11 +176,77 @@ describe("resolvePrecedence", () => {
     const decision = resolvePrecedence([alloc("1", "evidence"), alloc("2", "user", null)]);
     assert.match(decision.action === "conflict" ? decision.reason : "", /authored/);
   });
+
+  // ── authority ────────────────────────────────────────────────────────────────────────
+  // Tier 1 protects a person from a MACHINE, not from themselves. Refusing someone who
+  // ticked this exact transaction on this exact record is not protection — it is a dead end
+  // whose only exit is SQL.
+
+  it("still refuses the automatic matcher, which is the default", () => {
+    assert.equal(resolvePrecedence([alloc("1", "user", null)]).action, "conflict");
+    assert.equal(resolvePrecedence([alloc("1", "user", null)], "auto").action, "conflict");
+  });
+
+  it("lets a PERSON displace what they authored, and names what it destroys", () => {
+    const decision = resolvePrecedence([alloc("1", "user", null), alloc("2", "rule")], "user");
+    assert.equal(decision.action, "displace");
+    if (decision.action !== "displace") return;
+    assert.deepEqual([...decision.allocationIds].sort(), ["1", "2"]);
+    // The destructive subset, separately: "replaced a rule's guess" and "replaced something
+    // you wrote" are not the same warning, and the second one has to be earned.
+    assert.deepEqual(decision.authoredIds, ["1"]);
+  });
+
+  // Refused for BOTH authorities, and not out of caution: displacing the other record's
+  // allocations would leave it LINKED but explaining nothing — reading as "matched" in the
+  // worklist while carrying no money. Unlinking that record first is the way to say
+  // "this one, not that one", and it leaves both rows meaning what they say.
+  it("refuses a second external record even when a person asks", () => {
+    const decision = resolvePrecedence([alloc("1", "evidence")], "user");
+    assert.equal(decision.action, "conflict");
+    assert.match(decision.action === "conflict" ? decision.reason : "", /another external record/);
+  });
+});
+
+describe("claimOn", () => {
+  const alloc = (
+    id: string,
+    source: "rule" | "user" | "evidence",
+    confirmed_from_rule_id: string | null = null,
+  ): ExistingAllocation => ({ id, source, confirmed_from_rule_id });
+
+  const claim = (existing: ExistingAllocation[]): Claim => claimOn(existing);
+
+  // The four answers are what the manual matcher SAYS before the button; the tiers behind
+  // them are resolvePrecedence's, which is why this function delegates rather than
+  // restating them. A test per answer, plus the one ordering that is easy to get wrong.
+  it("says free when nothing explains the transaction", () => {
+    assert.equal(claim([]), "free");
+  });
+
+  it("says yours when a person wrote the explanation — a manual link may remove it", () => {
+    assert.equal(claim([alloc("1", "user", null)]), "yours");
+  });
+
+  it("says replaces when only a rule's guess — or a bulk-confirmed one — stands there", () => {
+    assert.equal(claim([alloc("1", "rule")]), "replaces");
+    assert.equal(claim([alloc("1", "user", "42")]), "replaces");
+  });
+
+  it("says refused where the server would refuse even a person — another record's evidence", () => {
+    assert.equal(claim([alloc("1", "evidence")]), "refused");
+  });
+
+  it("refusal outranks yours: a person's row AND another record's is refused", () => {
+    // resolvePrecedence turns back for the second record whoever is asking, and the screen
+    // must not promise a link that will 409. Unlink that record first.
+    assert.equal(claim([alloc("1", "user", null), alloc("2", "evidence")]), "refused");
+  });
 });
 
 describe("nearMisses", () => {
   it("surfaces an exact-amount candidate just outside the accept window", () => {
-    // The real case: "weekly veg" against "Sharma Traders", 7 days apart.
+    // The shape of a real case: "weekly veg" against "Sharma Traders", 7 days apart.
     const found = nearMisses(request(-174100), [txn("186", "2026-01-22", -174100, "Sharma Traders")]);
     assert.equal(found.length, 1);
     assert.equal(found[0].dayGap, 7);
@@ -263,7 +332,7 @@ describe("splitProportionally", () => {
 
   it("does not care that the selected total differs from the amount being split", () => {
     // Paid 2,745 but entered 2,700: the record's own 2,700 is what gets allocated, and the
-    // 45 difference becomes the transaction's unexplained remainder.
+    // 45 difference becomes the transaction's unexplained remainder, never scaled away.
     assert.deepEqual(splitProportionally(-270000, [-274500]), [-270000]);
   });
 });
