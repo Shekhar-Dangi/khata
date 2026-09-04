@@ -2,7 +2,7 @@ import { Router } from "express";
 
 import { pool } from "./../db.ts";
 import { badRequest, intParam, notFound, route, withTransaction } from "./../http.ts";
-import { isSpendOnly, parseFilters, parsePaging } from "./../filters.ts";
+import { isIsoDate, isSpendOnly, parseFilters, parsePaging } from "./../filters.ts";
 import { EXPLAINABLE_SPEND } from "./../spend.ts";
 import { merchantHint } from "./../mining.ts";
 import { LLM_MODEL, LlmUnavailable, suggestCategories } from "./../llm.ts";
@@ -115,6 +115,21 @@ router.get("/transactions", route(async (req, res) => {
 
   const spendClause = isSpendOnly(req.query) ? `AND ${EXPLAINABLE_SPEND}` : "";
 
+  // ORDER, not filter, which is why it is here and not in parseFilters.
+  //
+  // `near` says "I am looking for something that happened around THIS day" — the manual
+  // matcher's whole question. Without it the finder asked for a date window and then got the
+  // far end of it first: for a record dated 3 August, a +/-10 day window ordered by recency
+  // opens on 13 August and the likeliest answers sit on page two.
+  //
+  // Postgres subtracts two dates into an integer number of days, so proximity is ABS of that.
+  // The recency order stays as the tiebreak, so two rows equally far from the anchor keep the
+  // total ordering the rest of this route depends on (see the note below).
+  const near = req.query.near;
+  if (near !== undefined && !isIsoDate(near)) {
+    return res.status(400).json({ error: "near must be YYYY-MM-DD" });
+  }
+
   // Total BEFORE paging, so the UI can say "showing 100 of 1,432" and size its pager.
   // Same predicate, no grouping — the count is of transactions, not allocation rows.
   const countResult = await pool.query(
@@ -145,7 +160,13 @@ router.get("/transactions", route(async (req, res) => {
                   json_build_object(
                     'id', al.id::text, 'amount_paise', al.amount_paise,
                     'category_id', al.category_id, 'category_name', c.name,
-                    'confidence', al.confidence, 'source', al.source
+                    'confidence', al.confidence, 'source', al.source,
+                    -- The two columns are two FACTS: source alone cannot
+                    -- tell a row a person authored from one they accepted from a rule, and
+                    -- that is exactly the distinction resolvePrecedence decides on. The
+                    -- manual matcher needs it to say whether linking would REPLACE what is
+                    -- already there or be REFUSED by it.
+                    'confirmed_from_rule_id', al.confirmed_from_rule_id
                   ) ORDER BY al.id
                 ) FILTER (WHERE al.id IS NOT NULL),
                 '[]'
@@ -161,9 +182,12 @@ router.get("/transactions", route(async (req, res) => {
         -- three months you least wanted to see. Every tiebreak after the date is still
         -- there and still total, so the ordering is a function of the data — a page whose
         -- contents shuffle between identical requests looks exactly like data loss.
-        ORDER BY t.txn_date DESC, t.account_id, t.statement_id, t.statement_seq, t.id
+        ORDER BY ${near === undefined ? "" : `ABS(t.txn_date - $${filters.params.length + 3}::date),`}
+                 t.txn_date DESC, t.account_id, t.statement_id, t.statement_seq, t.id
         LIMIT $${filters.params.length + 1} OFFSET $${filters.params.length + 2}`,
-    [...filters.params, paging.limit, paging.offset],
+    near === undefined
+      ? [...filters.params, paging.limit, paging.offset]
+      : [...filters.params, paging.limit, paging.offset, near],
   );
   const transactions = result.rows.map((r) => {
     const amount = Number(r.amount_paise);
@@ -217,8 +241,8 @@ const TRANSFER_STATUSES = ["pending", "resolved", "suspected", "rejected"];
 //
 // It WRITES NOTHING. The answer is a suggestion; accepting one goes through
 // POST /transactions/:id/allocations like any other human decision and lands as
-// source='user'. That is why no migration was needed and no invariant is touched — see
-// the design.
+// source='user'. That is why no migration was needed and no invariant is touched: a
+// suggestion becomes an explanation only when a person accepts it.
 //
 // Rows the model does not recognise are simply absent from the response. On the measured
 // one-off slice it abstains on 83%, so rendering "Unknown" would fill the screen with
@@ -313,8 +337,9 @@ router.post("/transactions/suggest", route(async (req, res) => {
 // POST /transactions/confirm — turn a rule's guesses on these rows into your own answer.
 //
 // The three-state model's central distinction is "a machine guessed" vs "I know", and it
-// was decorative until this existed: 254 rows carried a rule's guess and 13 had ever been
-// confirmed, because confirming was a one-row action and nobody does it 254 times.
+// was decorative until this existed: hundreds of rows carried a rule's guess and barely a
+// dozen had ever been confirmed, because confirming was a one-row action and nobody does it
+// hundreds of times.
 //
 // Confirming is a PROVENANCE change, not a value change: same category, same amount,
 // different author. The schema forces the shape — the CHECK requires rule_id IS NULL when
@@ -355,7 +380,7 @@ router.post("/transactions/confirm", route(async (req, res) => {
               -- being true the moment you claim the row. confirmed_from_rule_id says "a
               -- rule proposed this and a human accepted it" — history, not ownership.
               -- Two facts, two columns; collapsing them is what took every rule in
-              -- /reports/by-rule to zero the first time 253 rows were confirmed at once.
+              -- /reports/by-rule to zero the first time hundreds of rows were confirmed at once.
               confirmed_from_rule_id = r.id,
               confidence = 1,
               note = COALESCE(al.note || ' | ', '') || 'confirmed from rule: ' || r.name

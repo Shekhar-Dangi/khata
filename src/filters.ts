@@ -187,6 +187,21 @@ export function parseFilters(
     add(`AND t.narration ILIKE $${n++}`, `%${escaped}%`);
   }
 
+  // ── direction ────────────────────────────────────────────────────────────
+  // Which way the money went. A named pair rather than a raw sign, because "out" is what a
+  // person means and `amount_sign=-1` is what a database means.
+  //
+  // Exists for the manual matcher. `matchToTransaction` treats the sign as a HARD filter —
+  // a credit can never satisfy a debit, however close the amount — and the screen where a
+  // person picks the transaction themselves should obey the same rule the automatic path
+  // does, rather than offering a list half of which is structurally impossible.
+  const direction = scalar(query.direction);
+  if (direction !== null) {
+    if (direction === "out") add("AND t.amount_paise < 0");
+    else if (direction === "in") add("AND t.amount_paise > 0");
+    else return { ok: false, error: "direction must be out or in" };
+  }
+
   // ── spend only ───────────────────────────────────────────────────────────
   // Opt-IN, not automatic. /transactions is the ledger and should be able to show you a
   // transfer or an opening balance; the reports are spend analysis and always set it.

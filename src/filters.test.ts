@@ -150,3 +150,44 @@ describe("parsePaging", () => {
     });
   });
 });
+
+// Which way the money went. Added for the manual matcher: `matchToTransaction` treats the
+// sign as a HARD filter (a credit can never satisfy a debit), and the screen where a person
+// picks the transaction themselves has to obey the same rule the automatic path does — or
+// half the list it offers is structurally impossible.
+describe("parseFilters — direction", () => {
+  it("turns out into a debit predicate and in into a credit one", () => {
+    const out = parseFilters({ direction: "out" });
+    assert.equal(out.ok, true);
+    assert.match((out as { sql: string }).sql, /t\.amount_paise < 0/);
+
+    const income = parseFilters({ direction: "in" });
+    assert.equal(income.ok, true);
+    assert.match((income as { sql: string }).sql, /t\.amount_paise > 0/);
+  });
+
+  // A fixed fragment, so it takes no parameter — and must not consume a placeholder number
+  // either, or every filter added after it would reference the wrong one.
+  it("adds no parameter and does not shift the placeholder numbering", () => {
+    const result = parseFilters({ direction: "out", q: "blinkit" });
+    assert.equal(result.ok, true);
+    const { sql, params } = result as { sql: string; params: unknown[] };
+    assert.deepEqual(params, ["%blinkit%"]);
+    assert.match(sql, /ILIKE \$1/);
+  });
+
+  it("refuses anything but the two words", () => {
+    for (const bad of ["OUT", "debit", "credit", "both", "-1", "0"]) {
+      const result = parseFilters({ direction: bad });
+      assert.equal(result.ok, false, `expected ${bad} to be refused`);
+    }
+  });
+
+  // Absent is not "either" spelled differently — it must add no clause at all, or the ledger
+  // would silently stop showing one side of every account.
+  it("is absent by default", () => {
+    const result = parseFilters({});
+    assert.equal(result.ok, true);
+    assert.equal((result as { sql: string }).sql, "");
+  });
+});
