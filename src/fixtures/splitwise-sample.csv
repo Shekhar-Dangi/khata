@@ -3,9 +3,9 @@ Date,Description,Category,Cost,Currency,Test User One,Test User Two,Test User Th
 2026-01-05,Groceries run,Groceries,4000.00,INR,0.00,-2000.00,2000.00
 2026-01-08,Weekly groceries,Groceries,3000.00,INR,0.00,1500.00,-1500.00
 2026-01-12,Dinner for the other two,Dining out,900.00,INR,450.00,-450.00,0.00
-2026-01-15,Misc thing,General,250.00,INR,0.00,-125.00,125.00
+2026-01-15,Misc thing,General,250.00,INR,0.00,125.00,-125.00
 2026-01-20,Auto,Taxi,176.00,INR,0.00,176.00,-176.00
 2026-01-22,Coffee,Dining out,200.00,INR,0.00,-100.00,100.00
 2026-01-22,Snacks,Dining out,200.00,INR,0.00,-100.00,100.00
 2026-01-31,Settle up,Payment,500.00,INR,0.00,500.00,-500.00
-2026-01-31,Total balance, , ,INR,450.00,-599.00,149.00
+2026-01-31,Total balance, , ,INR,450.00,-349.00,-101.00

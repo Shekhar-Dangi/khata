@@ -18,6 +18,11 @@ function parseFixture(csv = FIXTURE, me = ME) {
   return result.data;
 }
 
+/** Remove a whole line, whatever the file's line endings are. */
+function dropLine(csv: string, startsWith: string): string {
+  return csv.split(/\r?\n/).filter((l) => !l.startsWith(startsWith)).join("\n");
+}
+
 /** Swap one cell of the fixture, to build a corrupt variant from a known-good file. */
 function editCell(csv: string, line: number, column: number, value: string): string {
   const lines = csv.split("\n");
@@ -224,7 +229,9 @@ describe("parseSplitwiseExport — warns without blocking", () => {
   it("warns when the rows do not reconcile against the footer", () => {
     // A row removed: still a well-formed file, so it parses — but the totals disagree and
     // the warning says by exactly how much, the way the reconciliation walk does.
-    const csv = FIXTURE.replace("2026-01-20,Auto,Taxi,176.00,INR,0.00,176.00,-176.00\n", "");
+    // dropLine, not a literal-"\n" replace: core.autocrlf gives this file CRLF on a fresh
+    // checkout here, and a test that assumes one line ending stops testing what it claims to.
+    const csv = dropLine(FIXTURE, "2026-01-20,Auto");
     const result = parseSplitwiseExport(csv, ME);
     assert.ok(result.ok);
     assert.equal(result.data.rows.length, 7);
@@ -232,7 +239,7 @@ describe("parseSplitwiseExport — warns without blocking", () => {
   });
 
   it("warns when there is no footer to verify against", () => {
-    const csv = FIXTURE.replace(/^2026-01-31,Total balance.*$/m, "");
+    const csv = dropLine(FIXTURE, "2026-01-31,Total balance");
     const result = parseSplitwiseExport(csv, ME);
     assert.ok(result.ok);
     assert.ok(result.data.warnings.some((w) => /could not be verified/.test(w)));
