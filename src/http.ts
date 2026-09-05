@@ -147,6 +147,17 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
     return;
   }
 
+  // A body parser refused the body for its SIZE, before any handler ran. Mapped explicitly
+  // because the default is a 500, and a 500 tells the person uploading a large export that
+  // the app is broken rather than that their file is too big. 413 plus the actual limit is
+  // the difference between a bug report and a second attempt.
+  if (err?.type === "entity.too.large") {
+    res.status(413).json({
+      error: `that file is too large (limit ${err.limit ?? "unknown"} bytes)`,
+    });
+    return;
+  }
+
   if (err instanceof HttpError) {
     res.status(err.status).json({ error: err.message, ...err.detail });
     return;

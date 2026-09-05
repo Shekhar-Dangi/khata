@@ -25,6 +25,13 @@ import { transfers } from "./routes/transfers.ts";
 
 const PORT = Number(process.env.PORT) || 3000;
 
+// Raised from 5mb when the artifact store landed. A Blinkit invoice is ~170 KB and a
+// Splitwise export a few KB, but an Amazon "order history" export covering years is a
+// spreadsheet in the megabytes. The cap exists so a bad or hostile request cannot make the
+// process buffer unbounded memory — express.raw() holds the whole body in RAM before any
+// handler runs — and exceeding it produces a 413 (see errorHandler), not a hang.
+const UPLOAD_LIMIT = "10mb";
+
 // DEMO_MODE marks a PUBLIC deployment carrying generated data: a place to click around
 // before deciding whether to run it locally. It changes two things and nothing else —
 // the app shows a banner saying what this is, and the local-model endpoint stops
@@ -40,11 +47,23 @@ export const app = express();
 app.use(express.json());
 // An evidence file is POSTed as its own body rather than as multipart: a Splitwise export is
 // a CSV, and this reads it without adding an upload dependency to a two-dependency project.
-// A binary format (an invoice PDF) will want express.raw() on the same route, which is a
-// smaller change later than adding multipart now for a format we cannot yet parse.
-// Scoped to the import route: every other endpoint takes JSON, and a global text parser
-// would quietly swallow a malformed JSON body instead of rejecting it.
-app.use("/evidence/import", express.text({ type: "*/*", limit: "5mb" }));
+//
+// RAW, NOT TEXT, AND FOR EVERY TYPE. This used to be `express.text({ type: "*/*" })`, which
+// was right while the only evidence file was a CSV and is actively destructive now that an
+// invoice PDF can arrive. `express.text()` DECODES the bytes into a JS string, and decoding
+// binary as UTF-8 replaces every invalid sequence with U+FFFD — silently, irreversibly, and
+// before any handler gets a say. The PDF would then be unparseable AND its content hash would
+// be the hash of the corruption rather than of the file.
+//
+// So the body arrives as a Buffer and stays one. Whether it may become a string is decided
+// from the LEADING BYTES in `sniffMime` (src/artifacts.ts), never from this Content-Type —
+// which is client-controlled, defaulted by most HTTP clients, and therefore not evidence of
+// anything. `type: "*/*"` is what makes that possible: it takes the body whatever the client
+// claimed it was.
+//
+// Scoped to the import route: every other endpoint takes JSON, and a global raw parser would
+// stop `express.json()` ever seeing a body.
+app.use("/evidence/import", express.raw({ type: "*/*", limit: UPLOAD_LIMIT }));
 
 // Health is genuinely about the SERVER rather than any resource, so it is the one route
 // that belongs in this file.

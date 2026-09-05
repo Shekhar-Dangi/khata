@@ -281,3 +281,38 @@ CREATE TABLE consumption (
 
 CREATE INDEX consumption_evidence_idx ON consumption (evidence_id);
 CREATE INDEX consumption_consumed_on_idx ON consumption (consumed_on);
+
+-- artifacts: the bytes a person uploaded, kept BEFORE anything tries to understand them.
+-- the design/the design make this slice 1 of invoice ingestion: a parser
+-- bug must cost a re-run, never the document. A Splitwise CSV is re-downloadable in ten
+-- seconds; a Blinkit invoice is exposed per order and never in bulk. See migration 011 for
+-- the full reasoning on each column.
+CREATE TABLE artifacts (
+  id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  -- The ARTIFACT layer of the design's three: "you already uploaded this exact file".
+  -- Cheap, needs no parse, and deliberately NOT the correctness boundary.
+  content_hash  TEXT NOT NULL,
+  -- In the database, not on disk, because POST /evidence/import?dry_run=1 rolls back: a file
+  -- written to the filesystem inside that transaction would not, and every preview would leak
+  -- an orphan the database has no row for.
+  bytes         BYTEA NOT NULL,
+  byte_size     INTEGER NOT NULL,
+  -- SNIFFED FROM THE LEADING BYTES, never the Content-Type header and never the filename.
+  mime          TEXT NOT NULL,
+  original_name TEXT,
+  -- NULL means nothing recognised it — a real answer, not a missing one.
+  source_type   TEXT,
+  parse_status  TEXT NOT NULL DEFAULT 'pending'
+                CHECK (parse_status IN ('pending', 'parsed', 'unsupported', 'failed')),
+  parse_error   TEXT,
+  -- Loose reference on purpose: an artifact outlives the evidence row it produced.
+  external_ref  TEXT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  parsed_at     TIMESTAMPTZ,
+  CONSTRAINT artifacts_byte_size_positive CHECK (byte_size > 0),
+  CONSTRAINT artifacts_content_hash_sha256 CHECK (content_hash ~ '^[0-9a-f]{64}$')
+);
+
+CREATE UNIQUE INDEX artifacts_content_hash_uniq ON artifacts (content_hash);
+CREATE INDEX artifacts_parse_status_idx ON artifacts (parse_status, created_at DESC);
+CREATE INDEX artifacts_external_ref_idx ON artifacts (external_ref) WHERE external_ref IS NOT NULL;

@@ -14,7 +14,17 @@ import {
   rederiveEvidence,
   unlinkEvidence,
 } from "./../evidence-detect.ts";
-import { importEvidenceFile } from "./../evidence-import.ts";
+import { detectSource, importEvidenceFile } from "./../evidence-import.ts";
+import {
+  type ParseStatus,
+  type StoredArtifact,
+  TEXTUAL_MIMES,
+  listArtifacts,
+  setParseStatus,
+  sniffMime,
+  storeArtifact,
+} from "./../artifacts.ts";
+import { isKnownSource, rematchEvidence } from "./../evidence-sources.ts";
 import {
   evidenceNeedingRederive,
   listSourceCategories,
@@ -43,6 +53,27 @@ function owner(): string {
 }
 
 /**
+ * What a caller is told about the stored file.
+ *
+ * `content_hash` is included because it is the one handle that survives everything — a person
+ * can check it against the file on their disk, and a re-upload of the same bytes reports the
+ * same hash and `duplicate: true`. The bytes themselves are never in a response.
+ */
+function artifactView(artifact: StoredArtifact, parseStatus: ParseStatus) {
+  return {
+    id: artifact.id,
+    content_hash: artifact.contentHash,
+    mime: artifact.mime,
+    byte_size: artifact.byteSize,
+    parse_status: parseStatus,
+    // The artifact-level idempotency layer of the design. NOT the
+    // correctness boundary — the same order downloaded twice can differ byte-for-byte, so
+    // `false` here does not mean the record is new. `evidence_source_ref_uniq` decides that.
+    duplicate_bytes: artifact.duplicate,
+  };
+}
+
+/**
  * POST /evidence/import?dry_run=1&group=flat
  *
  * Body is the file itself, as text. No multipart and no upload dependency: an export is a
@@ -56,24 +87,19 @@ function owner(): string {
  * do is worse than no preview. A rollback exercises exactly the real thing.
  */
 router.post("/evidence/import", route(async (req, res) => {
-  const text = typeof req.body === "string" ? req.body : "";
-  if (text.trim() === "") return res.status(400).json({ error: "the file is empty" });
+  // express.raw() hands us a Buffer and we keep it one for as long as possible. Turning bytes
+  // into a string is a LOSSY, IRREVERSIBLE operation for anything that is not text, so it is
+  // a decision made below from the bytes themselves rather than something that has already
+  // happened by the time this handler runs. See the note in server.ts.
+  const bytes: Buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+  if (bytes.length === 0) return res.status(400).json({ error: "the file is empty" });
 
   const dryRun = req.query.dry_run === "1" || req.query.dry_run === "true";
-  const rawGroup = req.query.group;
-  if (typeof rawGroup !== "string") {
-    // The group is part of the natural key and the export does not
-    // name it inside the file — only its filename does. Defaulting it would silently merge
-    // two groups' expenses under one key.
-    return res.status(400).json({ error: "group is required — it is part of a record's identity" });
-  }
-  // Tested on the NORMALISED value, not the raw one: "  |  " is a non-empty string and an
-  // empty group name, and letting it through would key every row in the file to "".
-  const group = normaliseGroup(rawGroup);
-  if (group === "") {
-    return res.status(400).json({ error: "group is required — it is part of a record's identity" });
-  }
-  const me = owner();
+
+  // What the file actually is, from its leading bytes. Never the Content-Type header, never
+  // the filename — both are client-controlled.
+  const mime = sniffMime(bytes);
+  const originalName = typeof req.query.filename === "string" ? req.query.filename : null;
 
   // The transaction is managed here rather than through `withTransaction`, because a dry run
   // ends in a deliberate ROLLBACK on the SUCCESS path — and a helper whose whole contract is
@@ -81,11 +107,76 @@ router.post("/evidence/import", route(async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+
+    // STORE FIRST, PARSE SECOND. This ordering is the entire point of the artifact store
+    // a parser bug must cost a re-run, not the document. Everything
+    // below can fail, and the bytes survive it.
+    //
+    // A dry run rolls this back with everything else, which is correct — a preview should
+    // leave nothing behind, and the person still has the file they are previewing.
+    const artifact = await storeArtifact(client, { bytes, mime, originalName });
+
+    // Only text may become a string. Anything else stays bytes and waits for a parser that
+    // can read bytes — today, nothing can, and saying so is better than guessing.
+    if (!TEXTUAL_MIMES.has(mime)) {
+      await setParseStatus(client, artifact.id, "unsupported", {
+        error: `no parser reads ${mime} yet`,
+      });
+      await client.query(dryRun ? "ROLLBACK" : "COMMIT");
+      // 202, not 422: the file is not wrong, we are not ready for it. It is stored and
+      // listed, and re-running it costs nothing once a parser exists.
+      return res.status(202).json({
+        committed: !dryRun,
+        artifact: artifactView(artifact, "unsupported"),
+        message: `stored, but nothing parses ${mime} yet — it will be here when a parser is`,
+      });
+    }
+
+    const text = bytes.toString("utf8");
+    const detected = detectSource(text);
+    if (detected === null) {
+      // the design: "If nothing detects, the artifact is stored unparsed and listed
+      // for review." Previously a 422 that kept nothing — the file was rejected and lost.
+      await setParseStatus(client, artifact.id, "unsupported", {
+        error: "no parser recognised this file",
+      });
+      await client.query(dryRun ? "ROLLBACK" : "COMMIT");
+      return res.status(202).json({
+        committed: !dryRun,
+        artifact: artifactView(artifact, "unsupported"),
+        message:
+          "stored, but this file was not recognised — expected a Splitwise group export " +
+          "(Date, Description, Category, Cost, Currency, then one column per person)",
+      });
+    }
+
+    const rawGroup = req.query.group;
+    if (typeof rawGroup !== "string") {
+      // The group is part of the natural key and the export does not
+      // name it inside the file — only its filename does. Defaulting it would silently merge
+      // two groups' expenses under one key.
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "group is required — it is part of a record's identity" });
+    }
+    // Tested on the NORMALISED value, not the raw one: "  |  " is a non-empty string and an
+    // empty group name, and letting it through would key every row in the file to "".
+    const group = normaliseGroup(rawGroup);
+    if (group === "") {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "group is required — it is part of a record's identity" });
+    }
+    const me = owner();
+
     const imported = await importEvidenceFile(client, text, { group, me });
     if (!imported.ok) {
+      // The parse itself failed. ROLLBACK takes the artifact row with it, which is the one
+      // case where storing first buys nothing — but a file that cannot be parsed at all is
+      // also a file the person still has, and keeping a row whose bytes we could not read
+      // would need its own cleanup story. Revisit if real parse failures start costing time.
       await client.query("ROLLBACK");
       return res.status(422).json({ errors: imported.errors });
     }
+    await setParseStatus(client, artifact.id, "parsed", { sourceType: detected });
 
     // Matching runs inside the SAME transaction, so a preview shows what the import will
     // actually leave behind — including which rule guesses it would displace, which is the
@@ -96,6 +187,7 @@ router.post("/evidence/import", route(async (req, res) => {
     await client.query(dryRun ? "ROLLBACK" : "COMMIT");
     return res.status(dryRun ? 200 : 201).json({
       committed: !dryRun,
+      artifact: artifactView(artifact, "parsed"),
       imported: imported.outcome,
       match,
       near_misses: nearMisses,
@@ -103,6 +195,78 @@ router.post("/evidence/import", route(async (req, res) => {
   } catch (err) {
     try { await client.query("ROLLBACK"); } catch { /* keep the original error */ }
     throw err;
+  } finally {
+    client.release();
+  }
+}));
+
+/**
+ * POST /evidence/rematch?source_type=splitwise&dry_run=1
+ *
+ * Re-run matching over every record that still has no transaction. **Run this after importing
+ * a statement**, which is the case the design cares about and the one nothing could
+ * reach before: the commonest reason a record is unmatched is that its month had not been
+ * imported yet, and the design measured exactly that — two September orders against
+ * a ledger ending in August. They are not orphaned, they are early, and this is what makes
+ * them resolve.
+ *
+ * Safe to call at any time, as often as you like. Every sweep considers only unlinked records,
+ * so a link a person made by hand is never re-decided and a second run does the same work as
+ * the first.
+ */
+router.post("/evidence/rematch", route(async (req, res) => {
+  const dryRun = req.query.dry_run === "1" || req.query.dry_run === "true";
+
+  const raw = req.query.source_type;
+  let sourceType: string | undefined;
+  if (typeof raw === "string" && raw !== "") {
+    // Reject a typo rather than sweeping nothing and reporting success — "matched 0" and
+    // "there is no such source" are different answers and only one of them is actionable.
+    if (!isKnownSource(raw)) throw badRequest(`unknown source_type: ${raw}`);
+    sourceType = raw;
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const results = await rematchEvidence(client, sourceType);
+    await client.query(dryRun ? "ROLLBACK" : "COMMIT");
+    return res.json({ committed: !dryRun, sources: results });
+  } catch (err) {
+    try { await client.query("ROLLBACK"); } catch { /* keep the original error */ }
+    throw err;
+  } finally {
+    client.release();
+  }
+}));
+
+/**
+ * GET /evidence/artifacts?status=&limit=&offset=
+ *
+ * The stored files, newest first — never their bytes. `status=unsupported` is the useful one:
+ * it is the worklist of documents waiting for a parser that does not exist yet, which is the
+ * queue the artifact store exists to make visible.
+ */
+router.get("/evidence/artifacts", route(async (req, res) => {
+  const paging = parsePaging(req.query);
+  if (!paging.ok) return res.status(400).json({ error: paging.error });
+
+  const raw = req.query.status;
+  const STATUSES: ParseStatus[] = ["pending", "parsed", "unsupported", "failed"];
+  let status: ParseStatus | undefined;
+  if (typeof raw === "string" && raw !== "") {
+    if (!STATUSES.includes(raw as ParseStatus)) throw badRequest(`unknown status: ${raw}`);
+    status = raw as ParseStatus;
+  }
+
+  const client = await pool.connect();
+  try {
+    const { rows, total } = await listArtifacts(client, {
+      status,
+      limit: paging.limit,
+      offset: paging.offset,
+    });
+    return res.json({ artifacts: rows, total, limit: paging.limit, offset: paging.offset });
   } finally {
     client.release();
   }
