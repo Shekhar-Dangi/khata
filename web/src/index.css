@@ -2371,3 +2371,23 @@ footer .shell {
     margin-left: 0;
   }
 }
+
+/* The source-vocabulary table, under the category tree. Separated by a rule and a heading
+   rather than a card: it is a second section of one page, not a second thing on it. */
+.source-map {
+  margin-top: 38px;
+  padding-top: 4px;
+  border-top: 1px solid var(--rule);
+}
+
+/* A source category nobody has ruled on yet. Amber is this app's "needs you" — the same
+   colour the unexplained metric and the Anomalies view use — and it is on the ROW rather
+   than only the pill so the eye lands on the work without reading a word. */
+.undecided td {
+  background: color-mix(in srgb, var(--flag) 7%, transparent);
+}
+.undecided .pill.flag {
+  margin-left: 8px;
+  border-color: color-mix(in srgb, var(--flag) 45%, var(--rule));
+  color: var(--flag);
+}

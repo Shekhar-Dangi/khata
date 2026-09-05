@@ -11,9 +11,15 @@ import {
   listRecords,
   listUnmatched,
   matchSplitwiseEvidence,
+  rederiveEvidence,
   unlinkEvidence,
 } from "./../evidence-detect.ts";
 import { importEvidenceFile } from "./../evidence-import.ts";
+import {
+  evidenceNeedingRederive,
+  listSourceCategories,
+  remapSourceCategory,
+} from "./../source-categories.ts";
 import { normaliseGroup } from "./../splitwise-plan.ts";
 import { parsePaging } from "./../filters.ts";
 
@@ -309,6 +315,75 @@ router.post("/evidence/:id/category", route(async (req, res) => {
   );
   if (!result.ok) {
     return res.status(result.error === "no such record" ? 404 : 409).json({ error: result.error });
+  }
+  return res.status(200).json(result);
+}));
+
+/**
+ * GET /evidence/categories
+ *
+ * The source's vocabulary and what each word means here — every category the ledger has seen,
+ * plus every one already decided, with what it costs to leave undecided.
+ */
+router.get("/evidence/categories", route(async (_req, res) => {
+  const client = await pool.connect();
+  try {
+    return res.status(200).json({ categories: await listSourceCategories(client, owner()) });
+  } finally {
+    client.release();
+  }
+}));
+
+/**
+ * POST /evidence/categories   { source_category, category_id | null, note? }
+ *
+ * Decide what one source category means, and APPLY IT BACKWARDS. A mapping that only changed
+ * the next import would be a setting; the value of learning a category once is that every row
+ * already carrying it stops being unclassified.
+ *
+ * `category_id: null` is a real answer, not a missing one — it means "this cannot be mapped,
+ * stop asking", which is what `General` is. The two states the map
+ * distinguishes are "no row" and "row with null", and this is how a person reaches the second.
+ *
+ * Records whose allocations a person authored themselves are left completely alone: they are
+ * filtered out before re-derivation, and `authority: "auto"` would refuse them anyway.
+ */
+router.post("/evidence/categories", route(async (req, res) => {
+  const body = req.body ?? {};
+  const sourceCategory = typeof body.source_category === "string" ? body.source_category : "";
+  if (sourceCategory.trim() === "") {
+    return res.status(400).json({ error: "source_category is required" });
+  }
+
+  // `null` and "absent" are DIFFERENT here, so the check cannot be a truthiness test: null is
+  // the deliberate "unmappable" answer and absent is a malformed request.
+  const raw = body.category_id;
+  if (raw !== null && !/^\d+$/.test(String(raw ?? ""))) {
+    return res.status(400).json({ error: "category_id must be a positive integer, or null" });
+  }
+  const categoryId = raw === null ? null : Number(raw);
+  const note = typeof body.note === "string" ? body.note : undefined;
+  const me = owner();
+
+  const result = await withTransaction(async (client) => {
+    // Which records need re-deriving is decided BEFORE the map moves — afterwards the old
+    // answer is gone and there is no way to tell which rows it produced.
+    const stale = await evidenceNeedingRederive(client, sourceCategory);
+    const remapped = await remapSourceCategory(client, sourceCategory, categoryId, me, note);
+    if (!remapped.ok) return remapped;
+
+    let relinked = 0;
+    const refused: string[] = [];
+    for (const id of stale) {
+      const again = await rederiveEvidence(client, id, me);
+      if (again.ok) relinked++;
+      else refused.push(again.error);
+    }
+    return { ...remapped, relinked, refused };
+  });
+
+  if (!result.ok) {
+    return res.status(result.error === "no such category" ? 404 : 400).json({ error: result.error });
   }
   return res.status(200).json(result);
 }));

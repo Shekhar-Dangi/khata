@@ -1065,3 +1065,57 @@ export async function categoriseEvidence(
     scaledDown: applied.scaledDown ?? false,
   };
 }
+
+/**
+ * Re-derive one record's allocations from the CURRENT category map, keeping its links.
+ *
+ * Exists for `source_category_map` changes: learning that Splitwise's `Car` means Transport
+ * has to reach the records already carrying `Car`, or the mapping would be a setting that
+ * only affects the next import rather than a decision that applies backwards.
+ *
+ * Goes through `applyMatch` with the same authority the importer uses, so the split arithmetic
+ * and the precedence rules exist once. `"auto"` is deliberate and is the protection: under it,
+ * precedence REFUSES a transaction someone explained themselves rather than warning and
+ * proceeding. A record whose allocations were authored by hand is filtered out before it gets
+ * here (see `evidenceNeedingRederive`), and if one slipped through, this is what stops a map
+ * change from quietly replacing a person's answer.
+ */
+export async function rederiveEvidence(
+  client: PoolClient,
+  evidenceId: string,
+  me: string,
+): Promise<LinkResult> {
+  const found = await client.query<EvidenceRow>(
+    `SELECT ${EVIDENCE_COLUMNS} FROM evidence WHERE id = $1 AND source_type = $2`,
+    [evidenceId, SOURCE],
+  );
+  const ev = found.rows[0];
+  if (ev === undefined) return { ok: false, error: "no such record" };
+
+  const linked = await client.query<{ transaction_id: string }>(
+    "SELECT transaction_id FROM evidence_transactions WHERE evidence_id = $1",
+    [evidenceId],
+  );
+  // Not an error: an unlinked record has no allocations to re-derive, and its consumption was
+  // already rebuilt from the map by the caller.
+  if (linked.rowCount === 0) {
+    return { ok: true, displaced: 0, displacedAuthored: 0, allocationsWritten: 0, partial: false, scaledDown: false };
+  }
+
+  const applied = await applyMatch(
+    client,
+    ev,
+    linked.rows.map((r) => r.transaction_id),
+    await loadContext(client, me),
+    "auto",
+  );
+  if (applied.conflict) return { ok: false, error: applied.conflict };
+  return {
+    ok: true,
+    displaced: applied.displaced,
+    displacedAuthored: applied.displacedAuthored,
+    allocationsWritten: applied.allocationsWritten,
+    partial: applied.partial,
+    scaledDown: applied.scaledDown ?? false,
+  };
+}

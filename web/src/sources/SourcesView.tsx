@@ -180,6 +180,7 @@ export default function SourcesView() {
                 onToggle={() => toggle(b.group)}
               />
             ))}
+
           </div>
         </div>
       )}

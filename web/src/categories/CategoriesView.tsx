@@ -2,6 +2,7 @@ import { Fragment, useState } from "react";
 
 import { useFetch } from "../shared/useFetch";
 import { useLedgerVersion } from "../shared/ledgerVersion";
+import SourceCategoryMap from "./SourceCategoryMap";
 
 export type CategoryNode = {
   id: number;
@@ -280,6 +281,17 @@ export default function CategoriesView() {
           </tbody>
         </table>
       </div>
+
+      {/* Under the tree, because it is about the same subject from the other side: the tree
+          says what our categories ARE, this says which outside words land in them. Both are
+          "how my categories work", and answering the second while looking at the first is
+          the whole reason it lives here rather than on Sources, where the import that
+          surfaces an undecided word actually happens.
+
+          It is handed `all` rather than fetching /categories again: this view already holds
+          that list, and a second copy would be a second answer to what the taxonomy is —
+          briefly different from this one after any rename. */}
+      <SourceCategoryMap categories={all} />
     </>
   );
 }
