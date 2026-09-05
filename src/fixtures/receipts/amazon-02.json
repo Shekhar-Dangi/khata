@@ -1,0 +1,120 @@
+{
+  "page_count": 2,
+  "char_count": 2686,
+  "pages": [
+    {
+      "index": 0,
+      "width": 595.28,
+      "height": 841.88,
+      "text": "Tax Invoice/Bill of Supply/Cash Memo\n(Original for Recipient)\nSold By : Billing Address : 1 Example Road, Example Locality, Example City\n[redacted]\n[redacted]\n[redacted]\n[redacted]\nNo.0, Main Nagar, Example Hills, Somewhere, State/UT Code: 36\nTelangana\nSOMEWHERE, TELANGANA, 000000\nIN Shipping Address : 1 Example Road, Example Locality, Example City\n[redacted]\n[redacted]\nPAN No: AAPCA6346P [redacted], [redacted], [redacted] [redacted]\nGST Registration No: 36AAPCA6346P1ZW SOMEWHERE, TELANGANA, [redacted]\nIN\nFSSAI License No. State/UT Code: 36\n10018011005884 Place of supply: TELANGANA\nPlace of delivery: TELANGANA\nOrder Number: ORDER0001 Invoice Number : INV0001\nOrder Date: 07.08.2026 Invoice Details : INV0002\nInvoice Date : 07.08.2026\nSl. Unit Net Tax Tax Tax Total\nDescription Qty\nNo Price AmountRateType AmountAmount\n1 Milky Mist Pouch Curd, 400 G | B0BG6CT9ZV ( B0BG6CT9ZV ) ₹37.14 1 ₹37.14 2.5%CGST ₹0.93 ₹39.00\nHSN:04039090\n2.5%SGST ₹0.93\n2 Asal Chapathi, 200g | B082SYKL7X ( B082SYKL7X ) ₹37.00 1 ₹37.00 0% CGST ₹0.00 ₹37.00\nHSN:19059090\n0% SGST ₹0.00\n3 Fresh Bhindi (Lady finger), 250g | B09WGXJ8PQ ( B09WGXJ8PQ ) ₹11.00 1 ₹11.00 0% IGST ₹0.00 ₹11.00\nHSN:07099090\n0% CGST ₹0.00\n0% None ₹0.00\n0% SGST ₹0.00\n4 Britannia Cakes Fudge It Chocolate Brownie, 120 g | B08DM8W66Y (\nB08DM8W66Y ) ₹55.24 1 ₹55.24 2.5%CGST ₹1.38 ₹58.00\nHSN:19059010\n2.5%SGST ₹1.38\n5 Sunfeast YiPPee! Mood Masala, Instant Noodles (Pack of 4), 270g /\n280g (Weight May Vary) | B079GX9DT2 ( B079GX9DT2 ) ₹70.48 1 ₹70.48 2.5%CGST ₹1.76 ₹74.00\nHSN:19023010\n2.5%SGST ₹1.76\nTOTAL: ₹8.14₹219.00\nAmount in Words:\nTwo Hundred Nineteen only\n*ASSPL-Amazon Seller Services Pvt. Ltd., ARIPL-Amazon Retail India Pvt. Ltd. (only where Amazon Retail India Pvt. Ltd. fulfillment center is co-located)\nCustomers desirous of availing input GST credit are requested to create a Business account and purchase on Amazon.in/business from Business eligible offers\nPlease note that this invoice is not a demand for payment\nPage 1 of 2",
+      "tables": [
+        [
+          [
+            "Sl.\nNo",
+            "Description",
+            "Unit\nPrice",
+            "Qty",
+            "Net\nAmount",
+            "Tax\nRate",
+            "Tax\nType",
+            "Tax\nAmount",
+            "Total\nAmount"
+          ],
+          [
+            "1",
+            "Milky Mist Pouch Curd, 400 G | B0BG6CT9ZV ( B0BG6CT9ZV )\nHSN:04039090",
+            "₹37.14",
+            "1",
+            "₹37.14",
+            "2.5%\n2.5%",
+            "CGST\nSGST",
+            "₹0.93\n₹0.93",
+            "₹39.00"
+          ],
+          [
+            "2",
+            "Asal Chapathi, 200g | B082SYKL7X ( B082SYKL7X )\nHSN:19059090",
+            "₹37.00",
+            "1",
+            "₹37.00",
+            "0%\n0%",
+            "CGST\nSGST",
+            "₹0.00\n₹0.00",
+            "₹37.00"
+          ],
+          [
+            "3",
+            "Fresh Bhindi (Lady finger), 250g | B09WGXJ8PQ ( B09WGXJ8PQ )\nHSN:07099090",
+            "₹11.00",
+            "1",
+            "₹11.00",
+            "0%\n0%\n0%\n0%",
+            "IGST\nCGST\nNone\nSGST",
+            "₹0.00\n₹0.00\n₹0.00\n₹0.00",
+            "₹11.00"
+          ],
+          [
+            "4",
+            "Britannia Cakes Fudge It Chocolate Brownie, 120 g | B08DM8W66Y (\nB08DM8W66Y )\nHSN:19059010",
+            "₹55.24",
+            "1",
+            "₹55.24",
+            "2.5%\n2.5%",
+            "CGST\nSGST",
+            "₹1.38\n₹1.38",
+            "₹58.00"
+          ],
+          [
+            "5",
+            "Sunfeast YiPPee! Mood Masala, Instant Noodles (Pack of 4), 270g /\n280g (Weight May Vary) | B079GX9DT2 ( B079GX9DT2 )\nHSN:19023010",
+            "₹70.48",
+            "1",
+            "₹70.48",
+            "2.5%\n2.5%",
+            "CGST\nSGST",
+            "₹1.76\n₹1.76",
+            "₹74.00"
+          ],
+          [
+            "TOTAL:",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "₹8.14",
+            "₹219.00"
+          ],
+          [
+            "Amount in Words:\nTwo Hundred Nineteen only",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ]
+        ]
+      ]
+    },
+    {
+      "index": 1,
+      "width": 595.28,
+      "height": 841.88,
+      "text": "Tax Invoice/Bill of Supply/Cash Memo\n(Original for Recipient)\nFor Amazon Retail India Private Limited:\nAuthorized Signatory\nWhether tax is payable under reverse charge - No\nPayment Transaction ID: PAYREF0001 & Time: 07/08/2026, 21:32:23 Invoice Value: Mode of Payment:\n11134EtWU35ea9iiYyvvvp28n hrs 219.00 AmazonPay\n*ASSPL-Amazon Seller Services Pvt. Ltd., ARIPL-Amazon Retail India Pvt. Ltd. (only where Amazon Retail India Pvt. Ltd. fulfillment center is co-located)\nCustomers desirous of availing input GST credit are requested to create a Business account and purchase on Amazon.in/business from Business eligible offers\nPlease note that this invoice is not a demand for payment\nPage 2 of 2",
+      "tables": [
+        [
+          [
+            "Payment Transaction ID:\nPAYREF0002",
+            "Date & Time: 07/08/2026, 21:32:23\nhrs",
+            "Invoice Value:\n219.00",
+            "Mode of Payment:\nAmazonPay"
+          ]
+        ]
+      ]
+    }
+  ]
+}
