@@ -108,57 +108,81 @@ export default function SourcesView() {
   const isOpen = (group: string) => open !== null && open.has(group);
   const showDrop = preview === null && done === null;
 
+  // NOTHING IS DRAWN UNTIL THE SHAPE OF THE PAGE IS KNOWN.
+  //
+  // The drop target has two sizes, and which one is right depends on whether any import
+  // exists — so drawing it before the answer arrived meant drawing the WRONG one: the full
+  // 200px invitation appeared, the request landed, and it collapsed to a 56px bar, pulling
+  // everything below it up the page. A resize on arrival is the least forgiving thing an
+  // interface can do, because the thing you were about to click moves out from under you.
+  //
+  // `loading` is exactly "there is nothing to show yet", and with data held across refetches
+  // it is true only on the FIRST load — so this gate costs nothing afterwards. See useFetch:
+  // `refreshing` is the flag for "a request is in flight", and that one deliberately keeps
+  // what is on screen rather than replacing it.
+  const settled = !imports.loading;
+
   return (
     <div>
-      {/* The drop target is slim once there is anything to work on, and a full invitation only
-          when there is not. See EvidenceDrop for why that is a statement rather than a tweak. */}
-      {showDrop && (
-        <EvidenceDrop
-          busy={busy}
-          compact={batches.length > 0}
-          onFile={(text, name) => {
-            const group = groupFromFilename(name);
-            setFile({ text, group });
-            setDone(null);
-            void send(text, group, true);
-          }}
-        />
-      )}
-
-      {error !== null && <p className="note">{error}</p>}
-
-      {preview !== null && file !== null && (
-        <ImportReceipt
-          result={preview}
-          busy={busy}
-          onCommit={() => void send(file.text, file.group, false)}
-          onDiscard={reset}
-        />
-      )}
-
-      {done !== null && (
-        <ImportReceipt result={done} busy={false} onDone={() => setDone(null)} />
-      )}
-
-      {/* The imports are permanent, not part of an import result: a near miss you did not judge
-          today is still waiting next week, and it would be lost if it only ever appeared on the
-          screen that produced it. */}
+      {/* ABOVE everything, and the only thing on screen during the first load. It used to sit
+          under the drop panel, where on arrival it read as "the uploader is working" — it is
+          the PAGE that is working. Once settled it has the drop panel above it and the list
+          below, which is where a list's own progress belongs. useBusy keeps it dark for
+          anything fast enough not to need it. */}
       <div className={"busybar" + (working ? " on" : "")} aria-hidden="true">
         <i />
       </div>
 
-      {imports.error !== null && <p className="note">{imports.error}</p>}
+      {settled && (
+        <div className="sources-body">
+          {/* The drop target is slim once there is anything to work on, and a full invitation
+              only when there is not. See EvidenceDrop for why that is a statement rather than
+              a tweak — and it is now decided once rather than corrected. */}
+          {showDrop && (
+            <EvidenceDrop
+              busy={busy}
+              compact={batches.length > 0}
+              onFile={(text, name) => {
+                const group = groupFromFilename(name);
+                setFile({ text, group });
+                setDone(null);
+                void send(text, group, true);
+              }}
+            />
+          )}
 
-      <div className={working || imports.isStale ? "is-stale" : undefined}>
-        {batches.map((b) => (
-          <ImportBatchPanel
-            key={b.group}
-            batch={b}
-            expanded={isOpen(b.group)}
-            onToggle={() => toggle(b.group)}
-          />
-        ))}
-      </div>
+          {error !== null && <p className="note">{error}</p>}
+
+          {preview !== null && file !== null && (
+            <ImportReceipt
+              result={preview}
+              busy={busy}
+              onCommit={() => void send(file.text, file.group, false)}
+              onDiscard={reset}
+            />
+          )}
+
+          {done !== null && (
+            <ImportReceipt result={done} busy={false} onDone={() => setDone(null)} />
+          )}
+
+          {imports.error !== null && <p className="note">{imports.error}</p>}
+
+          {/* The imports are permanent, not part of an import result: a near miss you did not
+              judge today is still waiting next week, and it would be lost if it only ever
+              appeared on the screen that produced it. */}
+          <div className={working || imports.isStale ? "is-stale" : undefined}>
+            {batches.map((b) => (
+              <ImportBatchPanel
+                key={b.group}
+                batch={b}
+                expanded={isOpen(b.group)}
+                onToggle={() => toggle(b.group)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

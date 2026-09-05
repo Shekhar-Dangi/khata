@@ -1927,6 +1927,19 @@ footer .shell {
   font-size: 12px;
 }
 
+/* Appears once, when the page knows its own shape. The same reveal `.view > *` uses on a tab
+   change, borrowed rather than reinvented — and dropped under prefers-reduced-motion for the
+   same reason it is dropped there. Without it the settled layout POPS in, which trades a
+   resize for a flash; the point is to arrive already correct, and quietly. */
+.sources-body {
+  animation: rise 0.32s both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sources-body {
+    animation: none;
+  }
+}
+
 /* ── the import receipt ───────────────────────────────
    Prose, not a tile grid. Eight equal-weight figures said all eight numbers mattered
    equally, which is the one thing a summary must never say; four of them were counts you
