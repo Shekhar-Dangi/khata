@@ -55,22 +55,16 @@ export default function EvidenceDrop({ onFile, busy, compact = false }: Props) {
         <p className="dropzone-lead">
           {compact ? "Bring in another export or receipt" : "Drop an export or receipt here"}
         </p>
+        {/* The reassurance sits INSIDE the panel rather than under it. It was a left-aligned
+            paragraph below a centred panel — an orphan with nothing to line up against — and
+            it opened by restating the fact the empty panel above it had already made
+            ("Nothing imported yet"). What is left is the half that answers the question a
+            person actually has with a file in their hand. */}
         {!compact && (
-          <>
-            <p className="soft">
-              A Splitwise group export today. Order invoices when their parsers land — the file
-              says what it is, so you never have to.
-            </p>
-            {/* The reassurance sits INSIDE the panel rather than under it. It was a
-                left-aligned paragraph below a centred panel — an orphan with nothing to line
-                up against — and it opened by restating the fact the empty panel above it had
-                already made ("Nothing imported yet"). What is left is the half that answers
-                the question a person actually has with a file in their hand. */}
-            <p className="soft dropzone-note">
-              Nothing is written until you have seen what it would do. Re-importing the same
-              file updates records rather than duplicating them.
-            </p>
-          </>
+          <p className="soft dropzone-note">
+            Nothing is written until you have seen what it would do. Re-importing the same file
+            updates records rather than duplicating them.
+          </p>
         )}
         <button
           type="button"
