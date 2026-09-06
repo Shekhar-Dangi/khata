@@ -2146,7 +2146,8 @@ footer .shell {
 /* The panel a row opens into. Sunk paper, like the ledger's explain panel, so "this belongs
    to the row above it" is said by the surface rather than by an indent and a vertical rule. */
 .linked,
-.finder {
+.finder,
+.lines {
   padding: 12px 12px 14px;
 }
 .linked-note {
@@ -2154,12 +2155,14 @@ footer .shell {
   max-width: 62ch;
 }
 .linked .pick-table th,
-.finder .pick-table th {
+.finder .pick-table th,
+.lines .pick-table th {
   padding-top: 0;
 }
 /* Inside the sunk panel the nested table's own hover would be invisible against it. */
 .linked .pick-table tbody tr:last-child td,
-.finder .pick-table tbody tr:last-child td {
+.finder .pick-table tbody tr:last-child td,
+.lines .pick-table tbody tr:last-child td {
   border-bottom: 0;
 }
 
@@ -2390,4 +2393,197 @@ footer .shell {
   margin-left: 8px;
   border-color: color-mix(in srgb, var(--flag) 45%, var(--rule));
   color: var(--flag);
+}
+
+/* ── bringing invoices in ─────────────────────────────
+   Two hundred and fifty files at a time, four at once. The only new device on this screen is
+   a DETERMINATE bar: everywhere else the app draws a .busybar, because "a request is in
+   flight" has no denominator — here it has one, and "112 of 252" is the whole difference
+   between a two-minute wait and a hung page. Same hairline geometry as the busybar, so the
+   two still read as one system. */
+.up-track {
+  height: 2px;
+  margin: 14px 10px 0;
+  background: var(--rule);
+  overflow: hidden;
+}
+.up-track i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  /* Width, not transform: the bar reports a real fraction, so the fraction is the thing that
+     should animate. Eased, so four files landing at once does not read as a jump. */
+  transition: width 0.24s ease-out;
+}
+.up-line {
+  margin: 9px 10px 0;
+  font-size: 13px;
+}
+.up-note {
+  margin: 4px 10px 0;
+  font-size: 12px;
+  max-width: 68ch;
+}
+
+/* ── the inbox: parsed, reconciled, not yet yours ─────
+   Everything here is one step BEFORE the import batches below it, so it borrows their
+   language rather than inventing a second one — the receipt's prose-and-tally header, the
+   finder's action bar, the record table's rows. What separates the two sections is what they
+   say, not how they look: nothing in this one has touched the ledger. */
+.staged-list {
+  margin: 0 10px;
+}
+/* Inside a disclosure the fold already carries the page-level margin. */
+.fold .staged-list {
+  margin: 8px 0 0;
+}
+.staged .finder-bar {
+  margin: 18px 10px 0;
+}
+/* Forest green, like every other tick in this app. Left alone, a checkbox paints itself in
+   the platform's own blue — the one colour the Khata palette does not contain, on the control
+   a person clicks two hundred times. */
+.staged input[type="checkbox"] {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* One line, truncated — for a <span>, where `.narration` cannot do the job. That class
+   truncates by way of `max-width: 0` on a <td> in a fixed-layout table, and max-width is
+   ignored outright on an inline box, so it produced no ellipsis and no clipping at all: the
+   text simply ran past its column. Blocked and given `min-width: 0` so it also behaves as a
+   flex child. */
+.clip {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.line-verdict .clip {
+  flex: 1;
+}
+
+/* ONE LINE per order. The merchant leads in ink and the reference follows in soft mono, so
+   the eye runs down a column of merchants and the reference — the part that is long and
+   different on every row — is the part that truncates. It was two stacked lines, which made
+   every row two lines tall for a suffix nobody scans by. */
+.order-cell {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.order-merchant {
+  font-weight: 500;
+  white-space: nowrap;
+  flex: none;
+}
+.order-cell .mono {
+  font-size: 12px;
+}
+.order-cell .clip {
+  flex: 1;
+}
+.order-cell .tag-claim {
+  flex: none;
+  margin-right: 0;
+}
+
+/* ── one invoice line ─────────────────────────────────
+   Two decisions per line, and they differ in kind: WHICH PRODUCT this is (a fact about the
+   invoice, answered once) and WHAT IT IS FOR (a fact about the product, answered once ever,
+   everywhere). They used to be two columns, which split the one sentence needs a person
+   to read. Stacked in ONE column the name sits directly above the select, so the control says
+   "Sprite Zero is Groceries" by construction — and the table is a column shorter. */
+.line-row.is-writing {
+  opacity: 0.55;
+  transition: opacity 0.16s ease-out;
+}
+.line-product {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  min-width: 0;
+}
+.line-verdict {
+  font: inherit;
+  font-size: 13px;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+}
+.line-verdict:hover .clip {
+  color: var(--accent);
+}
+.line-chev {
+  font-size: 10px;
+}
+/* The three states a line can be in, in the tag shape this app already uses for "something is
+   already true about this row". Colour carries the state and nothing else changes: `existing`
+   keeps the base ink-soft, because "nothing new happens" is not news. */
+.tag-claim.new {
+  color: var(--credit);
+}
+.tag-claim.input {
+  color: var(--flag);
+}
+/* The tag rides at the END of the name, so the tags line up down the column instead of
+   pushing the names to a different x on every row. */
+.line-verdict .tag-claim {
+  margin-right: 0;
+  flex: none;
+}
+/* A line with no product yet says so where the select would be, keeping the two-line rhythm
+   rather than leaving a hole in the column. */
+.line-said {
+  font-size: 12px;
+  padding: 5px 0;
+}
+/* The 220px floor is for the allocation editor, which gives the select a row to itself. In a
+   table cell it forces a horizontal scrollbar on the whole panel. */
+.line-product .cat-select {
+  min-width: 0;
+  width: 100%;
+}
+
+/* The search a line opens into. One level further in than the line-items panel, and on paper
+   rather than sunk paper — sunk, then sunk again would just be stripes. */
+.line-detail > td {
+  background: var(--paper);
+  padding: 0;
+}
+.item-pick {
+  padding: 10px 12px 12px;
+  border-left: 2px solid var(--rule);
+}
+.item-pick-said {
+  margin: 0 0 8px;
+  font-size: 12px;
+}
+.item-pick-said b {
+  font-weight: 500;
+  color: var(--ink);
+}
+.item-pick-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.item-pick .finder-search {
+  flex: 1 1 220px;
+}
+.item-pick .pick-table th {
+  padding-top: 0;
 }

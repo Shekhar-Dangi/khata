@@ -85,12 +85,21 @@ export async function listStaged(
   client: PoolClient,
   opts: { limit: number; offset: number; attentionOnly: boolean },
 ): Promise<{ summary: Record<string, number>; orders: StagedOrderView[]; held: unknown[] }> {
+  // EVERY staged record, not a page of them — then the page is sliced below.
+  //
+  // The summary has to count what is actually waiting, and `needs_attention` can only be known
+  // by RESOLVING an order's lines. Paging in SQL made that number change as you paged: the
+  // same inbox reported "1 need you" on one page size and "0" on another, which is worse than
+  // no number at all.
+  //
+  // The cost is bounded by how much is staged, and staged is a queue a person is actively
+  // emptying rather than an archive: ~500 indexed lookups for the whole 221-order corpus. If
+  // that ever stops being true the fix is a resolution cache keyed by canonical name, not a
+  // summary that quietly describes a different set from the one on screen.
   const staged = await client.query<{ id: string; external_ref: string; source_type: string | null; record: ParsedRecord }>(
     `SELECT id, external_ref, source_type, record FROM artifacts
       WHERE parse_status = 'staged' AND record IS NOT NULL
-      ORDER BY created_at DESC, id DESC
-      LIMIT $1 OFFSET $2`,
-    [opts.limit, opts.offset],
+      ORDER BY created_at DESC, id DESC`,
   );
 
   const candidates = await loadCandidates(client);
@@ -192,13 +201,33 @@ export async function listStaged(
     });
   }
 
+  // The summary spans EVERYTHING staged, not the page being shown. A header that counted only
+  // the current page would quietly change as you paged, which is the opposite of what a
+  // summary is for.
+  //
+  // `uncategorised_lines` answers the question the screen leads with — "will confirming
+  // categorise anything?" — so it counts the goods lines ABOUT TO LAND that would have no
+  // category, not the catalogue at large. A line lands uncategorised when its product is new
+  // (no alias yet) or when the product it resolves to has no category. Fee lines never reach
+  // the catalogue and are excluded.
   const counts = await client.query<{ staged: string; held: string; total_paise: string; uncategorised: string }>(
     `SELECT
        (SELECT count(*) FROM artifacts WHERE parse_status = 'staged')::text AS staged,
        (SELECT count(*) FROM artifacts WHERE parse_status IN ('unsupported','failed'))::text AS held,
        (SELECT coalesce(sum((record->>'total_paise')::bigint), 0)
           FROM artifacts WHERE parse_status = 'staged')::text AS total_paise,
-       (SELECT count(*) FROM items WHERE category_id IS NULL)::text AS uncategorised`,
+       (SELECT count(*)
+          FROM artifacts a
+          CROSS JOIN LATERAL jsonb_array_elements(a.record->'invoices') AS inv
+          CROSS JOIN LATERAL jsonb_array_elements(inv->'lines') AS ln
+          LEFT JOIN item_aliases al
+            ON al.source_type = a.source_type
+           AND al.alias_kind = 'sku'
+           AND al.alias_value = (ln->>'sku')
+          LEFT JOIN items it ON it.id = al.item_id
+         WHERE a.parse_status = 'staged'
+           AND ln->>'kind' = 'goods'
+           AND (it.id IS NULL OR it.category_id IS NULL))::text AS uncategorised`,
   );
   const c = counts.rows[0];
 
@@ -214,9 +243,12 @@ export async function listStaged(
       held: Number(c.held),
       total_paise: Number(c.total_paise),
       needs_attention: orders.filter((o) => o.needs_attention).length,
-      uncategorised_items: Number(c.uncategorised),
+      uncategorised_lines: Number(c.uncategorised),
     },
-    orders: opts.attentionOnly ? orders.filter((o) => o.needs_attention) : orders,
+    // Filter FIRST, then page — so "page 2 of what needs you" is page 2 of that list rather
+    // than whatever survived filtering an arbitrary window.
+    orders: (opts.attentionOnly ? orders.filter((o) => o.needs_attention) : orders)
+      .slice(opts.offset, opts.offset + opts.limit),
     held: held.rows,
   };
 }

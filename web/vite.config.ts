@@ -28,6 +28,10 @@ export default defineConfig({
       '/summary': 'http://localhost:3000',
       '/reports': 'http://localhost:3000',
       '/evidence': 'http://localhost:3000',
+      // The product catalogue, added with the invoice review screen. Its line items search it
+      // by name; without this entry that search returns index.html with a 200 and surfaces as
+      // a JSON parse error inside a table row.
+      '/items': 'http://localhost:3000',
       '/health': 'http://localhost:3000',
     },
   },
