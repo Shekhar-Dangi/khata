@@ -25,6 +25,7 @@ import {
   storeArtifact,
 } from "./../artifacts.ts";
 import { isKnownSource, rematchEvidence } from "./../evidence-sources.ts";
+import { intakePdf } from "./../receipt-intake.ts";
 import {
   evidenceNeedingRederive,
   listSourceCategories,
@@ -116,8 +117,23 @@ router.post("/evidence/import", route(async (req, res) => {
     // leave nothing behind, and the person still has the file they are previewing.
     const artifact = await storeArtifact(client, { bytes, mime, originalName });
 
-    // Only text may become a string. Anything else stays bytes and waits for a parser that
-    // can read bytes — today, nothing can, and saying so is better than guessing.
+    // A PDF goes to the out-of-process extractor, which reads it and says whose template it
+    // is. No parser can turn that into a record yet, but recording WHICH merchant it is turns
+    // the worklist from "3 files" into "3 Blinkit invoices waiting for a parser".
+    if (mime === "application/pdf") {
+      const intake = await intakePdf(client, artifact.id, bytes);
+      await client.query(dryRun ? "ROLLBACK" : "COMMIT");
+      return res.status(202).json({
+        committed: !dryRun,
+        artifact: artifactView(artifact, intake.status),
+        template: intake.template,
+        pages: intake.pages,
+        tables: intake.tables,
+        message: `stored — ${intake.message}`,
+      });
+    }
+
+    // Only text may become a string. Anything else stays bytes and waits for a reader.
     if (!TEXTUAL_MIMES.has(mime)) {
       await setParseStatus(client, artifact.id, "unsupported", {
         error: `no parser reads ${mime} yet`,
@@ -267,6 +283,66 @@ router.get("/evidence/artifacts", route(async (req, res) => {
       offset: paging.offset,
     });
     return res.json({ artifacts: rows, total, limit: paging.limit, offset: paging.offset });
+  } finally {
+    client.release();
+  }
+}));
+
+/**
+ * POST /evidence/artifacts/:id/reparse?dry_run=1
+ *
+ * Run a STORED artifact through intake again. This is the payoff of keeping the bytes
+ * when a parser lands, every document already in the store can be read
+ * without anyone re-uploading anything — and if a parser has a bug, the fix is a re-run rather
+ * than a lost order.
+ *
+ * Safe to call repeatedly. It rewrites the artifact's own status and nothing else; landing a
+ * record is idempotent on its natural key when a parser eventually does that.
+ */
+router.post("/evidence/artifacts/:id/reparse", route(async (req, res) => {
+  const id = intParam(req.params.id, "id");
+  const dryRun = req.query.dry_run === "1" || req.query.dry_run === "true";
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    // The bytes come back OUT of the store here — the one place that column is read. Selected
+    // by id alone, so a re-parse never depends on the caller still having the file.
+    const row = await client.query<{ id: string; bytes: Buffer; mime: string }>(
+      "SELECT id, bytes, mime FROM artifacts WHERE id = $1",
+      [id],
+    );
+    if (row.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: `no artifact ${id}` });
+    }
+    const artifact = row.rows[0];
+
+    if (artifact.mime !== "application/pdf") {
+      // Re-parsing a Splitwise CSV would need the group, which is part of a record's identity
+      // and is not stored on the artifact. Rather than invent one, say so: re-uploading the
+      // file with ?group= is the supported path and costs nothing.
+      await client.query("ROLLBACK");
+      return res.status(422).json({
+        error: `re-parse handles PDFs; this artifact is ${artifact.mime}. ` +
+          "Re-upload a text export with ?group= instead — the group is part of a record's identity.",
+      });
+    }
+
+    const intake = await intakePdf(client, artifact.id, artifact.bytes);
+    await client.query(dryRun ? "ROLLBACK" : "COMMIT");
+    return res.json({
+      committed: !dryRun,
+      artifact_id: artifact.id,
+      parse_status: intake.status,
+      template: intake.template,
+      pages: intake.pages,
+      tables: intake.tables,
+      message: intake.message,
+    });
+  } catch (err) {
+    try { await client.query("ROLLBACK"); } catch { /* keep the original error */ }
+    throw err;
   } finally {
     client.release();
   }
