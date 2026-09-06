@@ -1,0 +1,76 @@
+{
+  "page_count": 1,
+  "char_count": 1573,
+  "pages": [
+    {
+      "index": 0,
+      "width": 595.28,
+      "height": 841.88,
+      "text": "Tax Invoice/Bill of Supply/Cash Memo\n(Original for Recipient)\nSold By : Billing Address : 1 Example Road, Example Locality, Example City\n[redacted]\n[redacted]\n[redacted]\n[redacted]\nIN State/UT Code:33\nPAN No:AAPCA6346P Shipping Address : 1 Example Road, Example Locality, Example City\n[redacted]\n[redacted]\n[redacted]\n[redacted]\n[redacted]\n[redacted]\nState/UT Code:33\nPlace of supply:TAMIL NADU\nFSSAI License No.\nPlace of delivery:TAMIL NADU\n10018011005884\nOrder Number:404-0000001-0000001 Invoice Number :TTD1-990001\nOrder Date:28.08.2024 Invoice Details :TTD1-990002\nInvoice Date :28.08.2024\nSl. Unit Net Tax Tax Tax Total\nDescription DiscountQty\nNo Price AmountRateType AmountAmount\n1 Carbamide Forte Vitamin D3 K2 MK7 | Plant Based Veg\nVitamin D Supplement Lichen Source with Vitamin K2 MK7\nMenaquinone for Men & Women - 120 Veg Tablets | ₹422.88 ₹0.00 1 ₹422.88 9% CGST ₹38.06 ₹499.00\nB097DFLDB8 ( B097DFLDB8 )\nHSN:21069099\n9% SGST ₹38.06\nShipping Charges ₹33.90 -₹33.90 ₹0.00 9% CGST ₹0.00 ₹0.00\n9% SGST ₹0.00\nTOTAL: ₹76.12₹499.00\nAmount in Words:\nFour Hundred Ninety-nine only\nFor Amazon Retail India Private Limited:\nAuthorized Signatory\nWhether tax is payable under reverse charge - No\n*ASSPL-Amazon Seller Services Pvt. Ltd., ARIPL-Amazon Retail India Pvt. Ltd. (only where Amazon Retail India Pvt. Ltd. fulfillment center is co-located)\nCustomers desirous of availing input GST credit are requested to create a Business account and purchase on Amazon.in/business from Business eligible offers\nPlease note that this invoice is not a demand for payment\nPage 1 of 1",
+      "tables": [
+        [
+          [
+            "Sl.\nNo",
+            "Description",
+            "Unit\nPrice",
+            "Discount",
+            "Qty",
+            "Net\nAmount",
+            "Tax\nRate",
+            "Tax\nType",
+            "Tax\nAmount",
+            "Total\nAmount"
+          ],
+          [
+            "1",
+            "Carbamide Forte Vitamin D3 K2 MK7 | Plant Based Veg\nVitamin D Supplement Lichen Source with Vitamin K2 MK7\nMenaquinone for Men & Women - 120 Veg Tablets |\nB097DFLDB8 ( B097DFLDB8 )\nHSN:21069099\nShipping Charges",
+            "₹422.88\n₹33.90",
+            "₹0.00\n-₹33.90",
+            "1",
+            "₹422.88\n₹0.00",
+            "9%\n9%\n9%\n9%",
+            "CGST\nSGST\nCGST\nSGST",
+            "₹38.06\n₹38.06\n₹0.00\n₹0.00",
+            "₹499.00\n₹0.00"
+          ],
+          [
+            "TOTAL:",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "₹76.12",
+            "₹499.00"
+          ],
+          [
+            "Amount in Words:\nFour Hundred Ninety-nine only",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          [
+            "For Amazon Retail India Private Limited:\nAuthorized Signatory",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ]
+        ]
+      ]
+    }
+  ]
+}

@@ -1,12 +1,12 @@
 {
   "page_count": 2,
-  "char_count": 4588,
+  "char_count": 4616,
   "pages": [
     {
       "index": 0,
       "width": 595.0,
       "height": 842.0,
-      "text": "Tax Invoice\nSold By / Seller\nBLINK COMMERCE PRIVATE LIMITED\nBLINK COMMERCE PRIVATE LIMITED - SS [redacted] Sample Road ES00\nH. No. (A.B. Plaza) 1/000, Example Road, [redacted], [redacted], Uttar Pradesh-[redacted],,[redacted],[redacted]\nGSTIN : 09AAFCG9846E1Z9\nFSSAI License Number : 12726053000021 Invoice Number : INV0001\nCIN : U74140HR2015FTC055568\nPAN : AAFCG9846E\nInvoice To Order Id : ORDER0001\nName : Test Customer\nAddress : 1 Example Road, Example Locality, Example City\nPin code : 000000 Place of : Uttar Pradesh\nSupply\nState : Uttar Pradesh\nSr. no UPC Item Description MRP Discount Qty. Taxable Value CGST (%) CGST (INR) SGST (%) SGST (INR) Cess (%) Additional Cess Val Total\n1 8901 Lay's India's Magic 25.00 4.00 2 40.00 2.50 1.00 2.50 1.00 0.00 0.00 42.00\n4911 Masala Potato\n0184 Chips(Pack) (HSN-\n4 20051000)\n- Delivery and other - - - 2.26 2.50 0.06 2.50 0.06 0 0.00 2.38\ncharges\nTotal 2 1.06 1.06 44.38\nAmount in Forty-Four Rupees And Thirty-Eight Paisa Only\nWords:\nBlink Commerce Private Limited (formerly known as Grofers India Private Limited)\nGSTIN 09AAFCG9846E1Z9 FSSAI License Number 12726053000021\nCIN U74140HR2015FTC055568 PAN AAFCG9846E\nAuthorised Signatory\nWhether the tax is payable on reverse charge - No\nTerms & Conditions:\n1. If you have any issues or queries in respect of your order, please contact customer chat support through Blinkit platform or drop in email at\ninfo@blinkit.com\n2. In case you need to get more information about seller's or Blinkit's FSSAI status, please visit https://foscos.fssai.gov.in/ and use the FBO search option with\nFSSAI License / Registration number.\n3. Please note that we never ask for bank account details such as CVV, account number, UPI Pin, etc. across our support channels. For your safety please do\nnot share these details with anyone over any medium.\n4. MRP displayed on the platform is as printed on the product package. Actual MRP and amount payable may be a function of offers/ discounts and/ or the\nrevised GST rates made effective by Govt. from 22 Sep 2025 onwards.\n5. Delivery & other charges are ancillary to the principal supply of items/goods, wherever applicable.\nAnnexure\nS.No. Nature of charge Tax Rate Cess Rate Taxable Value CGST SGST Cess\n1 Handling charge 5.00 0.00 2.264 0.057 0.057 0.000\nTotal 2.264 0.057 0.057 0.000",
+      "text": "Tax Invoice\nSold By / Seller\nBLINK COMMERCE PRIVATE LIMITED\nBLINK COMMERCE PRIVATE LIMITED - SS [redacted] Sample Road ES00\nH. No. (A.B. Plaza) 1/000, Example Road, [redacted], [redacted], Uttar Pradesh-[redacted],,[redacted],[redacted]\nGSTIN : 09AAFCG9846E1Z9\nFSSAI License Number : 12726053000021 Invoice Number : TTD1-990001\nCIN : U74140HR2015FTC055568\nPAN : AAFCG9846E\nInvoice To Order Id : 404-0000001-0000001\nName : Test Customer\nAddress : 1 Example Road, Example Locality, Example City\nPin code : 000000 Place of : Uttar Pradesh\nSupply\nState : Uttar Pradesh\nSr. no UPC Item Description MRP Discount Qty. Taxable Value CGST (%) CGST (INR) SGST (%) SGST (INR) Cess (%) Additional Cess Val Total\n1 8901 Lay's India's Magic 25.00 4.00 2 40.00 2.50 1.00 2.50 1.00 0.00 0.00 42.00\n4911 Masala Potato\n0184 Chips(Pack) (HSN-\n4 20051000)\n- Delivery and other - - - 2.26 2.50 0.06 2.50 0.06 0 0.00 2.38\ncharges\nTotal 2 1.06 1.06 44.38\nAmount in Forty-Four Rupees And Thirty-Eight Paisa Only\nWords:\nBlink Commerce Private Limited (formerly known as Grofers India Private Limited)\nGSTIN 09AAFCG9846E1Z9 FSSAI License Number 12726053000021\nCIN U74140HR2015FTC055568 PAN AAFCG9846E\nAuthorised Signatory\nWhether the tax is payable on reverse charge - No\nTerms & Conditions:\n1. If you have any issues or queries in respect of your order, please contact customer chat support through Blinkit platform or drop in email at\ninfo@blinkit.com\n2. In case you need to get more information about seller's or Blinkit's FSSAI status, please visit https://foscos.fssai.gov.in/ and use the FBO search option with\nFSSAI License / Registration number.\n3. Please note that we never ask for bank account details such as CVV, account number, UPI Pin, etc. across our support channels. For your safety please do\nnot share these details with anyone over any medium.\n4. MRP displayed on the platform is as printed on the product package. Actual MRP and amount payable may be a function of offers/ discounts and/ or the\nrevised GST rates made effective by Govt. from 22 Sep 2025 onwards.\n5. Delivery & other charges are ancillary to the principal supply of items/goods, wherever applicable.\nAnnexure\nS.No. Nature of charge Tax Rate Cess Rate Taxable Value CGST SGST Cess\n1 Handling charge 5.00 0.00 2.264 0.057 0.057 0.000\nTotal 2.264 0.057 0.057 0.000",
       "tables": [
         [
           [
@@ -36,7 +36,7 @@
             "",
             "",
             "",
-            "Invoice Number : INV0001",
+            "Invoice Number : TTD1-990001",
             "",
             "",
             ""
@@ -84,7 +84,7 @@
             "",
             "",
             "",
-            "Order Id : ORDER0001\nInvoice : 02-Sep-2026\nDate\nPlace of : Uttar Pradesh\nSupply",
+            "Order Id : 404-0000001-0000001\nInvoice : 02-Sep-2026\nDate\nPlace of : Uttar Pradesh\nSupply",
             "",
             "",
             ""
@@ -256,7 +256,7 @@
       "index": 1,
       "width": 595.0,
       "height": 842.0,
-      "text": "Tax Invoice\nSold By / Seller\nZOMATO HYPERPURE PRIVATE LIMITED\nZHPL - SS [redacted] Sample Road ES00\nH. No. (A.B. Plaza) 1/000, Example Road, [redacted], [redacted], Uttar Pradesh-[redacted],Null,[redacted],[redacted]\nGSTIN : 09AAACZ8867B1ZY\nFSSAI License Number : 10020064002537 Invoice Number : INV0002\nCIN : U74900DL2015PTC286208\nPAN : AAACZ8867B\nInvoice To Order Id : ORDER0001\nName : Test Customer\nAddress : 1 Example Road, Example Locality, Example City\nPin code : 000000 Place of : Uttar Pradesh\nSupply\nState : Uttar Pradesh\nSr. no UPC Item Description MRP Discount Qty. Taxable Value CGST (%) CGST (INR) SGST (%) SGST (INR) Cess (%) Additional Cess Val Total\n1 8901 Safal Frozen Green 135.00 18.00 1 117.00 0.00 0.00 0.00 0.00 0.00 0.00 117.00\n7220 Peas(Pack) (HSN-\n6005 07104000)\n6\n- Delivery and other - - - 6.62 0.00 0.00 0.00 0.00 0 0.00 6.62\ncharges\nTotal 1 123.62\nAmount in One Hundred And Twenty-Three Rupees And Sixty-Two Paisa Only\nWords:\nBlink Commerce Private Limited (formerly known as Grofers India Private Limited)\nGSTIN 09AAFCG9846E1Z9 FSSAI License Number 12726053000021\nCIN U74140HR2015FTC055568 PAN AAFCG9846E\nAuthorised Signatory\nWhether the tax is payable on reverse charge - No\nTerms & Conditions:\n1. If you have any issues or queries in respect of your order, please contact customer chat support through Blinkit platform or drop in email at\ninfo@blinkit.com\n2. In case you need to get more information about seller's or Blinkit's FSSAI status, please visit https://foscos.fssai.gov.in/ and use the FBO search option with\nFSSAI License / Registration number.\n3. Please note that we never ask for bank account details such as CVV, account number, UPI Pin, etc. across our support channels. For your safety please do\nnot share these details with anyone over any medium.\n4. MRP displayed on the platform is as printed on the product package. Actual MRP and amount payable may be a function of offers/ discounts and/ or the\nrevised GST rates made effective by Govt. from 22 Sep 2025 onwards.\n5. Delivery & other charges are ancillary to the principal supply of items/goods, wherever applicable.\nAnnexure\nS.No. Nature of charge Tax Rate Cess Rate Taxable Value CGST SGST Cess\n1 Handling charge 0.00 0.00 6.623 0.000 0.000 0.000\nTotal 6.623 0.000 0.000 0.000",
+      "text": "Tax Invoice\nSold By / Seller\nZOMATO HYPERPURE PRIVATE LIMITED\nZHPL - SS [redacted] Sample Road ES00\nH. No. (A.B. Plaza) 1/000, Example Road, [redacted], [redacted], Uttar Pradesh-[redacted],Null,[redacted],[redacted]\nGSTIN : 09AAACZ8867B1ZY\nFSSAI License Number : 10020064002537 Invoice Number : TTD1-990002\nCIN : U74900DL2015PTC286208\nPAN : AAACZ8867B\nInvoice To Order Id : 404-0000001-0000001\nName : Test Customer\nAddress : 1 Example Road, Example Locality, Example City\nPin code : 000000 Place of : Uttar Pradesh\nSupply\nState : Uttar Pradesh\nSr. no UPC Item Description MRP Discount Qty. Taxable Value CGST (%) CGST (INR) SGST (%) SGST (INR) Cess (%) Additional Cess Val Total\n1 8901 Safal Frozen Green 135.00 18.00 1 117.00 0.00 0.00 0.00 0.00 0.00 0.00 117.00\n7220 Peas(Pack) (HSN-\n6005 07104000)\n6\n- Delivery and other - - - 6.62 0.00 0.00 0.00 0.00 0 0.00 6.62\ncharges\nTotal 1 123.62\nAmount in One Hundred And Twenty-Three Rupees And Sixty-Two Paisa Only\nWords:\nBlink Commerce Private Limited (formerly known as Grofers India Private Limited)\nGSTIN 09AAFCG9846E1Z9 FSSAI License Number 12726053000021\nCIN U74140HR2015FTC055568 PAN AAFCG9846E\nAuthorised Signatory\nWhether the tax is payable on reverse charge - No\nTerms & Conditions:\n1. If you have any issues or queries in respect of your order, please contact customer chat support through Blinkit platform or drop in email at\ninfo@blinkit.com\n2. In case you need to get more information about seller's or Blinkit's FSSAI status, please visit https://foscos.fssai.gov.in/ and use the FBO search option with\nFSSAI License / Registration number.\n3. Please note that we never ask for bank account details such as CVV, account number, UPI Pin, etc. across our support channels. For your safety please do\nnot share these details with anyone over any medium.\n4. MRP displayed on the platform is as printed on the product package. Actual MRP and amount payable may be a function of offers/ discounts and/ or the\nrevised GST rates made effective by Govt. from 22 Sep 2025 onwards.\n5. Delivery & other charges are ancillary to the principal supply of items/goods, wherever applicable.\nAnnexure\nS.No. Nature of charge Tax Rate Cess Rate Taxable Value CGST SGST Cess\n1 Handling charge 0.00 0.00 6.623 0.000 0.000 0.000\nTotal 6.623 0.000 0.000 0.000",
       "tables": [
         [
           [
@@ -286,7 +286,7 @@
             "",
             "",
             "",
-            "Invoice Number : INV0002",
+            "Invoice Number : TTD1-990002",
             "",
             "",
             ""
@@ -334,7 +334,7 @@
             "",
             "",
             "",
-            "Order Id : ORDER0001\nInvoice : 02-Sep-2026\nDate\nPlace of : Uttar Pradesh\nSupply",
+            "Order Id : 404-0000001-0000001\nInvoice : 02-Sep-2026\nDate\nPlace of : Uttar Pradesh\nSupply",
             "",
             "",
             ""

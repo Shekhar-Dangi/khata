@@ -1,11 +1,11 @@
 """Turn a real invoice into a fixture that is safe to commit.
 
-WHY THIS EXISTS. The khata repo is PUBLIC-BOUND -- the project notes is explicit that no personal data
-may ever reach it, and it records that names of private individuals once got in through worked
-examples, which is exactly how it happens. Real invoices are full of it: the buyer's name,
+WHY THIS EXISTS. This repo is PUBLIC-BOUND, so no personal data may ever reach it. Names of
+private individuals have got in through worked examples before, which is exactly how it
+happens. Real invoices are full of it: the buyer's name,
 their street address, their pin code, their order and payment references.
 
-But parser tests must run on REAL STRUCTURE, because every trap the design found is
+But parser tests must run on REAL STRUCTURE, because every trap the real invoices showed is
 structural -- a UPC split across four lines, two invoices in one file, an Annexure spilling
 onto its own page. A hand-written fake would test a fiction and pass while the parser fails on
 the real thing.
@@ -19,15 +19,14 @@ WHAT IS KEPT, AND WHY IT IS NOT PERSONAL DATA:
     the buyer's. Blink Commerce's GSTIN is on every invoice it has ever issued.
   - HSN codes, UPCs, ASINs -- product identifiers. They describe a Coke bottle, not a person.
   - line amounts, quantities, totals, tax rates -- structurally essential, because the whole
-    point of the design's gate is that the arithmetic must reconcile to the paise.
+    point of the reconcile gate is that the arithmetic must reconcile to the paise.
     Fake amounts would make the one test that matters meaningless. An individual "Rs 40 for a
     Coke Zero" is not a ledger total and reveals nothing.
   - dates -- needed for the date-window logic, and an order date on its own identifies nobody.
 
 WHAT IS REPLACED:
   - the buyer's name, address and pin code
-  - order ids, invoice numbers, payment transaction ids  (the project notes: "not real transaction
-    references")
+  - order ids, invoice numbers, payment transaction ids (never a real reference)
 Replacements are OBVIOUSLY SYNTHETIC, per the same convention -- a redaction that looks real is
 worse than none, because the next reader cannot tell it was redacted.
 """
@@ -51,7 +50,7 @@ class _Counter:
     """Stable synthetic ids: the SAME real value maps to the same fake one within a document.
 
     That property is load-bearing. A Blinkit order appears on both of its invoices, and a
-    parser's whole job in the design is to notice they are one order. Randomising
+    parser's whole job is to notice they are one order. Randomising
     per occurrence would destroy the exact relationship the fixture needs to exercise.
     """
 
@@ -166,9 +165,13 @@ def scrub_literals(text: str, forbidden: list[str]) -> str:
 
 def redact_document(doc: Document, forbidden: list[str] | None = None) -> Document:
     """A copy of `doc` with identity and references replaced, structure untouched."""
-    orders = _Counter("ORDER{:04d}", 1)
-    invoices = _Counter("INV{:04d}", 1)
-    payments = _Counter("PAYREF{:04d}", 1)
+    # FORMAT-PRESERVING fakes. A redaction that changes the SHAPE as well as the value makes
+    # the fixture untestable for anything shape-dependent: the Amazon parser matches an order
+    # number as \d{3}-\d{7}-\d{7}, so "ORDER0001" would fail on a fixture while succeeding on
+    # every real file. Redaction replaces WHO, never WHAT KIND.
+    orders = _Counter("404-000000{:01d}-0000001", 1)
+    invoices = _Counter("TTD1-9900{:02d}", 1)
+    payments = _Counter("1111PAYREF0000000000{:02d}", 1)
     forbidden = forbidden or []
 
     def clean(s: str) -> str:

@@ -30,7 +30,7 @@ describe("detectReceiptTemplate, on the real samples", () => {
   });
 
   it("recognises a Blinkit order from the Hyperpure seller alone", () => {
-    // the design: one order is split across two legal sellers, and the second
+    // One order is split across two legal sellers, and the second
     // invoice never names Blink Commerce. A detector keyed only on the first name would fail
     // on exactly half of every Blinkit order.
     const hyperpure = fixture("blinkit-02").pages.find((p) =>
@@ -40,12 +40,16 @@ describe("detectReceiptTemplate, on the real samples", () => {
     assert.equal(detectReceiptTemplate(hyperpure.text), "blinkit");
   });
 
-  it("does not leak identity into the assertion — fixtures carry no real order id", () => {
-    // Guards the redaction itself, not the detector. If someone regenerates fixtures with the
-    // scrubbing broken, this fails here rather than in a code review nobody runs.
-    for (const name of ["blinkit-01", "blinkit-02", "amazon-01", "amazon-02"]) {
+  it("carries only SYNTHETIC order ids — redaction preserves shape, not identity", () => {
+    // Guards the redaction itself, not the detector. Fixtures deliberately KEEP the real
+    // format (404-NNNNNNN-NNNNNNN) so shape-dependent parser code can be tested against them;
+    // what must never survive is a real VALUE. So the assertion is that every order id present
+    // is one of the generated ones, not that none exists.
+    for (const name of ["blinkit-01", "blinkit-02", "amazon-01", "amazon-02", "amazon-03"]) {
       const text = allText(fixture(name));
-      assert.doesNotMatch(text, /\b\d{3}-\d{7}-\d{7}\b/, `${name} still has an Amazon order id`);
+      for (const id of text.match(/\b\d{3}-\d{7}-\d{7}\b/g) ?? []) {
+        assert.match(id, /^404-000000\d-0000001$/, `${name} carries a real-looking order id`);
+      }
     }
   });
 });

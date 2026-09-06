@@ -2,7 +2,7 @@
 
     ingest/.venv/Scripts/python.exe -m ingest.receipts.cli < invoice.pdf
 
-the design fixes this boundary: **Python extracts, TypeScript owns dedupe, matching,
+The boundary is fixed: **Python extracts, TypeScript owns dedupe, matching,
 allocation and persistence.** All the money invariants stay on one side of the wire, in the
 language with the tests and the database constraints. This process therefore knows nothing
 about the ledger and writes nothing anywhere; it is a pure function with a pipe for a calling
@@ -28,6 +28,8 @@ import traceback
 from dataclasses import asdict
 
 from .extract import ExtractionError, extract_document
+from .registry import find_parser
+from .shapes import ParseError, reconcile
 
 
 def main() -> int:
@@ -62,8 +64,28 @@ def main() -> int:
         json.dump({"ok": False, "kind": "internal", "error": "extractor failed"}, sys.stdout)
         return 1
 
+    # PARSE, if a parser recognises this template. Extraction alone is still a complete answer
+    # -- a document we can read but not interpret is stored with its template recorded -- so a
+    # missing parser is reported in `record`, never raised.
+    record = None
+    parse_error = None
+    parser = find_parser("\n".join(page.text for page in doc.pages))
+    if parser is not None:
+        try:
+            parsed = parser.parse(doc)
+            problems = reconcile(parsed)
+            if problems:
+                # THE GATE (shapes.reconcile). A parse that does not add up is REJECTED, not
+                # landed: all four original samples reconciled exactly, so drift means a
+                # mis-read row, and a mis-read row is money in the wrong category.
+                parse_error = {"kind": "reconcile", "error": "; ".join(problems)}
+            else:
+                record = asdict(parsed)
+        except ParseError as exc:
+            parse_error = {"kind": exc.kind, "error": str(exc)}
+
     json.dump(
-        {"ok": True, "document": asdict(doc)},
+        {"ok": True, "document": asdict(doc), "record": record, "parse_error": parse_error},
         sys.stdout,
         ensure_ascii=False,
         # No indent. This goes down a pipe to a program, not to a person, and pretty-printing
