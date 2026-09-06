@@ -13,7 +13,9 @@ import {
   type RawLine,
   type Resolution,
   canonicalName,
+  extractVariantAttributes,
   resolveLine,
+  variantDiff,
 } from "./items.ts";
 
 /** How many trigram neighbours to consider. Beyond a handful they are all noise. */
@@ -104,22 +106,25 @@ async function addAlias(
   // It is what makes grouping sizes lossless: the item says "Continental Coffee", the alias
   // says which pouch (migration 013).
   const label = line.description.trim().slice(0, 500);
+  // Size and pack, kept rather than discarded (migration 014). Deterministic -- the same
+  // regexes canonicalName uses to strip them.
+  const attributes = JSON.stringify(extractVariantAttributes(line.description));
   // ON CONFLICT DO NOTHING, not an upsert. If a raw string already points somewhere, that is
   // an EXISTING decision — possibly a person's — and quietly repointing it is the silent wrong
   // merge this whole design exists to avoid.
   if (line.sku?.value) {
     await client.query(
-      `INSERT INTO item_aliases (item_id, source_type, alias_kind, alias_value, source, confidence, label)
-       VALUES ($1, $2, 'sku', $3, $4, $5, $6)
+      `INSERT INTO item_aliases (item_id, source_type, alias_kind, alias_value, source, confidence, label, attributes)
+       VALUES ($1, $2, 'sku', $3, $4, $5, $6, $7::jsonb)
        ON CONFLICT (source_type, alias_kind, alias_value) DO NOTHING`,
-      [itemId, line.sourceType, line.sku.value, source, confidence, label],
+      [itemId, line.sourceType, line.sku.value, source, confidence, label, attributes],
     );
   }
   await client.query(
-    `INSERT INTO item_aliases (item_id, source_type, alias_kind, alias_value, source, confidence, label)
-     VALUES ($1, $2, 'name', $3, $4, $5, $6)
+    `INSERT INTO item_aliases (item_id, source_type, alias_kind, alias_value, source, confidence, label, attributes)
+     VALUES ($1, $2, 'name', $3, $4, $5, $6, $7::jsonb)
      ON CONFLICT (source_type, alias_kind, alias_value) DO NOTHING`,
-    [itemId, line.sourceType, canon, source, confidence, label],
+    [itemId, line.sourceType, canon, source, confidence, label, attributes],
   );
 }
 
@@ -165,7 +170,7 @@ export async function resolveAndRecord(
 
   const aliasHit = await findAlias(client, line, canon);
   const candidates = aliasHit ? [] : await findCandidates(client, canon, line);
-  const resolution = resolveLine(aliasHit, candidates);
+  const resolution = resolveLine(aliasHit, candidates, canon);
 
   if (resolution.action === "existing") {
     // Seen before. Record the OTHER alias too if this sighting carried one the item lacks —
@@ -178,6 +183,23 @@ export async function resolveAndRecord(
 
   if (resolution.action === "link") {
     await addAlias(client, resolution.itemId, line, canon, "trigram", resolution.confidence);
+    // The word that differs from the sibling IS the variant axis (cola / lemon / orange).
+    // Derived from the pair rather than guessed at, so no vocabulary of flavours is needed --
+    // and recorded under `variant` because we know the VALUE without knowing the axis's NAME.
+    // Naming it is a later, once-per-family question; the value is useful immediately.
+    const sibling = candidates.find((c) => c.itemId === resolution.itemId);
+    if (sibling) {
+      const diff = variantDiff(canon, sibling.canonicalName);
+      const mine = diff.differing.filter((t) => canon.split(" ").includes(t));
+      if (mine.length > 0) {
+        await client.query(
+          `UPDATE item_aliases
+              SET attributes = attributes || jsonb_build_object('variant', $3::text)
+            WHERE item_id = $1 AND alias_kind = 'name' AND alias_value = $2`,
+          [resolution.itemId, canon, mine.join(" ")],
+        );
+      }
+    }
     await client.query("UPDATE items SET updated_at = now() WHERE id = $1", [resolution.itemId]);
     return { itemId: resolution.itemId, resolution, created: false, proposalsRaised: 0 };
   }
@@ -248,7 +270,7 @@ export async function getItem(client: PoolClient, id: number) {
   );
   if (item.rowCount === 0) return null;
   const aliases = await client.query(
-    `SELECT id, source_type, alias_kind, alias_value, label, source, confidence, created_at
+    `SELECT id, source_type, alias_kind, alias_value, label, attributes, source, confidence, created_at
        FROM item_aliases WHERE item_id = $1 ORDER BY alias_kind, alias_value`,
     [id],
   );
