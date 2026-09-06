@@ -338,7 +338,7 @@ export async function matchSplitwiseEvidence(
     if (expected === null) { summary.noCashExpected++; continue; }
 
     summary.considered++;
-    const request = { externalRef: ev.external_ref, date: ev.evidence_date, expectedPaise: expected };
+    const request = { externalRef: ev.external_ref, date: ev.evidence_date, expectedPaise: expected, sourceType: SOURCE };
     const outcome = matchToTransaction(request, candidates);
 
     if (outcome.kind === "ambiguous") { summary.ambiguous++; continue; }
@@ -424,7 +424,7 @@ export async function listUnmatched(
     if (expected === null) continue;
 
     const near = nearMisses(
-      { externalRef: ev.external_ref, date: ev.evidence_date, expectedPaise: expected },
+      { externalRef: ev.external_ref, date: ev.evidence_date, expectedPaise: expected, sourceType: SOURCE },
       candidates,
     );
     if (nearOnly && near.length === 0) continue;
@@ -720,6 +720,7 @@ export async function listRecords(
       externalRef: ev.external_ref,
       date: ev.evidence_date,
       expectedPaise: expected,
+      sourceType: SOURCE,
     };
 
     let state: RecordState = "matched";

@@ -1,11 +1,11 @@
 // Linking an external record to the bank transaction that paid for it. Pure and DB-free.
 //
-// Design in the design. This is the THIRD instance of the same shape, after
+// This is the THIRD instance of the same shape, after
 // transfer detection and ahead of invoice matching: generate candidates, score them,
 // auto-accept only an unambiguous 1:1, and queue everything else for a human.
 //
-// It is deliberately NOT a generalisation of transfer detection yet. the design
-// says to extract a shared matcher once three real cases exist; this is the second built,
+// It is deliberately NOT a generalisation of transfer detection yet. The rule is to
+// extract a shared matcher once three real cases exist; this is the second built,
 // and transfer detection's passes are tuned to its own evidence hierarchy (a 12-digit RRN
 // is proof in a way an amount never is). Merging them now would be speculative.
 //
@@ -16,6 +16,7 @@
 // signals are the AMOUNT and the DATE, which is precisely why ambiguity has to be queued
 // rather than broken by a tiebreak.
 
+import { narrationIdentifies } from "./merchants.ts";
 import { dayGap } from "./transfers.ts";
 
 /** A bank row a match could land on. Mirrors the columns the DB half selects. */
@@ -39,6 +40,19 @@ export type MatchRequest = {
    * The sign is a hard filter, not a score — a debit can never satisfy a credit.
    */
   expectedPaise: number;
+  /**
+   * Which source this record came from, when its merchant is identifiable in a narration.
+   *
+   * A SECOND hard filter, for the same reason the sign is one: it can only disqualify, never
+   * promote. Omit it and matching behaves exactly as it did before — which is what Splitwise
+   * needs, because a shared expense is settled by a transfer naming a PERSON, not a merchant.
+   *
+   * Supplying it is what stops a defect confirmed on real data: an Amazon order whose only
+   * in-window candidate is a FLIPKART debit of exactly the same amount. Without this
+   * the candidate is unique and auto-accepted; with it the candidate is disqualified before
+   * the 1:1 test ever runs, and the record correctly reports no match.
+   */
+  sourceType?: string;
 };
 
 export type MatchOutcome =
@@ -62,7 +76,7 @@ export type MatchOutcome =
  * Two things that curve says. Widening past 7 days makes it WORSE, not merely slower: unique
  * matches FALL, because a second candidate wandering into the window converts a decided row
  * into an ambiguous one. And the 15 rows that match at no window are not a tuning problem —
- * no bank row of that amount exists anywhere in the ledger, which is its warning that
+ * no bank row of that amount exists anywhere in the ledger, which is the known limit that
  * `paid = Cost` is a convention (a co-payment, another card, or cash all look like this).
  *
  * So 3 sits on the plateau with a day of slack: an expense entered the morning after dinner,
@@ -80,7 +94,7 @@ export const DEFAULT_WINDOW_DAYS = 3;
  *
  * Returns `ambiguous` rather than picking the closest date when several rows qualify. Two
  * ₹500 payments on the same day are indistinguishable to this function, and a tiebreak
- * would be a coin flip recorded as a fact. the design's rule holds: never
+ * would be a coin flip recorded as a fact. The reconciliation rule holds: never
  * silently guess on money.
  */
 export function matchToTransaction(
@@ -91,7 +105,13 @@ export function matchToTransaction(
   const hits = candidates.filter(
     (c) =>
       c.amount_paise === request.expectedPaise &&
-      dayGap(c.txn_date, request.date) <= windowDays,
+      dayGap(c.txn_date, request.date) <= windowDays &&
+      // The merchant filter, applied BEFORE the 1:1 test below rather than as a score after
+      // it. That ordering is the whole point: a disqualified candidate must not be able to be
+      // the unique hit that triggers an auto-accept. Absent `sourceType`, this is always true
+      // and nothing changes.
+      (request.sourceType === undefined ||
+        narrationIdentifies(c.narration, request.sourceType)),
   );
 
   if (hits.length === 0) return { kind: "none" };
@@ -102,7 +122,8 @@ export function matchToTransaction(
 /**
  * What cash we expect the bank to show for one source row, or null if none should exist.
  *
- * This is its decomposition turned into a number, and the three cases behave completely
+ * This is the paid/owed decomposition (net = paid share − owed share) turned into a number,
+ * and the three cases behave completely
  * differently:
  *
  *   expense, net > 0   we fronted the cash -> a DEBIT of the whole cost
@@ -113,15 +134,15 @@ export function matchToTransaction(
  *   payment,  net > 0  we paid a settlement -> a DEBIT of that amount
  *   payment,  net < 0  we received one      -> a CREDIT of that amount
  *
- * `paid = cost` for the expense case is its convention, not an identity: a co-payment
+ * `paid = cost` for the expense case is a convention, not an identity: a co-payment
  * appears in the export as a second payer with a negative net and is invisible. The
  * consequence is a missed match, never a wrong one, because the amount filter is exact.
  */
 /**
  * How far past the accept window a candidate may sit and still be worth a human's glance.
  *
- * MEASURED alongside DEFAULT_WINDOW_DAYS: in this ledger, exactly two records gain a unique
- * exact-amount candidate by looking past 3 days, and BOTH are within 7. Nothing between 8 and
+ * MEASURED alongside DEFAULT_WINDOW_DAYS: on real data, only a couple of records gain a unique
+ * exact-amount candidate by looking past 3 days, and ALL are within 7. Nothing between 8 and
  * 90 days adds one. So 10 covers the entire useful range with slack, and stops well short of
  * the 14-day region where ambiguity starts to dominate.
  *
@@ -169,6 +190,15 @@ export function nearMisses(
 ): NearMiss[] {
   return candidates
     .filter((c) => c.amount_paise === request.expectedPaise)
+    // The SAME merchant filter the accept path uses. Without it the near-miss queue fills with
+    // rows a person must reject one by one — an Amazon order would offer every Flipkart debit
+    // of the same amount within ten days. A queue full of answers that are obviously wrong is
+    // how a review screen stops being read.
+    .filter(
+      (c) =>
+        request.sourceType === undefined ||
+        narrationIdentifies(c.narration, request.sourceType),
+    )
     .map((c) => ({
       transactionId: c.id,
       txnDate: c.txn_date,
@@ -188,7 +218,7 @@ export function nearMisses(
  * least-wrong convention available: the per-category totals stay exactly right, and only the
  * attribution between two payments — which the source does not record — is conventional.
  *
- * This is NOT the "never scale to fit the bank" rule from the design. That forbids
+ * This is NOT the "never scale to fit the bank" rule. That forbids
  * fabricating per-ITEM amounts that were never charged. Here the split is known and correct;
  * it is being distributed across payments that are also known.
  *
@@ -280,7 +310,7 @@ export type Authority = "auto" | "user";
  * AUTHORITY. Nodding at a rule's guess in bulk is weaker evidence than an order receipt;
  * deciding a row yourself is not.
  *
- * So tier 1 keeps the invariant from the design — a deliberate human
+ * So tier 1 keeps the engine's most important invariant — a deliberate human
  * decision is never overwritten by a machine — while a bulk-confirmed guess gives way to a
  * record of what actually happened. A conflict is surfaced, never silently resolved.
  *
@@ -307,8 +337,8 @@ export function resolvePrecedence(
     };
   }
 
-  // A second evidence record claiming the same transaction is the one-debit-many-orders case
-  // that the design says to queue. Neither record outranks the other, and picking
+  // A second evidence record claiming the same transaction is the one-debit-many-orders case,
+  // which is queued for a person. Neither record outranks the other, and picking
   // one would be a guess.
   //
   // REFUSED FOR BOTH authorities, unlike tier 1 — and not out of caution. Displacing the
