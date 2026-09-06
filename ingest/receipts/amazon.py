@@ -1,19 +1,19 @@
 """Amazon invoice -> OrderRecord. Knows about Amazon and nothing about PDFs or the ledger.
 
-Everything here was derived from the real 252-invoice corpus, and the awkward parts are
-awkward because the corpus is:
+Everything here was derived from a real corpus of a few hundred invoices, and the awkward
+parts are awkward because the corpus is:
 
   * FOUR header layouts.  "Qty" or "Quantity", "Discount" present or absent, so column
     POSITIONS shift between invoices. The column map is built from the header row every time;
     indexing by position is the bug that made an early survey report 17% mismatches.
-  * 106 of 252 files hold MORE THAN ONE invoice, and 7 hold three. Segmentation is by the
-    "Invoice Number" marker, never by page.
-  * Fee rows are numbered exactly like products -- "Cash/Pay on Delivery fee" (78 rows),
-    "Marketplace Fees" (26). They are real money and belong in the total, but they are not
+  * A large share of files hold MORE THAN ONE invoice, and some hold three. Segmentation is
+    by the "Invoice Number" marker, never by page.
+  * Fee rows are numbered exactly like products -- "Cash/Pay on Delivery fee",
+    "Marketplace Fees". They are real money and belong in the total, but they are not
     things you bought.
   * Books carry an ISBN where everything else carries an ASIN, so the id is taken from the
     template's "| X ( Y )" shape rather than by matching the ASIN pattern.
-  * One file is a DELIVERY CHALLAN, not an invoice. It is refused rather than landed.
+  * A file can be a DELIVERY CHALLAN, not an invoice. It is refused rather than landed.
 """
 
 from __future__ import annotations
@@ -29,10 +29,11 @@ _MARKERS = ("amazon retail india private limited", "amazon seller services", "am
 
 _ORDER_NUMBER = re.compile(r"Order\s*Number\s*:\s*([0-9]{3}-[0-9]{7}-[0-9]{7})")
 #: A CREDIT NOTE is a refund, not a purchase, and it says so in its own vocabulary: "Order No"
-#: rather than "Order Number", "Credit Note No" rather than "Invoice Number". 30 of the 252
-#: files in the corpus are these. Landing one as an invoice would record a second PURCHASE of
-#: something you actually sent back -- the money would move the wrong way twice. They are
-#: refused here until the design's refund model is built, which is what they belong to.
+#: rather than "Order Number", "Credit Note No" rather than "Invoice Number". A real order
+#: history holds a fair number of these. Landing one as an invoice would record a second PURCHASE
+#: of something you actually sent back -- the money would move the wrong way twice. They are
+#: refused here until a refund model is built, which is what they belong to: a refund is its own
+#: event, not a reversal of the purchase.
 _CREDIT_NOTE = re.compile(r"Credit\s*Note\s*(?:No|Number|Date)\s*:", re.IGNORECASE)
 _ORDER_DATE = re.compile(r"Order\s*Date\s*:\s*([0-9]{2}[./-][0-9]{2}[./-][0-9]{4})")
 _INVOICE_NUMBER = re.compile(r"Invoice\s*Number\s*:\s*(\S+)")
@@ -40,7 +41,7 @@ _INVOICE_DATE = re.compile(r"Invoice\s*Date\s*:\s*([0-9]{2}[./-][0-9]{2}[./-][0-
 _SELLER = re.compile(r"For\s+(.+?)\s*:\s*Authorized\s+Signatory", re.IGNORECASE | re.DOTALL)
 _HSN = re.compile(r"HSN\s*[:\-]\s*(\d{4,8})")
 _PAYMENT_MODE = re.compile(r"Mode\s*of\s*Payment\s*:\s*\n?\s*([A-Za-z ]+)")
-#: The template's identifier shape: "... | B0BG6CT9ZV ( SELLER-SKU )". The id is the last
+#: The template's identifier shape: "... | B0XXXXXXXX ( SELLER-SKU )". The id is the last
 #: pipe-separated segment before the bracket, which is an ASIN for most things and an ISBN for
 #: books -- matching the ASIN pattern alone would silently drop every book.
 _SKU_TAIL = re.compile(r"\|\s*([A-Za-z0-9][A-Za-z0-9._-]{4,20})\s*\(")
@@ -121,9 +122,52 @@ def _parse_description(raw: str) -> tuple[str, str | None, str | None]:
     return description, (sku.group(1) if sku else None), (hsn.group(1) if hsn else None)
 
 
+def _is_fee_label(line: str) -> bool:
+    """Is this line a charge on its own, rather than a product that mentions one?
+
+    Length is the discriminator, and it has to be: a real product description runs to a
+    hundred characters of marketing copy and carries an identifier, while a charge is three
+    words and carries nothing. Testing the WHOLE description for a fee word instead is what
+    misfiled "Vitamin Supplement 120 Tablets ... | B0XXXXXXXX | HSN:21069099 | Shipping Charges"
+    as a fee -- a real product that merely had a charge glued onto it by the extractor.
+    """
+    stripped = line.strip()
+    if len(stripped) > 60 or _SKU_TAIL.search(stripped):
+        return False
+    return any(w in stripped.lower() for w in _FEE_WORDS)
+
+
+def _split_description(raw: str) -> tuple[str, list[str]]:
+    """Separate the product from the charges the extractor merged onto its row.
+
+    pdfplumber joins visually adjacent rows, so a cell can read
+
+        Vitamin Supplement 120 Tablets ... | B0XXXXXXXX | HSN:21069099
+        Shipping Charges
+
+    with TWO amounts in the total column. The trailing charge lines are their own logical
+    rows, and peeling them off the end gives each extra amount a real label instead of a
+    manufactured one.
+    """
+    lines = [ln for ln in (l.strip() for l in raw.split("\n")) if ln]
+    fees: list[str] = []
+    while lines and _is_fee_label(lines[-1]):
+        fees.insert(0, lines.pop())
+    return ("\n".join(lines) if lines else raw.strip()), fees
+
+
 def _is_fee(description: str) -> bool:
-    lowered = description.lower()
-    return any(w in lowered for w in _FEE_WORDS)
+    """A whole line-item row that is a charge rather than merchandise.
+
+    Amazon numbers "Cash/Pay on Delivery fee" and "Marketplace Fees" exactly like products,
+    so they arrive as ordinary rows. They are real money and belong in the invoice total, but
+    they are not things you bought and must never reach the product catalogue.
+    """
+    first = description.split("\n")[0]
+    return _is_fee_label(first) or (
+        _SKU_TAIL.search(description) is None
+        and any(w in description.lower() for w in _FEE_WORDS)
+    )
 
 
 def parse(doc: Document) -> OrderRecord:
@@ -133,19 +177,19 @@ def parse(doc: Document) -> OrderRecord:
     if _CREDIT_NOTE.search(full_text):
         raise ParseError(
             "credit_note",
-            "this is a Credit Note (a refund), not a purchase invoice — see the design",
+            "this is a Credit Note (a refund), not a purchase invoice — refunds are unsupported",
         )
 
     if not _INVOICE_NUMBER.search(full_text):
-        # The corpus contains one of these. A Delivery Challan moves goods without charging
-        # for them; landing it as an invoice would invent an order.
+        # A real order history can contain one of these. A Delivery Challan moves goods without
+        # charging for them; landing it as an invoice would invent an order.
         if "delivery challan" in full_text.lower():
             raise ParseError("not_an_invoice", "this is a Delivery Challan, not a tax invoice")
         raise ParseError("no_invoice_number", "no Invoice Number anywhere in the document")
 
     order = _ORDER_NUMBER.search(full_text)
     if not order:
-        # the design chose quarantine over a composite fallback key: a fallback that is
+        # Quarantine, not a composite fallback key: a fallback that is
         # wrong duplicates money silently, and a quarantined artifact costs one manual action.
         raise ParseError("no_order_number", "no Order Number — refusing to invent a key")
 
@@ -190,14 +234,15 @@ def parse(doc: Document) -> OrderRecord:
             if not first.isdigit():
                 continue  # "Amount in Words", the signatory block, anything after the total
 
-            description, sku, hsn = _parse_description(cell(row, "description") or "")
+            description, trailing_fees = _split_description(cell(row, "description") or "")
+            description, sku, hsn = _parse_description(description)
             if description == "":
                 continue
 
             # ONE TABLE ROW CAN BE SEVERAL LOGICAL LINES. pdfplumber merges visually adjacent
             # rows, so the Total column arrives as "\u20b91,412.43\n\u20b910.00" -- a book and a
             # \u20b910 charge, which the invoice totals as \u20b91,422.43. Reading such a cell as one
-            # number yields nothing at all, which is what quarantined 40 files.
+            # number yields nothing at all, which is what quarantined dozens of files.
             #
             # The Total column is the reliable splitter. The tax columns are NOT: they carry
             # one entry per tax component (CGST, SGST, IGST, None), so a two-item row can show
@@ -214,10 +259,13 @@ def parse(doc: Document) -> OrderRecord:
                 if index == 0:
                     line_desc, line_kind, line_sku = description, ("fee" if _is_fee(description) else "goods"), sku
                 else:
-                    # An unlabelled extra amount on the same visual row. Calling it a fee is
-                    # honest -- it IS a charge and it is not a product -- and inventing a
-                    # product name for it would put a thing you never bought in the catalogue.
-                    line_desc = f"additional charge on: {description.splitlines()[0][:80]}"
+                    # An extra amount on the same visual row. Where the extractor also gave us
+                    # the charge's own label ("Shipping Charges") use it; otherwise say plainly
+                    # that it is an unlabelled charge. Either way it is a fee and never a
+                    # product -- inventing a product name would put a thing you never bought
+                    # into the catalogue.
+                    label = trailing_fees[index - 1] if index - 1 < len(trailing_fees) else None
+                    line_desc = label or f"charge on: {description.splitlines()[0][:80]}"
                     line_kind, line_sku = "fee", None
                 invoice.lines.append(
                     LineItem(

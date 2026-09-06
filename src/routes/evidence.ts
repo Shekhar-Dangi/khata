@@ -26,7 +26,9 @@ import {
 } from "./../artifacts.ts";
 import { isKnownSource, rematchEvidence } from "./../evidence-sources.ts";
 import { intakePdf } from "./../receipt-intake.ts";
-import { type ConfirmOverride, type ConfirmResult, confirmOne, listStaged } from "./../staging.ts";
+import {
+  type ConfirmOverride, type ConfirmResult, confirmOne, listStaged, listStagedItems,
+} from "./../staging.ts";
 import {
   evidenceNeedingRederive,
   listSourceCategories,
@@ -371,6 +373,28 @@ router.get("/evidence/staged", route(async (req, res) => {
       limit: paging.limit, offset: paging.offset, attentionOnly,
     });
     return res.json({ ...staged, limit: paging.limit, offset: paging.offset });
+  } finally {
+    client.release();
+  }
+}));
+
+/**
+ * GET /evidence/staged/items?q=&needs_input=1
+ *
+ * Every PRODUCT the staged set will touch, once — deduplicated across orders, most-bought
+ * first. The unit of work is the product rather than the line: 365 goods lines in the real
+ * corpus resolve to 234 products, a category is a property of the product, and filing them
+ * per line means answering one question a dozen times.
+ *
+ * Fees never appear. They are money, not merchandise, and nothing here should ever offer to
+ * file a delivery charge as something you bought.
+ */
+router.get("/evidence/staged/items", route(async (req, res) => {
+  const q = typeof req.query.q === "string" && req.query.q.trim() !== "" ? req.query.q : undefined;
+  const needsInputOnly = req.query.needs_input === "1" || req.query.needs_input === "true";
+  const client = await pool.connect();
+  try {
+    return res.json(await listStagedItems(client, { q, needsInputOnly }));
   } finally {
     client.release();
   }

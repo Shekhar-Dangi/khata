@@ -9,11 +9,20 @@
 import type { PoolClient } from "pg";
 
 import { type Candidate, matchToTransaction } from "./evidence-match.ts";
+import { canonicalName } from "./items.ts";
 import { itemSummary, previewLine, resolveAndRecord } from "./items-store.ts";
 import type { ParsedLine, ParsedRecord } from "./pdf-extract.ts";
 
 export type LineResolutionView = {
-  action: "existing" | "link" | "create";
+  /**
+   * 'fee' is its own action rather than a flavour of 'create'.
+   *
+   * It was 'create' with nulls hung off it, and every screen that rendered an action
+   * therefore announced "New product" beside "Cash/Pay on Delivery fee" — offering to file a
+   * delivery charge in the product catalogue. A state that has to be special-cased by every
+   * reader is a state that will eventually not be.
+   */
+  action: "existing" | "link" | "create" | "fee";
   item_id: string | null;
   item_name: string | null;
   /** True when a person should look before this lands. */
@@ -120,7 +129,7 @@ export async function listStaged(
         if (line.kind === "fee") {
           lines.push({
             ...line, index: here,
-            resolution: { action: "create", item_id: null, item_name: null, needs_input: false, candidates: [] },
+            resolution: { action: "fee", item_id: null, item_name: null, needs_input: false, candidates: [] },
             category: null,
           });
           continue;
@@ -253,6 +262,142 @@ export async function listStaged(
   };
 }
 
+export type StagedItemView = {
+  /** Stable across a page reload: the merchant's own id, or the canonical name. */
+  key: string;
+  source_type: string;
+  sku: string | null;
+  /** The fullest description seen for this product across the staged set. */
+  description: string;
+  /** How many staged LINES resolve to this product, and what they are worth. */
+  line_count: number;
+  total_paise: number;
+  /** Which orders it appears in — so a person can see it is not a one-off. */
+  order_refs: string[];
+  action: "existing" | "link" | "create";
+  item_id: string | null;
+  item_name: string | null;
+  category: { id: string; name: string } | null;
+  needs_input: boolean;
+  candidates: { item_id: string; name: string; similarity: number }[];
+};
+
+/**
+ * Every PRODUCT the staged set will touch, once.
+ *
+ * The unit of work is the product, not the line. 365 goods lines across the real corpus
+ * resolve to 234 distinct products, and a category is a property of the product — so filing
+ * them per line means answering the same question up to a dozen times and getting a different
+ * answer on the twelfth. Fees never appear here at all: they are money, not merchandise.
+ *
+ * `q` filters on the description, server-side, because the catalogue is not shipped to a
+ * browser.
+ */
+export async function listStagedItems(
+  client: PoolClient,
+  opts: { q?: string; needsInputOnly?: boolean },
+): Promise<{ items: StagedItemView[]; total: number; needs_input: number }> {
+  const staged = await client.query<{ source_type: string | null; record: ParsedRecord }>(
+    `SELECT source_type, record FROM artifacts
+      WHERE parse_status = 'staged' AND record IS NOT NULL
+      ORDER BY created_at DESC, id DESC`,
+  );
+
+  // Group first, resolve second. Resolving per LINE would repeat the same lookups once per
+  // sighting — 365 times instead of 234 — and could return different answers for one product
+  // within a single response, since each resolution sees the catalogue as the previous one
+  // left it.
+  const grouped = new Map<string, {
+    sourceType: string; sku: string | null; description: string;
+    lines: number; paise: number; orders: Set<string>;
+  }>();
+
+  for (const row of staged.rows) {
+    const record = row.record;
+    const sourceType = row.source_type ?? record.source_type;
+    for (const invoice of record.invoices) {
+      for (const line of invoice.lines) {
+        if (line.kind === "fee") continue;
+        const canon = canonicalName(line.description);
+        const key = `${sourceType}:${line.sku ?? `name:${canon}`}`;
+        const existing = grouped.get(key);
+        if (existing) {
+          existing.lines += 1;
+          existing.paise += line.amount_paise;
+          existing.orders.add(record.external_ref);
+          // Keep the FULLEST description seen. Amazon truncates the same product at different
+          // column widths, and the longest one is the least lossy thing to show a person.
+          if (line.description.length > existing.description.length) {
+            existing.description = line.description;
+          }
+        } else {
+          grouped.set(key, {
+            sourceType, sku: line.sku, description: line.description,
+            lines: 1, paise: line.amount_paise, orders: new Set([record.external_ref]),
+          });
+        }
+      }
+    }
+  }
+
+  const items: StagedItemView[] = [];
+  let needsInput = 0;
+  for (const [key, g] of grouped) {
+    const { resolution } = await previewLine(client, {
+      sourceType: g.sourceType,
+      description: g.description,
+      sku: g.sku ? { kind: "asin", value: g.sku } : null,
+    });
+
+    let itemId: string | null = null;
+    let itemName: string | null = null;
+    let category: { id: string; name: string } | null = null;
+    if (resolution.action !== "create") {
+      itemId = resolution.itemId;
+      const summary = await itemSummary(client, resolution.itemId);
+      itemName = summary?.display_name ?? summary?.canonical_name ?? null;
+      if (summary?.category_id && summary.category_name) {
+        category = { id: summary.category_id, name: summary.category_name };
+      }
+    }
+    const proposals = resolution.action === "create" ? resolution.propose : [];
+    const needs = resolution.action === "link" || proposals.length > 0;
+    if (needs) needsInput++;
+
+    items.push({
+      key,
+      source_type: g.sourceType,
+      sku: g.sku,
+      description: g.description,
+      line_count: g.lines,
+      total_paise: g.paise,
+      order_refs: [...g.orders].slice(0, 8),
+      action: resolution.action,
+      item_id: itemId,
+      item_name: itemName,
+      category,
+      needs_input: needs,
+      candidates: proposals.map((c) => ({
+        item_id: c.itemId, name: c.canonicalName, similarity: c.similarity,
+      })),
+    });
+  }
+
+  const needle = opts.q?.trim().toLowerCase();
+  const filtered = items.filter((i) => {
+    if (opts.needsInputOnly && !i.needs_input) return false;
+    if (!needle) return true;
+    return i.description.toLowerCase().includes(needle)
+      || (i.item_name ?? "").toLowerCase().includes(needle)
+      || (i.sku ?? "").toLowerCase().includes(needle);
+  });
+  // Most-bought first: the products worth filing are the ones you buy repeatedly, which is the
+  // entire economic argument for a catalogue.
+  filtered.sort((a, b) => b.line_count - a.line_count || b.total_paise - a.total_paise);
+
+  return { items: filtered, total: items.length, needs_input: needsInput };
+}
+
 export type ConfirmOverride = { item_id?: string; create_new?: boolean };
 
 export type ConfirmResult = {
@@ -275,6 +420,13 @@ export type ConfirmResult = {
 export async function confirmOne(
   client: PoolClient,
   artifactId: string,
+  /**
+   * Keyed by PRODUCT, not by line: "amazon:B0BG6CT9ZV".
+   *
+   * A decision belongs to the product, so making it once has to apply to every line and every
+   * order that product appears in. Keying by line meant answering the same question up to
+   * twelve times, and the twelfth answer silently winning wherever it differed.
+   */
   overrides: Record<string, ConfirmOverride>,
 ): Promise<{ external_ref: string; evidence_id: string; items_resolved: number }> {
   const row = await client.query<{ external_ref: string; source_type: string | null; record: ParsedRecord; parse_status: string }>(
@@ -316,8 +468,9 @@ export async function confirmOne(
   for (const invoice of record.invoices) {
     for (const line of invoice.lines) {
       if (line.kind === "fee") continue; // fees are money, never catalogue entries
-      const key = `${artifactId}:${resolved}`;
-      const override = overrides[key];
+      // Same key the items view emits, so a decision made there reaches every sighting.
+      const canon = canonicalName(line.description);
+      const override = overrides[`${sourceType}:${line.sku ?? `name:${canon}`}`];
       if (override?.item_id) {
         // A person pointed this line at a product. That is a DECISION, so the alias is written
         // with source 'user' — the strongest provenance, and one a re-run must never overwrite.
