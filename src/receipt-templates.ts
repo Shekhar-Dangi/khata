@@ -1,8 +1,8 @@
 // Which merchant's invoice is this? Decided from the extracted TEXT, never the filename.
 //
-// the design: detection is by content sniffing — "filenames are user-controlled and
-// meaningless, and a file renamed on the way out of a phone would silently pick the wrong
-// parser". This is that rule for PDFs, one level above `sniffMime` in src/artifacts.ts, which
+// Detection is by content sniffing: filenames are user-controlled and meaningless, and a
+// file renamed on the way out of a phone would silently pick the wrong parser. This is that
+// rule for PDFs, one level above `sniffMime` in src/artifacts.ts, which
 // answers the cruder question of whether the bytes are a PDF at all.
 //
 // Kept apart from `detectSource` in evidence-import.ts on purpose. That one answers "which
@@ -10,7 +10,7 @@
 // is this" by looking for a legal entity's name in extracted prose. Same idea, different
 // evidence, and merging them would give one function two unrelated failure modes.
 
-/** Templates we can recognise. A parser existing is a separate question — see below. */
+/** Templates we can recognise. A parser existing is a separate question: PARSERS_AVAILABLE. */
 export type ReceiptTemplate = "blinkit" | "amazon";
 
 type TemplateSignature = {
@@ -73,9 +73,12 @@ export function detectReceiptTemplate(text: string): ReceiptTemplate | null {
  * with its template recorded, and re-parsed for free once a parser lands. Collapsing the two
  * would make a recognised-but-unparseable invoice indistinguishable from an unknown one.
  *
- * Every entry is false today. Phase B of the design flips them one at a time.
+ * Every entry started false, and each flips to true only when its parser lands.
  */
 export const PARSERS_AVAILABLE: Record<ReceiptTemplate, boolean> = {
   blinkit: false,
-  amazon: false,
+  // Landed 2026-09-06: ingest/receipts/amazon.py, verified on a real corpus of a few hundred
+  // invoices, with every file it did not land quarantined for a stated reason (credit notes,
+  // a delivery challan, and an invoice Amazon printed with a blank order number).
+  amazon: true,
 };

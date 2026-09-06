@@ -78,8 +78,40 @@ export type ExtractFailure =
   | "empty" | "not_pdf" | "encrypted" | "malformed" | "too_large" | "no_text"
   | "timeout" | "output_too_large" | "internal";
 
+/** The parsed order, when a parser recognised the template AND the arithmetic reconciled. */
+export type ParsedRecord = {
+  source_type: string;
+  external_ref: string;
+  order_date: string | null;
+  total_paise: number;
+  invoices: { invoice_number: string; seller_name: string | null; invoice_date: string | null; total_paise: number; lines: ParsedLine[] }[];
+  payment: { mode: string }[];
+  warnings: string[];
+};
+
+export type ParsedLine = {
+  kind: "goods" | "fee";
+  invoice_number: string;
+  description: string;
+  sku: string | null;
+  hsn: string | null;
+  qty: number;
+  amount_paise: number;
+  unit_paise: number | null;
+  net_paise: number | null;
+  tax_paise: number | null;
+  discount_paise: number | null;
+};
+
 export type ExtractResult =
-  | { ok: true; document: ExtractedDocument }
+  | {
+      ok: true;
+      document: ExtractedDocument;
+      /** Present only when a parser ran AND the reconcile gate passed. */
+      record: ParsedRecord | null;
+      /** Why no record — a parser refusal, or a reconcile mismatch. */
+      parseError: { kind: string; error: string } | null;
+    }
   | { ok: false; kind: ExtractFailure; error: string };
 
 /**
@@ -193,9 +225,21 @@ export function extractPdf(
         finish({ ok: false, kind: "internal", error: "extractor did not return JSON" });
         return;
       }
-      const body = parsed as { ok?: boolean; kind?: string; error?: string; document?: unknown };
+      const body = parsed as {
+        ok?: boolean; kind?: string; error?: string; document?: unknown;
+        record?: unknown; parse_error?: { kind: string; error: string } | null;
+      };
       if (body.ok === true && body.document) {
-        finish({ ok: true, document: body.document as ExtractedDocument });
+        finish({
+          ok: true,
+          document: body.document as ExtractedDocument,
+          // The reconcile gate runs INSIDE the child, so a record that
+          // comes back has already been proved to add up. A parse that did not is reported
+          // here as parseError and never as a record — there is no third state where we hold
+          // a basket we know is wrong.
+          record: (body.record as ParsedRecord | null) ?? null,
+          parseError: body.parse_error ?? null,
+        });
         return;
       }
       finish({

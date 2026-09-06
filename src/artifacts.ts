@@ -1,6 +1,6 @@
 // The artifact store: the bytes a person uploaded, kept BEFORE anything tries to read them.
 //
-// the design/the design both make this slice 1 of invoice ingestion, for
+// Storing the bytes first is slice 1 of invoice ingestion, for
 // one reason: a parser bug must cost a re-run, not the document. A Splitwise CSV is
 // re-downloadable in ten seconds; a Blinkit invoice is exposed per order and never in bulk, so
 // losing it loses the order.
@@ -71,7 +71,7 @@ export function isTextual(bytes: Buffer): boolean {
  * Never from the `Content-Type` header and never from the filename, both of which are
  * client-controlled and routinely wrong: curl sends a form content-type unless told
  * otherwise, browsers send whatever the page set, and a file renamed on the way out of a
- * phone carries no truth at all. the design already applies this rule to choosing a
+ * phone carries no truth at all. Parser detection already applies this rule to choosing a
  * PARSER; this is the same rule one level down, choosing whether the bytes may be turned into
  * a string at all.
  *
@@ -85,7 +85,15 @@ export function sniffMime(bytes: Buffer): string {
   return "application/octet-stream";
 }
 
-export type ParseStatus = "pending" | "parsed" | "unsupported" | "failed";
+/**
+ * Where an artifact is in its life.
+ *
+ * 'staged' (migration 015) is genuinely distinct from 'parsed': it means PARSED AND
+ * RECONCILED, WAITING FOR A PERSON. Collapsing the two would make "waiting for you" look
+ * identical to "already in your ledger", which is the one distinction the two-phase import
+ * exists to draw.
+ */
+export type ParseStatus = "pending" | "staged" | "parsed" | "unsupported" | "failed";
 
 export type StoredArtifact = {
   id: string;
@@ -101,7 +109,7 @@ export type StoredArtifact = {
  * Put the bytes in the store, or find the row that already holds them.
  *
  * Written as INSERT ... ON CONFLICT DO NOTHING and then a SELECT, rather than SELECT-then-
- * INSERT. the design is explicit about why: a dedupe implemented as SELECT-then-INSERT
+ * INSERT, for a reason worth being explicit about: a dedupe implemented as SELECT-then-INSERT
  * is a race and a lie, because two callers can both see "absent" and both insert. Here the
  * UNIQUE index is the thing that decides, and the SELECT only reports what it decided.
  *

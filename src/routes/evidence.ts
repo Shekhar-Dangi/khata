@@ -26,6 +26,7 @@ import {
 } from "./../artifacts.ts";
 import { isKnownSource, rematchEvidence } from "./../evidence-sources.ts";
 import { intakePdf } from "./../receipt-intake.ts";
+import { type ConfirmOverride, type ConfirmResult, confirmOne, listStaged } from "./../staging.ts";
 import {
   evidenceNeedingRederive,
   listSourceCategories,
@@ -346,6 +347,79 @@ router.post("/evidence/artifacts/:id/reparse", route(async (req, res) => {
   } finally {
     client.release();
   }
+}));
+
+
+/**
+ * GET /evidence/staged?limit=&offset=&attention=1
+ *
+ * What is waiting for you to confirm — the design. Reads from the server every time
+ * and holds nothing in the browser, so the review survives a refresh and a person can upload
+ * 200 orders today and confirm them next week.
+ *
+ * `attention=1` is the default view in the UI: a screen that asks someone to read 221 orders
+ * will not be read. Everything else stays reachable, just not in the way.
+ */
+router.get("/evidence/staged", route(async (req, res) => {
+  const paging = parsePaging(req.query);
+  if (!paging.ok) return res.status(400).json({ error: paging.error });
+  const attentionOnly = req.query.attention === "1" || req.query.attention === "true";
+
+  const client = await pool.connect();
+  try {
+    const staged = await listStaged(client, {
+      limit: paging.limit, offset: paging.offset, attentionOnly,
+    });
+    return res.json({ ...staged, limit: paging.limit, offset: paging.offset });
+  } finally {
+    client.release();
+  }
+}));
+
+/**
+ * POST /evidence/staged/confirm
+ *
+ * Land the selected orders. Body: `{ artifact_ids, overrides }` where an override is keyed
+ * `"<artifact_id>:<line_index>"` and points a line at a product a person chose.
+ *
+ * ONE TRANSACTION PER ORDER, deliberately. The unit of atomicity is the order because that is
+ * the person's unit — one credit note in the middle must not undo two hundred good orders, and
+ * partial confirm is the whole reason the screen is usable. Every order reports its own
+ * outcome, so nothing fails silently.
+ */
+router.post("/evidence/staged/confirm", route(async (req, res) => {
+  const body = req.body as { artifact_ids?: unknown; overrides?: unknown };
+  const ids = body?.artifact_ids;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    throw badRequest("artifact_ids must be a non-empty array");
+  }
+  if (ids.length > 500) throw badRequest("confirm at most 500 orders at a time");
+  const overrides = (body.overrides ?? {}) as Record<string, ConfirmOverride>;
+
+  const result: ConfirmResult = { landed: [], skipped: [], errors: [] };
+
+  for (const raw of ids) {
+    const id = String(raw);
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const landed = await confirmOne(client, id, overrides);
+      await client.query("COMMIT");
+      result.landed.push({ artifact_id: id, ...landed });
+    } catch (err) {
+      try { await client.query("ROLLBACK"); } catch { /* keep the original error */ }
+      const message = err instanceof Error ? err.message : String(err);
+      // "not staged" is the ordinary outcome of confirming twice — a double-click, a browser
+      // retry, or a second tab. Reported as SKIPPED rather than as an error, because nothing
+      // went wrong and a red row would say it did.
+      if (message.includes("not staged")) result.skipped.push({ artifact_id: id, reason: message });
+      else result.errors.push({ artifact_id: id, error: message });
+    } finally {
+      client.release();
+    }
+  }
+
+  return res.json(result);
 }));
 
 /**

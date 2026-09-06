@@ -153,6 +153,41 @@ async function raiseProposals(
 }
 
 /**
+ * What WOULD happen to this line, without writing anything.
+ *
+ * The review screen needs this before a person confirms, and it must be computed at READ time
+ * rather than stored when the file was uploaded: someone can upload 200 orders today and
+ * confirm them tomorrow, and in between they may have categorised items or accepted merges.
+ * A stored preview would quietly describe a catalogue that no longer exists.
+ *
+ * Shares every step with `resolveAndRecord` below except the writes, so the preview cannot
+ * disagree with what confirming actually does.
+ */
+export async function previewLine(
+  client: PoolClient,
+  line: RawLine,
+): Promise<{ resolution: Resolution; canonical: string }> {
+  const canon = canonicalName(line.description);
+  if (canon === "") return { resolution: { action: "create", confidence: 100, propose: [] }, canonical: "" };
+  const aliasHit = await findAlias(client, line, canon);
+  const candidates = aliasHit ? [] : await findCandidates(client, canon, line);
+  return { resolution: resolveLine(aliasHit, candidates, canon), canonical: canon };
+}
+
+/** The name and category an item shows in a review screen. */
+export async function itemSummary(client: PoolClient, itemId: string) {
+  const r = await client.query<{
+    id: string; display_name: string | null; canonical_name: string;
+    category_id: string | null; category_name: string | null;
+  }>(
+    `SELECT i.id, i.display_name, i.canonical_name, i.category_id, c.name AS category_name
+       FROM items i LEFT JOIN categories c ON c.id = i.category_id WHERE i.id = $1`,
+    [itemId],
+  );
+  return r.rowCount ? r.rows[0] : null;
+}
+
+/**
  * Turn one raw merchant line into a catalogue item, writing whatever that implies.
  *
  * The ONE entry point a parser calls. It never blocks and never merges: the worst outcome is a
