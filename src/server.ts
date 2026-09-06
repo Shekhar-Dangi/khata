@@ -5,6 +5,7 @@ import { errorHandler, notFoundHandler } from "./http.ts";
 import { accounts } from "./routes/accounts.ts";
 import { categories } from "./routes/categories.ts";
 import { evidence } from "./routes/evidence.ts";
+import { items } from "./routes/items.ts";
 import { reports } from "./routes/reports.ts";
 import { rules } from "./routes/rules.ts";
 import { transactions } from "./routes/transactions.ts";
@@ -89,6 +90,7 @@ app.get("/health", (_req, res) => {
 app.use(accounts);
 app.use(categories);
 app.use(evidence);
+app.use(items);
 app.use(reports);
 app.use(rules);
 app.use(transactions);
