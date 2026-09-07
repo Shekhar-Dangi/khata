@@ -2645,3 +2645,95 @@ footer .shell {
 .sources-focus .btn-ghost {
   padding: 0;
 }
+
+/* ── the catalogue picker, as a table cell ─────────────
+   It replaced a panel that opened under the row. A row that changes height while you are
+   reading the row beneath it is the flicker this screen exists to remove, and answering a line
+   is one word rather than four actions. */
+.combo {
+  position: relative;
+}
+.combo-input {
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  height: var(--control-h);
+  padding: 0 9px;
+  width: 100%;
+}
+.combo-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.combo-input::placeholder {
+  color: #a8a293;
+  font-style: italic;
+}
+/* The id rides under the box rather than inside it: it must not be something you delete
+   before you can type. */
+.combo-id {
+  display: block;
+  font-size: 11px;
+  margin-top: 2px;
+}
+.combo-pop {
+  position: absolute;
+  z-index: 20;
+  top: calc(var(--control-h) + 3px);
+  left: 0;
+  right: 0;
+  min-width: 260px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  box-shadow: 0 2px 6px rgba(28, 26, 21, 0.07);
+  max-height: 232px;
+  overflow-y: auto;
+}
+.combo-said {
+  margin: 0;
+  padding: 9px 11px;
+  font-size: 12px;
+}
+.combo-hit {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  padding: 7px 11px;
+  cursor: pointer;
+}
+.combo-hit:last-child {
+  border-bottom: 0;
+}
+.combo-hit:hover {
+  background: var(--paper-sunk);
+}
+.combo-hit-meta {
+  display: block;
+  font-size: 11px;
+}
+.combo-clear {
+  color: var(--ink-soft);
+}
+
+/* `.record-table td:last-child` truncates a last cell, and it is a DESCENDANT selector — so it
+   reached past the row into the line-item table nested inside it and clipped the catalogue
+   popover to an 8px sliver. Measured, not guessed: the popover was 52px tall with the right
+   contents and a `<td>` above it was `overflow: hidden`.
+   Scoped overrides rather than weakening the original, which the Splitwise tables still want:
+   equal specificity, declared later, so these win exactly where they apply. */
+.record-table td.order-detail,
+.record-table .pick-table td,
+.pick-table td {
+  overflow: visible;
+  text-overflow: clip;
+}

@@ -6,7 +6,7 @@
 // rates, and a file holding both would invite a screen that confuses "this order needs a bank
 // row" with "this product needs a category".
 //
-// WHY A PRODUCT LIST EXISTS AT ALL. 365 goods lines in the real corpus resolve to 234 products.
+// WHY A PRODUCT LIST EXISTS AT ALL. Goods lines in a real corpus resolve to far fewer products.
 // A category is a property of the product, so filing per line means answering the same question
 // up to a dozen times — and getting a different answer on the twelfth. The server groups before
 // it resolves, for that reason and one more: resolving per line would let one product get two
@@ -31,6 +31,8 @@ export type StagedItem = {
   sku: string | null;
   /** The fullest description seen for this product across the staged set. */
   description: string;
+  /** That description reduced to the key the catalogue is addressed by. See StagedLine. */
+  canonical: string;
   line_count: number;
   total_paise: number;
   order_refs: string[];

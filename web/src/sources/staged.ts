@@ -4,8 +4,8 @@
 //
 // Kept apart from sources.ts on purpose. That file is the Splitwise vocabulary: records that
 // expected cash, in the state they are in NOW, all of them already on the ledger. This one is
-// the vocabulary of things that are NOT on the ledger yet (the design — "artifacts
-// is the inbox; evidence is the ledger"). Two piles with two verbs; one file that held both
+// the vocabulary of things that are NOT on the ledger yet ("artifacts is the inbox; evidence
+// is the ledger"). Two piles with two verbs; one file that held both
 // would invite a screen that confused "waiting for you to confirm" with "waiting for you to
 // match", which is the distinction the two-phase import exists to draw.
 
@@ -17,7 +17,7 @@ export type StagedSummary = {
   total_paise: number;
   needs_attention: number;
   /**
-   * Line items whose PRODUCT has no category. The number that makes its warning concrete:
+   * Line items whose PRODUCT has no category. The number that makes the up-front warning concrete:
    * while it is non-zero, confirming writes evidence and produces no allocations at all.
    */
   uncategorised_lines: number;
@@ -54,7 +54,7 @@ export type ItemCandidate = { item_id: string; name: string; similarity: number 
  *   create     a new item, because nothing was close enough to be safe
  *
  * `needs_input` is orthogonal to all three: it means the resolver got far enough to have an
- * opinion and not far enough to act on it alone. See the design — a duplicate item
+ * opinion and not far enough to act on it alone. The asymmetry behind it: a duplicate item
  * costs one visible merge, a wrong merge silently routes two products' spending into one
  * category forever, so the resolver is biased toward creating and asks rather than guessing.
  */
@@ -73,7 +73,20 @@ export type StagedLine = {
   sku: string | null;
   hsn: string | null;
   qty: number;
+  /**
+   * What the invoice says ONE of them cost, and what the line came to. They differ by tax and
+   * discount, so the price column shows this rather than amount ÷ qty — a derived unit price
+   * would quietly contradict the document it claims to be reading.
+   */
+  unit_paise: number;
   amount_paise: number;
+  /**
+   * The invoice's words reduced to the key the catalogue is addressed by — quantity and pack
+   * form stripped. Shown as its own column because it is the only thing that EXPLAINS a
+   * resolution: two raw strings that differ resolving to one product is unreadable until you
+   * can see the key they both reduce to. Null for a fee, which never reaches the catalogue.
+   */
+  canonical: string | null;
   resolution: LineResolution;
   /**
    * The PRODUCT's category, not the line's. Ids arrive as strings — pg returns BIGINT as a
@@ -89,7 +102,7 @@ export type StagedOrder = {
   source_type: string;
   order_date: string;
   total_paise: number;
-  /** One order can be several invoices — the design. Worth showing, never summing. */
+  /** One order can be several invoices, one per legal seller. Worth showing, never summing. */
   invoice_count: number;
   needs_attention: boolean;
   match: StagedMatch;
@@ -97,9 +110,10 @@ export type StagedOrder = {
 };
 
 /**
- * A file that parsed as something this app cannot post yet — 29 of the real corpus are credit
- * notes waiting on. A STATE, not a failure: the bytes are in the store and the day the
- * feature lands they are re-read without anyone re-uploading. Drawn in ink, never in red.
+ * A file that parsed as something this app cannot post yet — a real corpus holds a fair number of
+ * credit notes waiting on refund support. A STATE, not a failure: the bytes are in the store and
+ * the day the feature lands they are re-read without anyone re-uploading. Drawn in ink, never in
+ * red.
  */
 export type HeldFile = {
   artifact_id: string;
@@ -120,12 +134,12 @@ export type Override = { item_id: string } | { create_new: true };
 /**
  * The same answer, as the screen holds it.
  *
- * `label` is the chosen product's NAME. It is deliberately not on the wire — the server knows
- * an item's name better than the browser does — and the screen cannot do without it:
- * requires the category picker to be labelled with the PRODUCT, and a person who searched the
- * catalogue has picked a product this line's own resolution never mentioned, so nothing in the
- * response can supply the name. Carried in ONE value rather than in a parallel map, because two
- * maps updated in step are two maps that can be read a render apart.
+ * `label` is the chosen product's NAME. It is deliberately not on the wire — the server knows an
+ * item's name better than the browser does — and the screen cannot do without it: a category
+ * belongs to the product, so the category picker must be labelled with the PRODUCT, and a person
+ * who searched the catalogue has picked a product this line's own resolution never mentioned, so
+ * nothing in the response can supply the name. Carried in ONE value rather than in a parallel
+ * map, because two maps updated in step are two maps that can be read a render apart.
  */
 export type LineAnswer = { answer: Override; label: string };
 
@@ -137,8 +151,8 @@ export type ConfirmResponse = {
 };
 
 /**
- * The key an override travels under: `"<artifact_id>:<line_index>"`, exactly as spells
- * it. One function so the writer and the reader cannot disagree about the separator.
+ * The key an override travels under: `"<artifact_id>:<line_index>"`, exactly as the confirm
+ * route reads it. One function so the writer and the reader cannot disagree about the separator.
  */
 export function overrideKey(artifactId: string, index: number): string {
   return `${artifactId}:${index}`;
@@ -168,7 +182,7 @@ export function dayMonth(iso: string): string {
   return at.toLocaleDateString("en-IN", { day: "2-digit", month: "short", timeZone: "UTC" });
 }
 
-/** What a line will do, in the three words the design asks for. */
+/** What a line will do, in three words: existing, new, or needs input. */
 export type Verdict = "existing" | "new" | "input";
 
 /**

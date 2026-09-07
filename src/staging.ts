@@ -34,6 +34,15 @@ export type StagedLineView = ParsedLine & {
   index: number;
   resolution: LineResolutionView;
   category: { id: string; name: string } | null;
+  /**
+   * The invoice's words reduced to the key the catalogue is actually addressed by — quantity
+   * and pack form stripped, per the owner decision recorded on `canonicalName`.
+   *
+   * Sent because it is the ONLY way a person can see WHY two lines resolved to one product or
+   * failed to: the raw strings differ, the resolution says "existing", and without the key in
+   * between the answer is unexplainable. Null for a fee, which never reaches the catalogue.
+   */
+  canonical: string | null;
 };
 
 export type StagedOrderView = {
@@ -131,6 +140,7 @@ export async function listStaged(
             ...line, index: here,
             resolution: { action: "fee", item_id: null, item_name: null, needs_input: false, candidates: [] },
             category: null,
+            canonical: null,
           });
           continue;
         }
@@ -168,6 +178,7 @@ export async function listStaged(
             })),
           },
           category,
+          canonical: canonicalName(line.description),
         });
       }
     }
@@ -269,6 +280,8 @@ export type StagedItemView = {
   sku: string | null;
   /** The fullest description seen for this product across the staged set. */
   description: string;
+  /** That description reduced to the key the catalogue is addressed by. See StagedLineView. */
+  canonical: string;
   /** How many staged LINES resolve to this product, and what they are worth. */
   line_count: number;
   total_paise: number;
@@ -369,6 +382,7 @@ export async function listStagedItems(
       source_type: g.sourceType,
       sku: g.sku,
       description: g.description,
+      canonical: canonicalName(g.description),
       line_count: g.lines,
       total_paise: g.paise,
       order_refs: [...g.orders].slice(0, 8),

@@ -8,9 +8,10 @@ import type { Category } from "../shared/transactions";
 import { useBusy, useFetch } from "../shared/useFetch";
 import StagedOrderRow from "./StagedOrder";
 import StagedProducts from "./StagedProducts";
-import type { StagedItemsResponse } from "./stagedItems";
+import type { StagedItem, StagedItemsResponse } from "./stagedItems";
 import {
   ORDER_FILTERS,
+  overrideKey,
   type OrderFilter,
   artifactOfKey,
   inOrderFilter,
@@ -62,23 +63,172 @@ type RowHandlers = {
   onPick: (order: StagedOrder) => void;
   answers: Map<string, LineAnswer>;
   onAnswer: (key: string, next: LineAnswer | null) => void;
-  categories: Category[];
-  freshCategories: Map<string, { id: number; name: string } | null>;
-  onCategorised: (itemId: string, category: { id: number; name: string } | null) => void;
   openId: string | null;
   onOpen: (id: string | null) => void;
 };
 
+/**
+ * THE INBOX — everything parsed and waiting for a person, grouped the way imports are.
+ *
+ * This component now only READS. Everything about working through a group lives in
+ * `StagedGroup`, one per source, because that is the question the old flat list could not
+ * answer: drop Amazon today and Blinkit tomorrow and the two used to become one pile of 300
+ * with a single "select all" across both.
+ *
+ * THREE READS, ONE LEVEL UP. Orders, products and the category tree are fetched here rather
+ * than inside each panel: every panel needs the taxonomy, the product count has to be on a
+ * collapsed tab label before anyone opens it, and `/evidence/staged` resolves the whole inbox
+ * on every call — so one request per group would multiply the most expensive read on the
+ * screen by the number of merchants.
+ */
 export default function StagedReview() {
   const { version, bump } = useLedgerVersion();
+  // Collapsed until asked, like every import below. A drop of 213 orders that springs open on
+  // arrival buries the rest of the page under itself.
+  const [open, setOpen] = useState<Set<string>>(new Set());
+
+  const cats = useFetch<{ categories: Category[] }>("/categories");
+  const categories = cats.data?.categories ?? [];
+
+  const products = useFetch<StagedItemsResponse>("/evidence/staged/items", {
+    keepPreviousData: true,
+    revalidateOn: version,
+  });
+
+  const inbox = useFetch<StagedResponse>(`/evidence/staged?limit=${MAX_PAGE}&offset=0`, {
+    keepPreviousData: true,
+    revalidateOn: version,
+  });
+  const working = useBusy(inbox.refreshing);
+  const summary = inbox.data?.summary ?? null;
+
+  // SAID, not blank. Resolving every staged order against the catalogue takes seconds on a real
+  // drop, and returning null for the whole of it is why a full inbox looked like an empty one.
+  if (inbox.loading) {
+    return (
+      <div className="staged">
+        <div className="busybar on" aria-hidden="true">
+          <i />
+        </div>
+        <p className="soft batch-empty">Reading the invoice inbox…</p>
+      </div>
+    );
+  }
+
+  // A FAILED READ IS SAID, an empty one is not. The two are indistinguishable from `data ===
+  // null` and they are not the same fact: an inbox nobody has filled should show nothing at
+  // all, while one that could not be read is exactly the silent failure that would let someone
+  // believe two hundred uploaded invoices had vanished.
+  if (inbox.error !== null) {
+    return <p className="note">Could not read the invoice inbox — {inbox.error}</p>;
+  }
+  if (summary === null) return null;
+  if (summary.staged === 0 && summary.held === 0) return null;
+
+  // One group per source, biggest first. `source_type` is the only grouping the data carries;
+  // see the note on StagedGroup for why that is not quite "per drop".
+  const orders = inbox.data?.orders ?? [];
+  const bySource = new Map<string, StagedOrder[]>();
+  for (const o of orders) {
+    const key = o.source_type || "unknown";
+    const held = bySource.get(key);
+    if (held) held.push(o);
+    else bySource.set(key, [o]);
+  }
+  const sources = [...bySource.entries()].sort((a, b) => b[1].length - a[1].length);
+  const allProducts = products.data?.items ?? [];
+  const stale = working || inbox.isStale;
+
+  return (
+    <div className="staged">
+      {sources.map(([source, group]) => (
+        <StagedGroup
+          key={source}
+          source={source}
+          orders={group}
+          // A product belongs to the group whose merchant sold it. Filtered here so a panel's
+          // Products tab can never offer something from a different merchant's drop.
+          products={allProducts.filter((i) => i.source_type === source)}
+          categories={categories}
+          stale={stale}
+          expanded={open.has(source)}
+          onToggle={() =>
+            setOpen((current) => {
+              const next = new Set(current);
+              if (next.has(source)) next.delete(source);
+              else next.add(source);
+              return next;
+            })
+          }
+          onConfirmed={bump}
+        />
+      ))}
+
+      {summary.held > 0 && (
+        <Held
+          files={inbox.data?.held ?? []}
+          count={summary.held}
+          expanded={open.has("__held")}
+          onToggle={() =>
+            setOpen((current) => {
+              const next = new Set(current);
+              if (next.has("__held")) next.delete("__held");
+              else next.add("__held");
+              return next;
+            })
+          }
+        />
+      )}
+
+      {/* The taxonomy failing is not the inbox failing — the orders are still reviewable and
+          only the category pickers go empty, so it is said here rather than replacing them. */}
+      {cats.error !== null && <p className="note">Categories could not be read — {cats.error}</p>}
+    </div>
+  );
+}
+
+/**
+ * ONE SOURCE'S worth of the inbox, in a panel shaped exactly like an import's.
+ *
+ * The inbox used to be a flat pile with a heading. That was fine while only one merchant's
+ * receipts had ever been dropped, and wrong the moment a second arrived: two merchants'
+ * invoices merged into one list of 300, one "select all", one confirm, and no way to work
+ * through today's drop without touching last week's. It also sat at a different indent from
+ * the imports below it, which made two things that ARE the same kind of thing look like two
+ * kinds of thing.
+ *
+ * So a source is a group, drawn as `.batch` like every import, collapsed until opened, with
+ * its own tabs, filters, selection and confirm. Nothing here is shared between groups — which
+ * is the point: confirming Amazon cannot pick up a Blinkit order you had ticked and forgotten.
+ *
+ * The unit is SOURCE, not drop, because that is the only grouping the data actually carries —
+ * `artifacts` has `source_type` and `created_at` and no batch id. Two Amazon drops on separate
+ * days therefore share a panel. Splitting those needs a column, not a guess at one.
+ */
+function StagedGroup({
+  source,
+  orders,
+  products,
+  categories,
+  stale,
+  expanded,
+  onToggle,
+  onConfirmed,
+}: {
+  source: string;
+  orders: StagedOrder[];
+  products: StagedItem[];
+  categories: Category[];
+  stale: boolean;
+  expanded: boolean;
+  onToggle: () => void;
+  onConfirmed: () => void;
+}) {
   // The full ROW, not just its id — an order picked on page 1 is still picked on page 3, and a
   // confirm bar counting money from rows nothing on screen shows would be a number with no
   // visible cause. Same reasoning, and the same shape, as TransactionFinder's `picked`.
   const [picked, setPicked] = useState<Map<string, StagedOrder>>(new Map());
   const [answers, setAnswers] = useState<Map<string, LineAnswer>>(new Map());
-  const [freshCategories, setFreshCategories] = useState<
-    Map<string, { id: number; name: string } | null>
-  >(new Map());
   const [openId, setOpenId] = useState<string | null>(null);
   const [offset, setOffset] = useState(0);
   const [result, setResult] = useState<ConfirmResponse | null>(null);
@@ -90,46 +240,50 @@ export default function StagedReview() {
   // made a person meet the same milk six times.
   const [tab, setTab] = useState<"orders" | "products">("orders");
   const [filter, setFilter] = useState<OrderFilter>("needs");
+  // What the Products tab has been told, by normalised key. Kept beside `answers` rather than
+  // derived from it: a key mapped to "create one" writes the same override as a key nobody has
+  // touched, so the two are indistinguishable in `answers` and only this remembers the
+  // difference between an answer and a default.
+  const [mapped, setMapped] = useState<Map<string, { id: string; name: string } | null>>(
+    new Map(),
+  );
 
-  // ONE request for the category tree, here rather than inside each picker: five hundred line
-  // items each fetching the taxonomy would be five hundred requests for the same list.
-  const cats = useFetch<{ categories: Category[] }>("/categories");
-  const categories = cats.data?.categories ?? [];
-
-  // Fetched HERE rather than inside the products tab, because the tab label needs the count
-  // before anyone opens it — and this route resolves every staged product against the
-  // catalogue, so asking twice would double the most expensive read on the screen.
-  const products = useFetch<StagedItemsResponse>("/evidence/staged/items", {
-    keepPreviousData: true,
-    revalidateOn: version,
-  });
-
-  // The attention page IS the summary request. One fetch, not two: a second call for the
-  // header would ask the server to re-run resolution over the same rows to produce figures the
-  // first one already carried, and the two could disagree while both were in flight.
-  // THE WHOLE INBOX IN ONE REQUEST, and then filtered and paged here.
-  //
-  // `listStaged` resolves EVERY staged record whatever the limit — its own comment says so, and
-  // says why: `needs_attention` can only be known by resolving an order's lines, so paging in
-  // SQL made the summary describe a different set from the page. Which means a page costs the
-  // same as the lot, and the old two-list shape (an attention page, plus an "all" list behind a
-  // disclosure) paid that price TWICE and still left 211 of 213 orders reachable only by
-  // opening a fold.
-  //
-  // One read, filtered locally: every chip counts exactly, "select all" is a set rather than a
-  // promise, and nothing is behind a disclosure. Same argument as StagedProducts, same shape.
-  const inbox = useFetch<StagedResponse>(`/evidence/staged?limit=${MAX_PAGE}&offset=0`, {
-    keepPreviousData: true,
-    revalidateOn: version,
-  });
-  const working = useBusy(inbox.refreshing);
-  const summary = inbox.data?.summary ?? null;
+  const summary = groupSummary(orders);
+  const working = stale;
 
   function toggle(order: StagedOrder) {
     setPicked((current) => {
       const next = new Map(current);
       if (next.has(order.artifact_id)) next.delete(order.artifact_id);
       else next.set(order.artifact_id, order);
+      return next;
+    });
+  }
+
+  /**
+   * Point every line that reduces to one normalised key at one catalogue item.
+   *
+   * This is what makes the Products tab worth having: the same milk appears on twelve lines
+   * across eight orders, and answering it there has to reach all twelve. Written as overrides
+   * on the LINES rather than as a product-level answer because `POST /evidence/staged/confirm`
+   * is keyed `artifact:line` — the wire has no notion of a product, and inventing one here
+   * would mean the screen and the server disagreed about what was decided.
+   */
+  function mapProduct(canonical: string, item: { id: string; name: string } | null) {
+    setMapped((current) => new Map(current).set(canonical, item));
+    setAnswers((current) => {
+      const next = new Map(current);
+      for (const o of orders) {
+        for (const l of o.lines) {
+          if (l.kind === "fee" || l.canonical !== canonical) continue;
+          next.set(
+            overrideKey(o.artifact_id, l.index),
+            item === null
+              ? { answer: { create_new: true }, label: canonical }
+              : { answer: { item_id: item.id }, label: item.name },
+          );
+        }
+      }
       return next;
     });
   }
@@ -167,10 +321,11 @@ export default function StagedReview() {
       // is cheap next to it.
       setPicked(new Map());
       setAnswers(new Map());
+      setMapped(new Map());
       setOpenId(null);
       // Evidence, matching and allocations all move on a confirm, and the summary strip lives
       // in a different subtree — see ledgerVersion.tsx.
-      bump();
+      onConfirmed();
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -178,61 +333,17 @@ export default function StagedReview() {
     }
   }
 
-  if (inbox.loading) {
-    return (
-      <div className="staged">
-        <div className="sect">
-          <span>Waiting for you to confirm</span>
-        </div>
-        {/* SAID, not blank. Resolving every staged order against the catalogue takes seconds on
-            a real drop, and returning null for the whole of it is why a full inbox looked like
-            an empty one — the section simply was not on the page yet. */}
-        <div className="busybar on" aria-hidden="true">
-          <i />
-        </div>
-        <p className="soft batch-empty">Reading the invoice inbox…</p>
-      </div>
-    );
-  }
-
-  // A FAILED READ IS SAID, an empty one is not. The two are indistinguishable from `data ===
-  // null` and they are not the same fact: an inbox nobody has filled should show nothing at
-  // all, while an inbox that could not be read is exactly the silent failure that would let
-  // someone believe two hundred uploaded invoices had vanished.
-  if (inbox.error !== null) {
-    return (
-      <div className="staged">
-        <div className="sect">
-          <span>Waiting for you to confirm</span>
-        </div>
-        <p className="note">Could not read the invoice inbox — {inbox.error}</p>
-      </div>
-    );
-  }
-
-  // NOTHING WAITING IS NOT AN EMPTY STATE WORTH DRAWING. This section sits above the Splitwise
-  // imports, on a screen whose drop panel already says what to do with an empty inbox — a panel
-  // announcing "no invoices are waiting" would be a third statement of the same fact, for the
-  // same reason Pager renders nothing when there is nothing to page through.
-  if (summary === null) return null;
-  if (summary.staged === 0 && summary.held === 0) return null;
-
   const handlers: RowHandlers = {
     picked,
     onPick: toggle,
     answers,
     onAnswer: setAnswer,
-    categories,
-    freshCategories,
-    onCategorised: (itemId, category) =>
-      setFreshCategories((current) => new Map(current).set(itemId, category)),
     openId,
     onOpen: setOpenId,
   };
 
-  // Every staged order, then the view of it, then the page of that. One array behind the
-  // chips, the table and "select all", so the three cannot disagree about what they mean.
-  const orders = inbox.data?.orders ?? [];
+  // The view of this group's orders, then the page of that. One array behind the chips, the
+  // table and "select all", so the three cannot disagree about what they mean.
   const matching = orders.filter((o) => inOrderFilter(o, filter));
   const pageOrders = matching.slice(offset, offset + PAGE);
   const filterLabel = ORDER_FILTERS.find((f) => f.id === filter)?.label ?? "all";
@@ -242,12 +353,30 @@ export default function StagedReview() {
   const unanswered = chosen.filter((o) => openLines(o, answers) > 0).length;
 
   return (
-    <div className="staged">
-      <div className="sect">
-        <span>Waiting for you to confirm</span>
+    <section className="batch">
+      {/* The same header an import has, at the same indent, saying the same four things — what
+          it is called, where it came from, how big it is, and how much of it is still work.
+          They ARE the same kind of thing, and drawing them differently was the reason this
+          list looked bolted on. */}
+      <button className="batch-head" aria-expanded={expanded} onClick={onToggle}>
+        <span className="batch-caret" aria-hidden="true">
+          {expanded ? "▾" : "▸"}
+        </span>
+        <span className="batch-name">{source} receipts</span>
         <span className="pill">not on your ledger yet</span>
-      </div>
+        <span className="soft batch-when mono">
+          {summary.staged} orders · {products.length} products ·{" "}
+          {rupees(summary.total_paise)}
+        </span>
+        <span className={`batch-left${summary.needs_attention > 0 ? " flag" : " credit"}`}>
+          {summary.needs_attention > 0
+            ? `${summary.needs_attention} waiting on you`
+            : `${summary.staged} ready to confirm`}
+        </span>
+      </button>
 
+      {!expanded ? null : (
+      <div className="batch-body">
       <Header summary={summary} />
 
       {result !== null && <Landed result={result} onDismiss={() => setResult(null)} />}
@@ -273,18 +402,20 @@ export default function StagedReview() {
               aria-current={tab === "products"}
               onClick={() => setTab("products")}
             >
-              Products <b className="mono">{products.data?.total ?? "—"}</b>
+              Products <b className="mono">{products.length}</b>
             </button>
           </div>
 
           {tab === "products" ? (
             <StagedProducts
-              all={products.data?.items ?? []}
-              loading={products.loading}
-              error={products.error}
-              stale={products.refreshing || products.isStale}
+              all={products}
+              loading={false}
+              error={null}
+              stale={stale}
               categories={categories}
-              onFiled={bump}
+              chosen={mapped}
+              onMap={mapProduct}
+              onFiled={onConfirmed}
             />
           ) : (
           <>
@@ -365,7 +496,7 @@ export default function StagedReview() {
             offset={offset}
             onOffset={setOffset}
             busy={working}
-            stale={working || inbox.isStale}
+            stale={stale}
             empty={`Nothing matches “${filterLabel}”.`}
             handlers={handlers}
             onSelectEvery={() =>
@@ -378,13 +509,30 @@ export default function StagedReview() {
         </>
       )}
 
-      {summary.held > 0 && <Held files={inbox.data?.held ?? []} count={summary.held} />}
-
-      {/* The taxonomy failing is not the inbox failing — the orders are still reviewable and
-          only the category pickers go empty, so it is said here rather than replacing the page. */}
-      {cats.error !== null && <p className="note">Categories could not be read — {cats.error}</p>}
-    </div>
+      </div>
+      )}
+    </section>
   );
+}
+
+/**
+ * What a group is, counted off its own rows.
+ *
+ * Derived rather than read from `summary`, because the response's summary describes the WHOLE
+ * inbox and each panel has to describe itself. A panel headed "213 orders" above a list of 40
+ * is the same lie as a paged count over a filtered list.
+ */
+function groupSummary(orders: StagedOrder[]): StagedSummary {
+  return {
+    staged: orders.length,
+    held: 0,
+    total_paise: orders.reduce((a, o) => a + o.total_paise, 0),
+    needs_attention: orders.filter((o) => o.needs_attention).length,
+    uncategorised_lines: orders.reduce(
+      (a, o) => a + o.lines.filter((l) => l.kind !== "fee" && l.category === null).length,
+      0,
+    ),
+  };
 }
 
 /**
@@ -401,7 +549,6 @@ export default function StagedReview() {
  * the one thing a summary must never say.
  */
 function Header({ summary }: { summary: StagedSummary }) {
-  const ready = summary.staged - summary.needs_attention;
 
   // Held files with nothing staged behind them — every invoice in the drop was a credit note,
   // or the only ones left are the ones nothing reads yet. A tally of five zeroes under it would
@@ -422,25 +569,6 @@ function Header({ summary }: { summary: StagedSummary }) {
         <b className="mono">{rupees(summary.total_paise)}</b> would be attributed to your bank
         rows{summary.held > 0 && <> · {summary.held} held</>}
       </p>
-
-      <div className="receipt-tally">
-        <span className={summary.needs_attention > 0 ? "flag" : "soft"}>
-          <b className="mono">{summary.needs_attention}</b> need you
-          <span className="soft"> · a line to answer, or no bank row found</span>
-        </span>
-        <span className={ready > 0 ? "credit" : "soft"}>
-          <b className="mono">{ready}</b> ready as {ready === 1 ? "it is" : "they are"}
-        </span>
-        {/* its surprise, said as a clause rather than as a paragraph under the tally:
-            a category belongs to the PRODUCT, so a correct confirm of two hundred orders can
-            move the unexplained figure by nothing at all. Filing one product fixes it for
-            every order that contains it, which is why this points at the tab rather than
-            warning about itself. */}
-        <span className={summary.uncategorised_lines > 0 ? "flag" : "soft"}>
-          <b className="mono">{summary.uncategorised_lines}</b> lines with no category
-          <span className="soft"> · confirming records them, attributes nothing</span>
-        </span>
-      </div>
 
     </>
   );
@@ -544,9 +672,6 @@ function OrderList({
                 onPick={() => handlers.onPick(o)}
                 answers={handlers.answers}
                 onAnswer={handlers.onAnswer}
-                categories={handlers.categories}
-                freshCategories={handlers.freshCategories}
-                onCategorised={handlers.onCategorised}
                 expanded={handlers.openId === o.artifact_id}
                 onExpand={() =>
                   handlers.onOpen(handlers.openId === o.artifact_id ? null : o.artifact_id)
@@ -631,18 +756,37 @@ function Landed({ result, onDismiss }: { result: ConfirmResponse; onDismiss: () 
  * a feature, not on a fix, and the whole point of keeping the bytes is that the day it lands
  * every one of these is re-read where it sits. A correct run must not look half-broken.
  */
-function Held({ files, count }: { files: HeldFile[]; count: number }) {
+function Held({
+  files,
+  count,
+  expanded,
+  onToggle,
+}: {
+  files: HeldFile[];
+  count: number;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
   return (
-    <>
-      <div className="sect">
-        <span>
-          {count} file{count === 1 ? "" : "s"} held
+    <section className="batch">
+      {/* Its own group, drawn like the others. These are not a footnote to a drop — they are a
+          pile with its own reason to exist, and they outlive the import that brought them. */}
+      <button className="batch-head" aria-expanded={expanded} onClick={onToggle}>
+        <span className="batch-caret" aria-hidden="true">
+          {expanded ? "▾" : "▸"}
         </span>
-        <span className="soft">stored, waiting on a feature</span>
-      </div>
+        <span className="batch-name">Held files</span>
+        <span className="pill">nothing reads these yet</span>
+        <span className="soft batch-when mono">
+          {count} file{count === 1 ? "" : "s"} · stored, nothing lost
+        </span>
+        <span className="batch-left soft">waiting on a feature</span>
+      </button>
+
+      {!expanded ? null : (
+      <div className="batch-body">
       <p className="soft batch-empty">
-        Stored, nothing lost — mostly credit notes, which are re-read where they sit once
-        refunds are built.
+        Mostly credit notes — re-read where they sit once refunds are built.
       </p>
       <div className="table-scroll short">
         <table>
@@ -680,6 +824,8 @@ function Held({ files, count }: { files: HeldFile[]; count: number }) {
           </tbody>
         </table>
       </div>
-    </>
+      </div>
+      )}
+    </section>
   );
 }

@@ -1,17 +1,12 @@
-import { Fragment, useState } from "react";
+import { Fragment } from "react";
 
-import CategorySelect from "../shared/CategorySelect";
-import { errorText, mutate } from "../shared/api";
 import { rupees } from "../shared/format";
-import type { Category } from "../shared/transactions";
-import ItemPicker from "./ItemPicker";
+import ItemCombo from "./ItemCombo";
 import {
-  bestCandidate,
   dayMonth,
   itemIdOf,
   openLines,
   overrideKey,
-  verdictOf,
   type LineAnswer,
   type StagedLine,
   type StagedMatch,
@@ -34,9 +29,6 @@ export default function StagedOrder({
   onPick,
   answers,
   onAnswer,
-  categories,
-  freshCategories,
-  onCategorised,
   expanded,
   onExpand,
 }: {
@@ -45,17 +37,6 @@ export default function StagedOrder({
   onPick: () => void;
   answers: Map<string, LineAnswer>;
   onAnswer: (key: string, next: LineAnswer | null) => void;
-  categories: Category[];
-  /**
-   * Categories written from this screen since the list was read, by item id.
-   *
-   * Layered over the response rather than refetched, and that is not only a saving: the same
-   * product appears on lines of several different orders, so filing it once and watching every
-   * one of them change is the clearest possible statement of the thing has to explain in
-   * words — a category belongs to the PRODUCT, not to the line.
-   */
-  freshCategories: Map<string, { id: number; name: string } | null>;
-  onCategorised: (itemId: string, category: { id: number; name: string } | null) => void;
   expanded: boolean;
   onExpand: () => void;
 }) {
@@ -100,15 +81,8 @@ export default function StagedOrder({
 
       {expanded && (
         <tr className="txn-detail">
-          <td colSpan={5}>
-            <Lines
-              order={order}
-              answers={answers}
-              onAnswer={onAnswer}
-              categories={categories}
-              freshCategories={freshCategories}
-              onCategorised={onCategorised}
-            />
+          <td className="order-detail" colSpan={5}>
+            <Lines order={order} answers={answers} onAnswer={onAnswer} />
           </td>
         </tr>
       )}
@@ -146,55 +120,46 @@ function Attaches({ match, open }: { match: StagedMatch; open: boolean }) {
 }
 
 /**
- * The line items, and the two decisions that can be made about each.
+ * The line items of one order.
  *
- * The note at the top is the first of its two surprises, said at the level where it is
- * true: on the PANEL, not on each control. Repeating it beside every picker would turn a fact
- * about the catalogue into fifteen identical warnings nobody reads by the third one.
+ * ONE decision per line, not two. Filing a category used to live here as well, and it was the
+ * wrong level: a category belongs to the product, so answering it per line asks the same
+ * question once per sighting and invites a different answer each time. The Products tab asks
+ * it once, and this table asks only which catalogue item the line is.
  */
 function Lines({
   order,
   answers,
   onAnswer,
-  categories,
-  freshCategories,
-  onCategorised,
 }: {
   order: Order;
   answers: Map<string, LineAnswer>;
   onAnswer: (key: string, next: LineAnswer | null) => void;
-  categories: Category[];
-  freshCategories: Map<string, { id: number; name: string } | null>;
-  onCategorised: (itemId: string, category: { id: number; name: string } | null) => void;
 }) {
-  const [openLine, setOpenLine] = useState<number | null>(null);
   const lineTotal = order.lines.reduce((a, l) => a + l.amount_paise, 0);
 
   return (
     <div className="lines">
-      <p className="note">
-        A category here belongs to the <b>product</b>, not to this order — filing one line files
-        every purchase of that product, everywhere. That is what makes it cheap: once per
-        product, not once per order.
-      </p>
-
-      {/* FOUR columns, not five. The product and its category were two columns saying one
-          thing, and splitting them cost the reader the very sentence needs them to read:
-          "Sprite Zero is Groceries". Together in one column, the name sits directly above the
-          select, so the control IS the statement — and the table loses a column of clutter. */}
+      {/* Six columns, each a short label over one fact: what the invoice said, how many, what
+          one cost, what the line came to, the key we reduced it to, and which catalogue item it
+          lands on. The last is an input rather than a link to a panel — see ItemCombo. */}
       <table className="pick-table">
         <colgroup>
           <col />
-          <col style={{ width: "48px" }} />
-          <col style={{ width: "104px" }} />
-          <col style={{ width: "340px" }} />
+          <col style={{ width: "46px" }} />
+          <col style={{ width: "88px" }} />
+          <col style={{ width: "92px" }} />
+          <col style={{ width: "206px" }} />
+          <col style={{ width: "236px" }} />
         </colgroup>
         <thead>
           <tr>
-            <th>Line</th>
+            <th>Raw value</th>
             <th className="r">Qty</th>
+            <th className="r">Price</th>
             <th className="r">Amount</th>
-            <th>Product, and what it is</th>
+            <th>Normalized</th>
+            <th>Catalogue item</th>
           </tr>
         </thead>
         <tbody>
@@ -205,11 +170,6 @@ function Lines({
               line={line}
               answer={answers.get(overrideKey(order.artifact_id, line.index))}
               onAnswer={onAnswer}
-              categories={categories}
-              freshCategories={freshCategories}
-              onCategorised={onCategorised}
-              open={openLine === line.index}
-              onOpen={() => setOpenLine(openLine === line.index ? null : line.index)}
             />
           ))}
         </tbody>
@@ -237,163 +197,87 @@ function Lines({
   );
 }
 
+/**
+ * One line of an invoice, and where it lands.
+ *
+ * It no longer carries a CATEGORY. A category belongs to the product, not to the line — filing
+ * it here meant answering the same question once per sighting, twelve times for one milk, and
+ * getting a different answer on the twelfth. The Products tab files it once. This row's only
+ * question is which catalogue item the line resolves to, and that is now a box you type in
+ * rather than a panel that opens under the row.
+ */
 function LineRow({
   artifactId,
   line,
   answer,
   onAnswer,
-  categories,
-  freshCategories,
-  onCategorised,
-  open,
-  onOpen,
 }: {
   artifactId: string;
   line: StagedLine;
   answer: LineAnswer | undefined;
   onAnswer: (key: string, next: LineAnswer | null) => void;
-  categories: Category[];
-  freshCategories: Map<string, { id: number; name: string } | null>;
-  onCategorised: (itemId: string, category: { id: number; name: string } | null) => void;
-  open: boolean;
-  onOpen: () => void;
 }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
   const key = overrideKey(artifactId, line.index);
-  const verdict = verdictOf(line, answer);
   const itemId = itemIdOf(line, answer);
-  const close = bestCandidate(line.resolution.candidates);
 
-  // WHOSE category is on screen. `has`, not `??`: a cleared category is stored as `null`, and
-  // `??` would fall through to the value the server sent and redraw the category the person
-  // just removed. Null-versus-absent, and they are different answers.
-  const pointsElsewhere =
-    answer !== undefined &&
-    ("create_new" in answer.answer || answer.answer.item_id !== line.resolution.item_id);
-  const fromServer =
-    line.category === null || pointsElsewhere
-      ? null
-      : // Ids arrive as strings (pg renders BIGINT as one) and CategorySelect compares numbers.
-        { id: Number(line.category.id), name: line.category.name };
-  const category =
-    itemId !== null && freshCategories.has(itemId)
-      ? (freshCategories.get(itemId) ?? null)
-      : fromServer;
-
-  // The picker is labelled with the PRODUCT, never the line description — its second half.
-  // Said by construction: the name sits directly above the select, in the same column, so the
-  // control reads "this product is filed under this" rather than "this line is".
+  // WHAT THE BOX SHOWS. The person's own answer wins and carries its own label: an item found
+  // through the catalogue search appears nowhere in this line's resolution, so falling back to
+  // `resolution.item_name` there would name the product they had just moved away from.
   //
-  // The person's own answer wins, and it has to carry its own label: a product found through
-  // the catalogue SEARCH appears nowhere in this line's resolution, so falling back to
-  // `resolution.item_name` there would label the picker with the product they had just moved
-  // away from — the control would name one product and file another.
-  const product =
-    answer !== undefined && "item_id" in answer.answer
-      ? answer.label
-      : (line.resolution.item_name ?? line.description);
-
-  async function fileUnder(categoryId: number | null) {
-    if (itemId === null) return;
-    setBusy(true);
-    setError(null);
-    try {
-      // PATCH /items/:id — an integer or an explicit null, which is a real answer ("no category
-      // yet"), not a missing one. The route defaults `category_source` to 'user', the
-      // provenance the classifier may never overwrite, so nothing has to be said here.
-      await mutate(`/items/${itemId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ category_id: categoryId }),
-      });
-      onCategorised(
-        itemId,
-        categoryId === null
-          ? null
-          : { id: categoryId, name: categories.find((c) => c.id === categoryId)?.name ?? "filed" },
-      );
-    } catch (e) {
-      // Kept on the line: the refusal is about THIS product, and lifting it to the top of the
-      // screen would separate it from the only control that can act on it.
-      setError(errorText(e));
-    } finally {
-      setBusy(false);
-    }
-  }
+  // Null is the answer meaning "nothing matched, so one will be created" — the state the
+  // resolver leaves almost every line in, and the reason the box is empty rather than filled
+  // with a word like "new".
+  const chosenName =
+    answer !== undefined
+      ? "item_id" in answer.answer
+        ? answer.label
+        : null
+      : (line.resolution.item_name ?? null);
 
   return (
     <Fragment>
-      <tr className={busy ? "line-row is-writing" : "line-row"}>
-        {/* The invoice's own words, one line. The SKU used to sit under it and made every row
-            two lines tall for a code nobody reads while scanning — it belongs in the picker,
-            where the question it answers ("is this the same product?") is actually asked. */}
-        <td>
-          {/* `kind` said in one word, and only where it is not "goods". A delivery charge is
-              not a product, so the row that offers to file it as one should say so. */}
+      <tr className="line-row">
+        {/* `title` carries the whole string. These run past ninety characters and the column
+            cannot, so the cell truncates and hovering reads it out in full — the alternative is
+            a row three lines tall on every line of every order. */}
+        <td title={line.description}>
           <span className="clip">
             {line.description}
             {line.kind === "fee" && " · fee"}
           </span>
         </td>
+
         <td className="mono r soft">{line.qty}</td>
+        {/* The invoice's own unit figure, never amount ÷ qty: the two differ by tax and
+            discount, and inventing the division would quietly contradict the document. */}
+        <td className="mono r soft">{rupees(line.unit_paise)}</td>
         <td className="mono r">{rupees(line.amount_paise)}</td>
+
+        <td title={line.canonical ?? undefined}>
+          <span className="clip mono soft">{line.canonical ?? "—"}</span>
+        </td>
+
         <td>
-          <div className="line-product">
-            <button type="button" className="line-verdict" onClick={onOpen}>
-              <span className="clip">
-                {verdict === "new"
-                  ? "New product"
-                  : verdict === "input"
-                    ? close === null
-                      ? "No close match"
-                      : `${close.name} · ${close.similarity}%`
-                    : product}
-              </span>
-              <span className={`tag-claim ${verdict}`}>
-                {verdict === "input" ? "needs input" : verdict}
-              </span>
-              <span className="soft line-chev">{open ? "▴" : "▾"}</span>
-            </button>
-            {itemId === null ? (
-              // Nothing to PATCH yet: the product does not exist until this order is confirmed.
-              // Said rather than shown as a disabled control, which would invite a click that
-              // cannot do anything — the same call CategoryChoice makes for a record the map
-              // already answered.
-              <span className="soft line-said">
-                {verdict === "input" ? "pick a product first" : "filed after it lands"}
-              </span>
-            ) : (
-              <CategorySelect
-                value={category === null ? null : category.id}
-                categories={categories}
-                onChange={(id) => void fileUnder(id)}
-                placeholder="No category yet"
-                disabled={busy}
-              />
-            )}
-            {error !== null && <span className="debit save-error">{error}</span>}
-          </div>
+          {line.kind === "fee" ? (
+            // A fee is money, not merchandise. It never reaches the catalogue, so there is
+            // nothing to pick and a disabled box would only invite a click.
+            <span className="soft">not a product</span>
+          ) : (
+            <ItemCombo
+              value={chosenName}
+              itemId={itemId}
+              onPick={(item) =>
+                onAnswer(
+                  key,
+                  item === null
+                    ? { answer: { create_new: true }, label: line.canonical ?? line.description }
+                    : { answer: { item_id: item.id }, label: item.name },
+                )
+              }
+            />
+          )}
         </td>
       </tr>
-
-      {open && (
-        <tr className="line-detail">
-          <td colSpan={4}>
-            <ItemPicker
-              resolution={line.resolution}
-              answer={answer}
-              description={line.description}
-              // The merchant's own id for this line. It is the evidence behind the question —
-              // makes a DIFFERENT sku from the same merchant a hard refusal to merge — so
-              // it lives where the question is asked rather than on every scanned row.
-              code={line.sku ?? line.hsn}
-              onAnswer={(next) => onAnswer(key, next)}
-              onClear={() => onAnswer(key, null)}
-            />
-          </td>
-        </tr>
-      )}
     </Fragment>
   );
 }
