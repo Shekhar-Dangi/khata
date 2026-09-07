@@ -87,7 +87,15 @@ export default function ItemCombo({
         disabled={disabled}
         value={open ? query : (value ?? "")}
         placeholder={value === null ? placeholder : ""}
-        onFocus={() => setOpen(true)}
+        // SEEDED with what is already chosen, not blanked. Focusing used to empty the cell,
+        // which read as "your answer is gone" and made the commonest edit — narrow an existing
+        // choice by a word — impossible without retyping the whole name. The seed also gives
+        // the search something to run on straight away, so the list opens on the product you
+        // already have rather than on an instruction to start typing.
+        onFocus={() => {
+          setQuery(value ?? "");
+          setOpen(true);
+        }}
         onChange={(e) => {
           setQuery(e.target.value);
           setOpen(true);
@@ -100,6 +108,26 @@ export default function ItemCombo({
         }}
         aria-label="Find a product in your catalogue"
       />
+
+      {/* Clearing has to be reachable from the CELL. It was only offered at the bottom of the
+          open list, which meant undoing a choice was: focus, read past the suggestions, click.
+          A cross on the thing you want rid of is the whole gesture. */}
+      {value !== null && (
+        <button
+          type="button"
+          className="combo-clear-x"
+          title="Clear — make it a new product"
+          aria-label="Clear the chosen product"
+          // mousedown, not click: the input's blur fires first on a click and would close the
+          // panel and reset the query before the handler ever ran.
+          onMouseDown={(e) => {
+            e.preventDefault();
+            choose(null);
+          }}
+        >
+          ×
+        </button>
+      )}
 
       {/* The id, always, and never inside the input — a person checking whether two orders
           really reached the same product has nothing else to compare, and it must not be
@@ -140,13 +168,6 @@ export default function ItemCombo({
             ))
           )}
 
-          {/* Undo, where the thing being undone is visible. Only offered when there IS a
-              choice to take back — on a line that resolved to nothing it would clear nothing. */}
-          {value !== null && (
-            <button type="button" className="combo-hit combo-clear" onClick={() => choose(null)}>
-              Clear — make it a new product
-            </button>
-          )}
         </div>
       )}
     </div>

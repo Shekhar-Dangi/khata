@@ -4,9 +4,7 @@ import { rupees } from "../shared/format";
 import ItemCombo from "./ItemCombo";
 import {
   dayMonth,
-  itemIdOf,
   openLines,
-  overrideKey,
   type LineAnswer,
   type StagedLine,
   type StagedMatch,
@@ -28,7 +26,8 @@ export default function StagedOrder({
   picked,
   onPick,
   answers,
-  onAnswer,
+  mapped,
+  onMap,
   expanded,
   onExpand,
 }: {
@@ -36,7 +35,8 @@ export default function StagedOrder({
   picked: boolean;
   onPick: () => void;
   answers: Map<string, LineAnswer>;
-  onAnswer: (key: string, next: LineAnswer | null) => void;
+  mapped: Map<string, { id: string; name: string } | null>;
+  onMap: (canonical: string, item: { id: string; name: string } | null) => void;
   expanded: boolean;
   onExpand: () => void;
 }) {
@@ -82,7 +82,7 @@ export default function StagedOrder({
       {expanded && (
         <tr className="txn-detail">
           <td className="order-detail" colSpan={5}>
-            <Lines order={order} answers={answers} onAnswer={onAnswer} />
+            <Lines order={order} mapped={mapped} onMap={onMap} />
           </td>
         </tr>
       )}
@@ -129,12 +129,12 @@ function Attaches({ match, open }: { match: StagedMatch; open: boolean }) {
  */
 function Lines({
   order,
-  answers,
-  onAnswer,
+  mapped,
+  onMap,
 }: {
   order: Order;
-  answers: Map<string, LineAnswer>;
-  onAnswer: (key: string, next: LineAnswer | null) => void;
+  mapped: Map<string, { id: string; name: string } | null>;
+  onMap: (canonical: string, item: { id: string; name: string } | null) => void;
 }) {
   const lineTotal = order.lines.reduce((a, l) => a + l.amount_paise, 0);
 
@@ -166,10 +166,9 @@ function Lines({
           {order.lines.map((line) => (
             <LineRow
               key={line.index}
-              artifactId={order.artifact_id}
               line={line}
-              answer={answers.get(overrideKey(order.artifact_id, line.index))}
-              onAnswer={onAnswer}
+              mapped={mapped}
+              onMap={onMap}
             />
           ))}
         </tbody>
@@ -206,33 +205,40 @@ function Lines({
  * question is which catalogue item the line resolves to, and that is now a box you type in
  * rather than a panel that opens under the row.
  */
+/**
+ * One line of an invoice, and where it lands.
+ *
+ * IT ANSWERS FOR THE PRODUCT, NOT THE LINE. Choosing a catalogue item here writes the same
+ * mapping the Products tab writes, keyed by the normalised name — so the choice shows up on
+ * that tab, and on every other line of every other order that reduces to the same key.
+ *
+ * That is not a convenience, it is the only coherent reading: two lines with one canonical key
+ * resolve to one item by construction, so letting them be mapped to different products would
+ * be an answer the catalogue cannot hold. It also removes the surprise this fixed — mapping a
+ * name here and finding the Products tab still offering to create it.
+ *
+ * There is no CATEGORY here either. That belongs to the product, and asking per line asks the
+ * same question once per sighting.
+ */
 function LineRow({
-  artifactId,
   line,
-  answer,
-  onAnswer,
+  mapped,
+  onMap,
 }: {
-  artifactId: string;
   line: StagedLine;
-  answer: LineAnswer | undefined;
-  onAnswer: (key: string, next: LineAnswer | null) => void;
+  mapped: Map<string, { id: string; name: string } | null>;
+  onMap: (canonical: string, item: { id: string; name: string } | null) => void;
 }) {
-  const key = overrideKey(artifactId, line.index);
-  const itemId = itemIdOf(line, answer);
-
-  // WHAT THE BOX SHOWS. The person's own answer wins and carries its own label: an item found
-  // through the catalogue search appears nowhere in this line's resolution, so falling back to
-  // `resolution.item_name` there would name the product they had just moved away from.
-  //
-  // Null is the answer meaning "nothing matched, so one will be created" — the state the
-  // resolver leaves almost every line in, and the reason the box is empty rather than filled
-  // with a word like "new".
+  // The person's answer wins over the resolver's proposal. `has`, not `??`: a key mapped to
+  // null is a real answer ("create one") and must not fall through to the name the resolver
+  // suggested — null-versus-absent, and they are different states.
+  const answered =
+    line.canonical !== null && mapped.has(line.canonical)
+      ? (mapped.get(line.canonical) ?? null)
+      : undefined;
   const chosenName =
-    answer !== undefined
-      ? "item_id" in answer.answer
-        ? answer.label
-        : null
-      : (line.resolution.item_name ?? null);
+    answered !== undefined ? (answered?.name ?? null) : (line.resolution.item_name ?? null);
+  const itemId = answered !== undefined ? (answered?.id ?? null) : line.resolution.item_id;
 
   return (
     <Fragment>
@@ -266,14 +272,7 @@ function LineRow({
             <ItemCombo
               value={chosenName}
               itemId={itemId}
-              onPick={(item) =>
-                onAnswer(
-                  key,
-                  item === null
-                    ? { answer: { create_new: true }, label: line.canonical ?? line.description }
-                    : { answer: { item_id: item.id }, label: item.name },
-                )
-              }
+              onPick={(item) => onMap(line.canonical ?? line.description, item)}
             />
           )}
         </td>

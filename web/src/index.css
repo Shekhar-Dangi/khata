@@ -2652,6 +2652,7 @@ footer .shell {
    is one word rather than four actions. */
 .combo {
   position: relative;
+  width: 100%;
 }
 .combo-input {
   font: inherit;
@@ -2679,13 +2680,15 @@ footer .shell {
   font-size: 11px;
   margin-top: 2px;
 }
+/* The panel is the WIDTH OF THE CELL it drops out of. It carried a `min-width` that made it
+   wider than the box above it on every narrow column, so the message inside started to the
+   left of nothing and the whole thing read as misaligned. Names inside ellipsise instead. */
 .combo-pop {
   position: absolute;
   z-index: 20;
   top: calc(var(--control-h) + 3px);
   left: 0;
   right: 0;
-  min-width: 260px;
   background: var(--paper);
   border: 1px solid var(--rule);
   border-radius: var(--radius);
@@ -2721,8 +2724,28 @@ footer .shell {
   display: block;
   font-size: 11px;
 }
-.combo-clear {
+/* Sits ON the input, at the end, the way a search field's clear always does. */
+.combo-clear-x {
+  position: absolute;
+  right: 4px;
+  top: 0;
+  height: var(--control-h);
+  width: 20px;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
   color: var(--ink-soft);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  padding: 0;
+}
+.combo-clear-x:hover {
+  color: var(--debit);
+}
+/* Room for the cross, so a long name never runs underneath it. */
+.combo-input {
+  padding-right: 26px;
 }
 
 /* `.record-table td:last-child` truncates a last cell, and it is a DESCENDANT selector — so it

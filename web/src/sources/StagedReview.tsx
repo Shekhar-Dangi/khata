@@ -62,7 +62,9 @@ type RowHandlers = {
   picked: Map<string, StagedOrder>;
   onPick: (order: StagedOrder) => void;
   answers: Map<string, LineAnswer>;
-  onAnswer: (key: string, next: LineAnswer | null) => void;
+  /** What has been chosen, by normalised key — the same map the Products tab reads. */
+  mapped: Map<string, { id: string; name: string } | null>;
+  onMap: (canonical: string, item: { id: string; name: string } | null) => void;
   openId: string | null;
   onOpen: (id: string | null) => void;
 };
@@ -288,15 +290,6 @@ function StagedGroup({
     });
   }
 
-  function setAnswer(key: string, next: LineAnswer | null) {
-    setAnswers((current) => {
-      const map = new Map(current);
-      if (next === null) map.delete(key);
-      else map.set(key, next);
-      return map;
-    });
-  }
-
   async function confirm() {
     setConfirming(true);
     setError(null);
@@ -337,7 +330,8 @@ function StagedGroup({
     picked,
     onPick: toggle,
     answers,
-    onAnswer: setAnswer,
+    mapped,
+    onMap: mapProduct,
     openId,
     onOpen: setOpenId,
   };
@@ -671,7 +665,8 @@ function OrderList({
                 picked={handlers.picked.has(o.artifact_id)}
                 onPick={() => handlers.onPick(o)}
                 answers={handlers.answers}
-                onAnswer={handlers.onAnswer}
+                mapped={handlers.mapped}
+                onMap={handlers.onMap}
                 expanded={handlers.openId === o.artifact_id}
                 onExpand={() =>
                   handlers.onOpen(handlers.openId === o.artifact_id ? null : o.artifact_id)
