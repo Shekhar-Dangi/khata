@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
 import { errorText, mutate } from "../shared/api";
 import { useBusy, useFetch } from "../shared/useFetch";
@@ -9,7 +9,7 @@ import ImportBatchPanel from "./ImportBatchPanel";
 import ImportReceipt from "./ImportReceipt";
 import StagedReview from "./StagedReview";
 import UploadQueue from "./UploadQueue";
-import { groupFromFilename, outstanding, type ImportBatch, type ImportResponse } from "./sources";
+import { groupFromFilename, type ImportBatch, type ImportResponse } from "./sources";
 
 // Where outside records come in, and what state they are in.
 //
@@ -68,10 +68,18 @@ export default function SourcesView() {
   const [queued, setQueued] = useState<File[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Which imports are open. A Set rather than one id: two imports CAN be worth having open at
-  // once (the same expense entered in the wrong group is exactly when you would), and an
-  // accordion that closes one to open another loses the position you had in it.
-  const [open, setOpen] = useState<Set<string> | null>(null);
+  // Which imports are open. EMPTY on arrival, always: the page opens nothing on your behalf.
+  //
+  // It used to open the newest import that still had work, on the reasoning that landing on a
+  // finished import would make the page look empty when it was not. That reasoning was about
+  // the wrong screen — the collapsed rows already carry their own counts, so an unopened list
+  // says how much is waiting without expanding anything, and an accordion that springs open on
+  // arrival moves everything under it before you have read any of it.
+  //
+  // A Set rather than one id: two imports CAN be worth having open at once (the same expense
+  // entered in the wrong group is exactly when you would), and an accordion that closes one to
+  // open another loses the position you had in it.
+  const [open, setOpen] = useState<Set<string>>(new Set());
   // Where in the imports list we are. Paged on the CLIENT: `/evidence/imports` is one row per
   // group, so it is a handful of rows that all arrive together, and a server round trip per
   // page would be a request to re-count something already in memory.
@@ -96,21 +104,6 @@ export default function SourcesView() {
   });
   const working = useBusy(imports.refreshing);
   const batches = imports.data?.imports ?? [];
-
-  // Open the newest import, once, and only until the person says otherwise. `null` means "not
-  // decided yet" rather than "all closed" — without that distinction the first render (before
-  // the list arrives) would count as a decision to close everything.
-  useEffect(() => {
-    // `imports.data`, not the `batches` derived from it: `?? []` is a NEW array on every
-    // render while the request is in flight, so depending on it would re-run this effect
-    // forever. Same trap `revalidateOn` exists to avoid in useFetch.
-    const list = imports.data?.imports;
-    if (open !== null || list === undefined || list.length === 0) return;
-    // The one with work outstanding, else simply the newest. Landing on a finished import
-    // with nothing in it would make the page look empty when it is not.
-    const first = list.find((b) => outstanding(b) > 0) ?? list[0];
-    setOpen(new Set([first.group]));
-  }, [imports.data, open]);
 
   async function accept(files: File[]) {
     if (reading.current) return;
@@ -186,14 +179,14 @@ export default function SourcesView() {
 
   function toggle(group: string) {
     setOpen((held) => {
-      const next = new Set(held ?? []);
+      const next = new Set(held);
       if (next.has(group)) next.delete(group);
       else next.add(group);
       return next;
     });
   }
 
-  const isOpen = (group: string) => open !== null && open.has(group);
+  const isOpen = (group: string) => open.has(group);
   // An open panel must stay reachable: paging away from the import you were working in would
   // be the vanishing this screen exists to stop, so the pager is the only thing that moves
   // the window and it never closes anything.
