@@ -10,7 +10,10 @@ import StagedOrderRow from "./StagedOrder";
 import StagedProducts from "./StagedProducts";
 import type { StagedItemsResponse } from "./stagedItems";
 import {
+  ORDER_FILTERS,
+  type OrderFilter,
   artifactOfKey,
+  inOrderFilter,
   openLines,
   type ConfirmResponse,
   type HeldFile,
@@ -33,8 +36,12 @@ import {
 // the ~30 that need a decision ARE the list and the other ~190 sit behind a disclosure. Both
 // feed ONE selection, so confirming across them needs no opinion from the screen.
 
-/** Orders per page. Each row opens into a table of line items, so a screenful is small. */
-const PAGE = 10;
+/**
+ * Orders per page. 10 was sized for a list that only ever held the handful needing attention;
+ * with every order reachable from a chip it is the whole inbox, and ten at a time turns 213
+ * into 22 pages. A row is one line until you open it, so 25 still scans.
+ */
+const PAGE = 25;
 
 /**
  * What "select all" asks for in one go — MAX_LIMIT in src/filters.ts, and the ceiling is real:
@@ -77,13 +84,12 @@ export default function StagedReview() {
   const [result, setResult] = useState<ConfirmResponse | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showAll, setShowAll] = useState(false);
   // Which half of the inbox is on screen. Orders answer "did this get paid"; products answer
   // "what was bought". They are worked at different rates — 365 lines collapse to 234 products,
   // so the product tab is usually the shorter road — and nesting one inside the other is what
   // made a person meet the same milk six times.
   const [tab, setTab] = useState<"orders" | "products">("orders");
-  const [selectingAll, setSelectingAll] = useState(false);
+  const [filter, setFilter] = useState<OrderFilter>("needs");
 
   // ONE request for the category tree, here rather than inside each picker: five hundred line
   // items each fetching the taxonomy would be five hundred requests for the same list.
@@ -101,41 +107,23 @@ export default function StagedReview() {
   // The attention page IS the summary request. One fetch, not two: a second call for the
   // header would ask the server to re-run resolution over the same rows to produce figures the
   // first one already carried, and the two could disagree while both were in flight.
-  const inbox = useFetch<StagedResponse>(
-    `/evidence/staged?attention=1&limit=${PAGE}&offset=${offset}`,
-    { keepPreviousData: true, revalidateOn: version },
-  );
+  // THE WHOLE INBOX IN ONE REQUEST, and then filtered and paged here.
+  //
+  // `listStaged` resolves EVERY staged record whatever the limit — its own comment says so, and
+  // says why: `needs_attention` can only be known by resolving an order's lines, so paging in
+  // SQL made the summary describe a different set from the page. Which means a page costs the
+  // same as the lot, and the old two-list shape (an attention page, plus an "all" list behind a
+  // disclosure) paid that price TWICE and still left 211 of 213 orders reachable only by
+  // opening a fold.
+  //
+  // One read, filtered locally: every chip counts exactly, "select all" is a set rather than a
+  // promise, and nothing is behind a disclosure. Same argument as StagedProducts, same shape.
+  const inbox = useFetch<StagedResponse>(`/evidence/staged?limit=${MAX_PAGE}&offset=0`, {
+    keepPreviousData: true,
+    revalidateOn: version,
+  });
   const working = useBusy(inbox.refreshing);
   const summary = inbox.data?.summary ?? null;
-
-  /**
-   * Select every order in a list, not just the page of it you can see.
-   *
-   * The page-only header box was a deliberate choice — "a control that silently selects rows on
-   * pages you have not looked at is a control that confirms orders you have not seen" — and the
-   * objection is right. What was wrong was making it the ONLY choice: ticking the header then
-   * offered ten of two hundred with nothing saying so. Now the header still takes the page, and
-   * this is a second, explicit act that names its own size.
-   *
-   * Fetching every order to do it costs nothing extra: `listStaged` resolves EVERY staged record
-   * whatever the limit (see the note in src/staging.ts), so a limit of 500 is the same work as a
-   * limit of 10. `mutate` rather than a bare fetch because this is a one-shot read and api.ts is
-   * the only thing here that checks a response before trusting it.
-   */
-  async function selectEvery(attentionOnly: boolean) {
-    setSelectingAll(true);
-    setError(null);
-    try {
-      const every = await mutate<StagedResponse>(
-        `/evidence/staged?${attentionOnly ? "attention=1&" : ""}limit=${MAX_PAGE}&offset=0`,
-      );
-      setPicked(new Map(every.orders.map((o) => [o.artifact_id, o])));
-    } catch (e) {
-      setError(errorText(e));
-    } finally {
-      setSelectingAll(false);
-    }
-  }
 
   function toggle(order: StagedOrder) {
     setPicked((current) => {
@@ -190,7 +178,22 @@ export default function StagedReview() {
     }
   }
 
-  if (inbox.loading) return null;
+  if (inbox.loading) {
+    return (
+      <div className="staged">
+        <div className="sect">
+          <span>Waiting for you to confirm</span>
+        </div>
+        {/* SAID, not blank. Resolving every staged order against the catalogue takes seconds on
+            a real drop, and returning null for the whole of it is why a full inbox looked like
+            an empty one — the section simply was not on the page yet. */}
+        <div className="busybar on" aria-hidden="true">
+          <i />
+        </div>
+        <p className="soft batch-empty">Reading the invoice inbox…</p>
+      </div>
+    );
+  }
 
   // A FAILED READ IS SAID, an empty one is not. The two are indistinguishable from `data ===
   // null` and they are not the same fact: an inbox nobody has filled should show nothing at
@@ -226,6 +229,13 @@ export default function StagedReview() {
     openId,
     onOpen: setOpenId,
   };
+
+  // Every staged order, then the view of it, then the page of that. One array behind the
+  // chips, the table and "select all", so the three cannot disagree about what they mean.
+  const orders = inbox.data?.orders ?? [];
+  const matching = orders.filter((o) => inOrderFilter(o, filter));
+  const pageOrders = matching.slice(offset, offset + PAGE);
+  const filterLabel = ORDER_FILTERS.find((f) => f.id === filter)?.label ?? "all";
 
   const chosen = [...picked.values()];
   const money = chosen.reduce((a, o) => a + o.total_paise, 0);
@@ -324,37 +334,45 @@ export default function StagedReview() {
             </span>
           </div>
 
+          {/* THE FILTERS THE FOLD USED TO REPLACE.
+              Every order is reachable from here — the 211 that need nothing are a chip, not a
+              disclosure. Counts are exact because they are counted off the same array the table
+              renders, and a chip with nothing behind it stays in place, greyed: that a filter is
+              empty is a fact about the inbox, and a chip that vanishes takes it away. */}
+          <div className="tf-tabs">
+            {ORDER_FILTERS.map((f) => {
+              const n = orders.filter((o) => inOrderFilter(o, f.id)).length;
+              return (
+                <button
+                  key={f.id}
+                  className={"tf-tab" + (n === 0 && filter !== f.id ? " zero" : "")}
+                  aria-current={filter === f.id}
+                  onClick={() => {
+                    setFilter(f.id);
+                    setOffset(0);
+                    setOpenId(null);
+                  }}
+                >
+                  {f.label} <b className="mono">{n}</b>
+                </button>
+              );
+            })}
+          </div>
+
           <OrderList
-            orders={inbox.data?.orders ?? []}
-            total={summary.needs_attention}
+            orders={pageOrders}
+            total={matching.length}
             offset={offset}
             onOffset={setOffset}
             busy={working}
             stale={working || inbox.isStale}
-            empty="Nothing needs a decision — everything staged is ready as it is, below."
+            empty={`Nothing matches “${filterLabel}”.`}
             handlers={handlers}
-            onSelectEvery={() => void selectEvery(true)}
-            selectingAll={selectingAll}
+            onSelectEvery={() =>
+              setPicked(new Map(matching.map((o) => [o.artifact_id, o])))
+            }
           />
 
-          {/* Everything else, COLLAPSED. A native <details>, so the disclosure is keyboard- and
-              screen-reader-correct without a line of JavaScript — and the list inside does not
-              fetch until it is opened, which is what keeps "221 orders" cheap to have on the
-              page at all. */}
-          <details className="fold" onToggle={(e) => setShowAll(e.currentTarget.open)}>
-            <summary>
-              All {summary.staged} staged orders, including the{" "}
-              {summary.staged - summary.needs_attention} that need nothing
-            </summary>
-            {showAll && (
-              <AllOrders
-                total={summary.staged}
-                handlers={handlers}
-                onSelectEvery={() => void selectEvery(false)}
-                selectingAll={selectingAll}
-              />
-            )}
-          </details>
           </>
           )}
         </>
@@ -401,17 +419,8 @@ function Header({ summary }: { summary: StagedSummary }) {
   return (
     <>
       <p className="receipt-said">
-        <strong>
-          {summary.staged} order{summary.staged === 1 ? "" : "s"}
-        </strong>{" "}
-        parsed and waiting — <b className="mono">{rupees(summary.total_paise)}</b> would be
-        attributed to your bank rows
-        {summary.held > 0 && (
-          <>
-            , and {summary.held} file{summary.held === 1 ? " is" : "s are"} held
-          </>
-        )}
-        . Nothing here has touched your ledger.
+        <b className="mono">{rupees(summary.total_paise)}</b> would be attributed to your bank
+        rows{summary.held > 0 && <> · {summary.held} held</>}
       </p>
 
       <div className="receipt-tally">
@@ -438,51 +447,6 @@ function Header({ summary }: { summary: StagedSummary }) {
 }
 
 /**
- * The "everything else" list — its own fetch and its own page position.
- *
- * Paged separately from the attention list for the reason ImportBatchPanel pages its segments
- * separately: the two are worked at different rates, and one shared pager would make "next
- * page" mean a different thing depending on where you happened to be.
- */
-function AllOrders({
-  total,
-  handlers,
-  onSelectEvery,
-  selectingAll,
-}: {
-  total: number;
-  handlers: RowHandlers;
-  onSelectEvery: () => void;
-  selectingAll: boolean;
-}) {
-  const [offset, setOffset] = useState(0);
-  const { version } = useLedgerVersion();
-  const list = useFetch<StagedResponse>(`/evidence/staged?limit=${PAGE}&offset=${offset}`, {
-    keepPreviousData: true,
-    revalidateOn: version,
-  });
-  const working = useBusy(list.refreshing);
-
-  if (list.loading) return <p className="soft batch-empty">Reading the inbox…</p>;
-  if (list.error !== null) return <p className="note">{list.error}</p>;
-
-  return (
-    <OrderList
-      orders={list.data?.orders ?? []}
-      total={total}
-      offset={offset}
-      onOffset={setOffset}
-      busy={working}
-      stale={working || list.isStale}
-      empty="Nothing staged."
-      handlers={handlers}
-      onSelectEvery={onSelectEvery}
-      selectingAll={selectingAll}
-    />
-  );
-}
-
-/**
  * One page of staged orders. Presentational: it owns nothing, the way Pager owns nothing.
  *
  * THE TOTAL COMES FROM THE SUMMARY, not from the page. its response carries no `total`, and
@@ -500,7 +464,6 @@ function OrderList({
   empty,
   handlers,
   onSelectEvery,
-  selectingAll,
 }: {
   orders: StagedOrder[];
   total: number;
@@ -511,7 +474,6 @@ function OrderList({
   empty: string;
   handlers: RowHandlers;
   onSelectEvery: () => void;
-  selectingAll: boolean;
 }) {
   if (orders.length === 0) return <p className="soft batch-empty">{empty}</p>;
 
@@ -538,8 +500,8 @@ function OrderList({
           ) : (
             <>
               <span className="soft">All {orders.length} on this page.</span>{" "}
-              <button className="btn-ghost" disabled={selectingAll} onClick={onSelectEvery}>
-                {selectingAll ? "Selecting…" : `Select all ${total}`}
+              <button className="btn-ghost" onClick={onSelectEvery}>
+                Select all {total}
               </button>
             </>
           )}
@@ -671,10 +633,13 @@ function Landed({ result, onDismiss }: { result: ConfirmResponse; onDismiss: () 
  */
 function Held({ files, count }: { files: HeldFile[]; count: number }) {
   return (
-    <details className="fold" open>
-      <summary>
-        {count} file{count === 1 ? "" : "s"} held — stored, waiting on a feature
-      </summary>
+    <>
+      <div className="sect">
+        <span>
+          {count} file{count === 1 ? "" : "s"} held
+        </span>
+        <span className="soft">stored, waiting on a feature</span>
+      </div>
       <p className="soft batch-empty">
         Stored, nothing lost — mostly credit notes, which are re-read where they sit once
         refunds are built.
@@ -715,6 +680,6 @@ function Held({ files, count }: { files: HeldFile[]; count: number }) {
           </tbody>
         </table>
       </div>
-    </details>
+    </>
   );
 }

@@ -214,3 +214,29 @@ export function openLines(order: StagedOrder, answers: Map<string, LineAnswer>):
     (l) => verdictOf(l, answers.get(overrideKey(order.artifact_id, l.index))) === "input",
   ).length;
 }
+
+/**
+ * The views the orders list offers, in the order they are worked.
+ *
+ * VIEWS, not states: "Needs you" spans an uncertain product and an ambiguous bank match, which
+ * are different problems with the same answer ("look at this one"). A row belongs to as many as
+ * it satisfies, so the counts do not add up to the total — deliberately.
+ */
+export type OrderFilter = "needs" | "matched" | "ambiguous" | "unmatched" | "all";
+
+export const ORDER_FILTERS: { id: OrderFilter; label: string }[] = [
+  { id: "needs", label: "Needs you" },
+  { id: "matched", label: "Attaches to a bank row" },
+  { id: "ambiguous", label: "More than one match" },
+  { id: "unmatched", label: "No bank row found" },
+  { id: "all", label: "All" },
+];
+
+/** Whether an order belongs in a view. ONE definition, so a chip's count and its list agree. */
+export function inOrderFilter(order: StagedOrder, filter: OrderFilter): boolean {
+  if (filter === "all") return true;
+  if (filter === "needs") return order.needs_attention;
+  if (filter === "matched") return order.match.kind === "matched";
+  if (filter === "ambiguous") return order.match.kind === "ambiguous";
+  return order.match.kind === "none";
+}
