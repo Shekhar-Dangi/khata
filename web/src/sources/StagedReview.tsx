@@ -7,6 +7,8 @@ import { useLedgerVersion } from "../shared/ledgerVersion";
 import type { Category } from "../shared/transactions";
 import { useBusy, useFetch } from "../shared/useFetch";
 import StagedOrderRow from "./StagedOrder";
+import StagedProducts from "./StagedProducts";
+import type { StagedItemsResponse } from "./stagedItems";
 import {
   artifactOfKey,
   openLines,
@@ -33,6 +35,13 @@ import {
 
 /** Orders per page. Each row opens into a table of line items, so a screenful is small. */
 const PAGE = 10;
+
+/**
+ * What "select all" asks for in one go — MAX_LIMIT in src/filters.ts, and the ceiling is real:
+ * a request over it is refused rather than silently truncated, which is the only safe way for
+ * a control that says "all" to behave.
+ */
+const MAX_PAGE = 500;
 
 /**
  * Everything a row needs that this screen owns.
@@ -69,11 +78,25 @@ export default function StagedReview() {
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
+  // Which half of the inbox is on screen. Orders answer "did this get paid"; products answer
+  // "what was bought". They are worked at different rates — 365 lines collapse to 234 products,
+  // so the product tab is usually the shorter road — and nesting one inside the other is what
+  // made a person meet the same milk six times.
+  const [tab, setTab] = useState<"orders" | "products">("orders");
+  const [selectingAll, setSelectingAll] = useState(false);
 
   // ONE request for the category tree, here rather than inside each picker: five hundred line
   // items each fetching the taxonomy would be five hundred requests for the same list.
   const cats = useFetch<{ categories: Category[] }>("/categories");
   const categories = cats.data?.categories ?? [];
+
+  // Fetched HERE rather than inside the products tab, because the tab label needs the count
+  // before anyone opens it — and this route resolves every staged product against the
+  // catalogue, so asking twice would double the most expensive read on the screen.
+  const products = useFetch<StagedItemsResponse>("/evidence/staged/items", {
+    keepPreviousData: true,
+    revalidateOn: version,
+  });
 
   // The attention page IS the summary request. One fetch, not two: a second call for the
   // header would ask the server to re-run resolution over the same rows to produce figures the
@@ -84,6 +107,35 @@ export default function StagedReview() {
   );
   const working = useBusy(inbox.refreshing);
   const summary = inbox.data?.summary ?? null;
+
+  /**
+   * Select every order in a list, not just the page of it you can see.
+   *
+   * The page-only header box was a deliberate choice — "a control that silently selects rows on
+   * pages you have not looked at is a control that confirms orders you have not seen" — and the
+   * objection is right. What was wrong was making it the ONLY choice: ticking the header then
+   * offered ten of two hundred with nothing saying so. Now the header still takes the page, and
+   * this is a second, explicit act that names its own size.
+   *
+   * Fetching every order to do it costs nothing extra: `listStaged` resolves EVERY staged record
+   * whatever the limit (see the note in src/staging.ts), so a limit of 500 is the same work as a
+   * limit of 10. `mutate` rather than a bare fetch because this is a one-shot read and api.ts is
+   * the only thing here that checks a response before trusting it.
+   */
+  async function selectEvery(attentionOnly: boolean) {
+    setSelectingAll(true);
+    setError(null);
+    try {
+      const every = await mutate<StagedResponse>(
+        `/evidence/staged?${attentionOnly ? "attention=1&" : ""}limit=${MAX_PAGE}&offset=0`,
+      );
+      setPicked(new Map(every.orders.map((o) => [o.artifact_id, o])));
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setSelectingAll(false);
+    }
+  }
 
   function toggle(order: StagedOrder) {
     setPicked((current) => {
@@ -196,6 +248,36 @@ export default function StagedReview() {
 
       {summary.staged > 0 && (
         <>
+          {/* Two halves of one inbox, never nested. The count rides on the tab because it is a
+              fact about the tab; the tab's own colour is what says "you are here". */}
+          <div className="tf-tabs">
+            <button
+              className="tf-tab"
+              aria-current={tab === "orders"}
+              onClick={() => setTab("orders")}
+            >
+              Orders <b className="mono">{summary.staged}</b>
+            </button>
+            <button
+              className="tf-tab"
+              aria-current={tab === "products"}
+              onClick={() => setTab("products")}
+            >
+              Products <b className="mono">{products.data?.total ?? "—"}</b>
+            </button>
+          </div>
+
+          {tab === "products" ? (
+            <StagedProducts
+              all={products.data?.items ?? []}
+              loading={products.loading}
+              error={products.error}
+              stale={products.refreshing || products.isStale}
+              categories={categories}
+              onFiled={bump}
+            />
+          ) : (
+          <>
           {/* The tally and the button together, ABOVE the list — the same arrangement, for the
               same reason, as the finder's action bar: the number you steer by and the control
               you steer with have to be on screen at the same time. */}
@@ -251,6 +333,8 @@ export default function StagedReview() {
             stale={working || inbox.isStale}
             empty="Nothing needs a decision — everything staged is ready as it is, below."
             handlers={handlers}
+            onSelectEvery={() => void selectEvery(true)}
+            selectingAll={selectingAll}
           />
 
           {/* Everything else, COLLAPSED. A native <details>, so the disclosure is keyboard- and
@@ -262,8 +346,17 @@ export default function StagedReview() {
               All {summary.staged} staged orders, including the{" "}
               {summary.staged - summary.needs_attention} that need nothing
             </summary>
-            {showAll && <AllOrders total={summary.staged} handlers={handlers} />}
+            {showAll && (
+              <AllOrders
+                total={summary.staged}
+                handlers={handlers}
+                onSelectEvery={() => void selectEvery(false)}
+                selectingAll={selectingAll}
+              />
+            )}
           </details>
+          </>
+          )}
         </>
       )}
 
@@ -329,25 +422,17 @@ function Header({ summary }: { summary: StagedSummary }) {
         <span className={ready > 0 ? "credit" : "soft"}>
           <b className="mono">{ready}</b> ready as {ready === 1 ? "it is" : "they are"}
         </span>
+        {/* its surprise, said as a clause rather than as a paragraph under the tally:
+            a category belongs to the PRODUCT, so a correct confirm of two hundred orders can
+            move the unexplained figure by nothing at all. Filing one product fixes it for
+            every order that contains it, which is why this points at the tab rather than
+            warning about itself. */}
         <span className={summary.uncategorised_lines > 0 ? "flag" : "soft"}>
-          <b className="mono">{summary.uncategorised_lines}</b> line items with no category
+          <b className="mono">{summary.uncategorised_lines}</b> lines with no category
+          <span className="soft"> · confirming records them, attributes nothing</span>
         </span>
       </div>
 
-      {summary.uncategorised_lines > 0 ? (
-        <p className="note">
-          Confirming attaches these orders to your bank rows and files their items into the
-          product catalogue. It will <b>not</b> categorise a rupee of it: a category belongs to
-          the product, and {summary.uncategorised_lines} of these items do not have one yet — so
-          this import produces <b>zero allocations</b> until some products are filed. That is
-          deliberate, and it is cheap to fix: a product is filed once, not once per order.
-        </p>
-      ) : (
-        <p className="note ok">
-          Every product in these orders already has a category, so confirming will attribute the
-          money as well as record it.
-        </p>
-      )}
     </>
   );
 }
@@ -359,7 +444,17 @@ function Header({ summary }: { summary: StagedSummary }) {
  * separately: the two are worked at different rates, and one shared pager would make "next
  * page" mean a different thing depending on where you happened to be.
  */
-function AllOrders({ total, handlers }: { total: number; handlers: RowHandlers }) {
+function AllOrders({
+  total,
+  handlers,
+  onSelectEvery,
+  selectingAll,
+}: {
+  total: number;
+  handlers: RowHandlers;
+  onSelectEvery: () => void;
+  selectingAll: boolean;
+}) {
   const [offset, setOffset] = useState(0);
   const { version } = useLedgerVersion();
   const list = useFetch<StagedResponse>(`/evidence/staged?limit=${PAGE}&offset=${offset}`, {
@@ -381,6 +476,8 @@ function AllOrders({ total, handlers }: { total: number; handlers: RowHandlers }
       stale={working || list.isStale}
       empty="Nothing staged."
       handlers={handlers}
+      onSelectEvery={onSelectEvery}
+      selectingAll={selectingAll}
     />
   );
 }
@@ -402,6 +499,8 @@ function OrderList({
   stale,
   empty,
   handlers,
+  onSelectEvery,
+  selectingAll,
 }: {
   orders: StagedOrder[];
   total: number;
@@ -411,6 +510,8 @@ function OrderList({
   stale: boolean;
   empty: string;
   handlers: RowHandlers;
+  onSelectEvery: () => void;
+  selectingAll: boolean;
 }) {
   if (orders.length === 0) return <p className="soft batch-empty">{empty}</p>;
 
@@ -423,8 +524,28 @@ function OrderList({
     }
   };
 
+  const everyPicked = total > 0 && handlers.picked.size >= total;
+
   return (
     <>
+      {/* Said only when the two answers differ. With one page there is nothing to offer and
+          nothing to disambiguate, so the strip stays off the screen rather than restating
+          what the header box already did. */}
+      {allOnPage && orders.length < total && (
+        <p className="staged-scope">
+          {everyPicked ? (
+            <span className="credit">All {total} selected — not just this page.</span>
+          ) : (
+            <>
+              <span className="soft">All {orders.length} on this page.</span>{" "}
+              <button className="btn-ghost" disabled={selectingAll} onClick={onSelectEvery}>
+                {selectingAll ? "Selecting…" : `Select all ${total}`}
+              </button>
+            </>
+          )}
+        </p>
+      )}
+
       <div className={"staged-list" + (stale ? " is-stale" : "")}>
         <table className="record-table">
           <colgroup>
@@ -554,10 +675,8 @@ function Held({ files, count }: { files: HeldFile[]; count: number }) {
       <summary>
         {count} file{count === 1 ? "" : "s"} held — stored, waiting on a feature
       </summary>
-      <p className="note">
-        These were read and stored, and nothing about them is lost. Most are credit notes: a
-        refund is a separate event from the purchase it reverses, so posting one as an order
-        would count the money twice. They stay in the store and are re-read where they sit once
+      <p className="soft batch-empty">
+        Stored, nothing lost — mostly credit notes, which are re-read where they sit once
         refunds are built.
       </p>
       <div className="table-scroll short">

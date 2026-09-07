@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { errorText, mutate } from "../shared/api";
 import { useBusy, useFetch } from "../shared/useFetch";
 import { useLedgerVersion } from "../shared/ledgerVersion";
+import Pager from "../shared/Pager";
 import EvidenceDrop from "./EvidenceDrop";
 import ImportBatchPanel from "./ImportBatchPanel";
 import ImportReceipt from "./ImportReceipt";
@@ -42,6 +43,12 @@ import { groupFromFilename, outstanding, type ImportBatch, type ImportResponse }
 // remains the only thing entitled to say what a file is — so a wrong guess here costs a layout,
 // never a corrupted document.
 
+/**
+ * Imports per page. Generous: each is one collapsed line, and the list is what you scan to
+ * find the one you came for — a short page would turn a scan into a hunt.
+ */
+const LIST_PAGE = 8;
+
 /** `%PDF-`, the magic number a PDF is required to start with. Mirrors PDF_MAGIC in artifacts.ts. */
 const PDF_MAGIC = [0x25, 0x50, 0x44, 0x46, 0x2d];
 
@@ -65,6 +72,20 @@ export default function SourcesView() {
   // once (the same expense entered in the wrong group is exactly when you would), and an
   // accordion that closes one to open another loses the position you had in it.
   const [open, setOpen] = useState<Set<string> | null>(null);
+  // Where in the imports list we are. Paged on the CLIENT: `/evidence/imports` is one row per
+  // group, so it is a handful of rows that all arrive together, and a server round trip per
+  // page would be a request to re-count something already in memory.
+  const [listOffset, setListOffset] = useState(0);
+  // A FRESH DROP OWNS THE PAGE.
+  //
+  // Uploading is not the same act as revisiting. Coming back to an import a week later, the
+  // list is the point — you are choosing which one to work on. Having just dropped 24 files,
+  // there is nothing to choose, and reviewing them inside a panel wedged between a drop target
+  // and six other imports makes the thing you are doing the smallest thing on screen.
+  //
+  // So the drop switches the page into a single-import view, and leaving it is one explicit
+  // click rather than a scroll. Nothing is hidden that was not just put there.
+  const [focused, setFocused] = useState(false);
   const { version, bump } = useLedgerVersion();
   // Guards against a drop being read twice while the first read is still resolving.
   const reading = useRef(false);
@@ -114,6 +135,7 @@ export default function SourcesView() {
       setFile(null);
       setDone(null);
       setQueued(files);
+      setFocused(true);
     } finally {
       reading.current = false;
     }
@@ -172,6 +194,10 @@ export default function SourcesView() {
   }
 
   const isOpen = (group: string) => open !== null && open.has(group);
+  // An open panel must stay reachable: paging away from the import you were working in would
+  // be the vanishing this screen exists to stop, so the pager is the only thing that moves
+  // the window and it never closes anything.
+  const shown = batches.slice(listOffset, listOffset + LIST_PAGE);
   const showDrop = preview === null && done === null && queued === null;
 
   // NOTHING IS DRAWN UNTIL THE SHAPE OF THE PAGE IS KNOWN.
@@ -201,62 +227,103 @@ export default function SourcesView() {
 
       {settled && (
         <div className="sources-body">
-          {/* The drop target is slim once there is anything to work on, and a full invitation
-              only when there is not. See EvidenceDrop for why that is a statement rather than
-              a tweak — and it is now decided once rather than corrected. */}
-          {showDrop && (
-            <EvidenceDrop
-              busy={busy}
-              compact={batches.length > 0}
-              onFiles={(files) => void accept(files)}
-            />
-          )}
+          {focused ? (
+            <>
+              {/* One way out, at the top, always in the same place. Leaving is a click rather
+                  than a scroll past everything you just imported. */}
+              <div className="sources-focus">
+                <button
+                  className="btn-ghost"
+                  onClick={() => {
+                    setFocused(false);
+                    setQueued(null);
+                  }}
+                >
+                  &lsaquo; All sources
+                </button>
+                <span className="soft">reviewing what you just dropped</span>
+              </div>
 
-          {error !== null && <p className="note">{error}</p>}
+              {error !== null && <p className="note">{error}</p>}
 
-          {queued !== null && (
-            <UploadQueue
-              files={queued}
-              // The inbox below re-reads off the ledger version, so a finished batch appears
-              // without this screen holding anything about what was in it.
-              onFinished={bump}
-              onDismiss={() => setQueued(null)}
-            />
-          )}
+              {queued !== null && (
+                <UploadQueue
+                  files={queued}
+                  // The inbox below re-reads off the ledger version, so a finished batch
+                  // appears without this screen holding anything about what was in it.
+                  onFinished={bump}
+                  onDismiss={() => setQueued(null)}
+                />
+              )}
 
-          {preview !== null && file !== null && (
-            <ImportReceipt
-              result={preview}
-              busy={busy}
-              onCommit={() => void send(file.file, file.group, false)}
-              onDiscard={reset}
-            />
-          )}
+              <StagedReview />
+            </>
+          ) : (
+            <>
+              {/* The drop target is slim once there is anything to work on, and a full
+                  invitation only when there is not. See EvidenceDrop for why that is a
+                  statement rather than a tweak. */}
+              {showDrop && (
+                <EvidenceDrop
+                  busy={busy}
+                  compact={batches.length > 0}
+                  onFiles={(files) => void accept(files)}
+                />
+              )}
 
-          {done !== null && (
-            <ImportReceipt result={done} busy={false} onDone={() => setDone(null)} />
-          )}
+              {error !== null && <p className="note">{error}</p>}
 
-          {imports.error !== null && <p className="note">{imports.error}</p>}
+              {/* A single text export keeps its inline preview rather than taking the page:
+                  its flow is preview-then-commit and what it produces is an import panel in
+                  the list below, so focusing it would hide the thing it just made. The page
+                  is given over to a DROP OF FILES, which is the case with nothing to choose
+                  between and a review that fills a screen on its own. */}
+              {preview !== null && file !== null && (
+                <ImportReceipt
+                  result={preview}
+                  busy={busy}
+                  onCommit={() => void send(file.file, file.group, false)}
+                  onDiscard={reset}
+                />
+              )}
 
-          {/* The inbox sits ABOVE the imports: it is the newest work and the only work with
-              nothing on the ledger behind it yet. It renders nothing at all when there is
-              nothing staged, so this screen is unchanged for anyone who only uses exports. */}
-          <StagedReview />
+              {done !== null && (
+                <ImportReceipt result={done} busy={false} onDone={() => setDone(null)} />
+              )}
 
-          {/* The imports are permanent, not part of an import result: a near miss you did not
-              judge today is still waiting next week, and it would be lost if it only ever
-              appeared on the screen that produced it. */}
-          <div className={working || imports.isStale ? "is-stale" : undefined}>
-            {batches.map((b) => (
-              <ImportBatchPanel
-                key={b.group}
-                batch={b}
-                expanded={isOpen(b.group)}
-                onToggle={() => toggle(b.group)}
+              {imports.error !== null && <p className="note">{imports.error}</p>}
+
+              {/* The inbox sits ABOVE the imports: it is the newest work and the only work
+                  with nothing on the ledger behind it yet. It renders nothing at all when
+                  there is nothing staged, so this screen is unchanged for anyone who only
+                  uses exports. */}
+              <StagedReview />
+
+              {/* The imports are permanent, not part of an import result: a near miss you did
+                  not judge today is still waiting next week, and it would be lost if it only
+                  ever appeared on the screen that produced it. */}
+              <div className={working || imports.isStale ? "is-stale" : undefined}>
+                {shown.map((b) => (
+                  <ImportBatchPanel
+                    key={b.group}
+                    batch={b}
+                    expanded={isOpen(b.group)}
+                    onToggle={() => toggle(b.group)}
+                  />
+                ))}
+              </div>
+
+              <Pager
+                offset={listOffset}
+                limit={LIST_PAGE}
+                total={batches.length}
+                shown={shown.length}
+                onOffset={setListOffset}
+                unit="imports"
+                busy={working}
               />
-            ))}
-          </div>
+            </>
+          )}
         </div>
       )}
     </div>

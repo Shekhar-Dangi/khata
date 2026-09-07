@@ -2587,3 +2587,61 @@ footer .shell {
 .item-pick .pick-table th {
   padding-top: 0;
 }
+
+/* ── the inbox's product list ─────────────────────────
+   Filters reuse the tab control rather than introducing a third kind of switch: this is the
+   same question the transfers tabs ask ("which of these lists am I looking at"), and it already
+   carries a count. */
+
+/* A filter with nothing behind it stays in place, greyed. It is a FACT about the inbox that
+   nothing needs input, and a chip that disappears at zero takes that fact away — leaving an
+   unexplained gap where the reason the list is empty used to be. */
+.tf-tab.zero {
+  color: #a8a293;
+  cursor: default;
+}
+.tf-tab.zero:hover {
+  color: #a8a293;
+}
+
+/* The search rides on the right of the same row, on the baseline of the tabs. */
+.tf-tabs .tf-search {
+  margin-left: auto;
+  align-self: center;
+  margin-bottom: 6px;
+  min-width: 260px;
+}
+
+/* The merchant's own words under the product's name, and the tally under an amount. Small,
+   because it is context for the line above rather than a line of its own. */
+.sub-line {
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+/* "All 10 on this page" / "Select all 221". Sits between the action bar and the table, and
+   only when the two answers differ — with a single page there is nothing to disambiguate. */
+.staged-scope {
+  margin: 0 0 6px;
+  font-size: 12.5px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.staged-scope .btn-ghost {
+  height: 22px;
+  padding: 0 4px;
+  color: var(--flag);
+}
+
+/* A fresh drop takes the whole page: the thing you just did is the only thing on it, and the
+   imports below stay one click away rather than one scroll. */
+.sources-focus {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+.sources-focus .btn-ghost {
+  padding: 0;
+}
