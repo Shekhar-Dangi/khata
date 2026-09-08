@@ -64,11 +64,9 @@ export default function ItemsView() {
   const categories = cats.data?.categories ?? [];
   const working = useBusy(list.refreshing);
 
-  const rows = list.data?.items ?? [];
-  // "Filed" is the one view the server has no predicate for — `unclassified=1` or everything.
-  // Narrowed here rather than adding a parameter for a view that is the complement of one that
-  // already exists; the count still comes from stats, so the tab cannot disagree with itself.
-  const shown = filter === "classified" ? rows.filter((i) => i.category_id !== null) : rows;
+  // Straight from the server, unfiltered here: every view this page offers is one the server
+  // answers with a predicate, so a page is exactly the rows the pager is counting.
+  const shown = list.data?.items ?? [];
   const total = list.data?.total ?? 0;
   const matching = countFor(filter, stats.data ?? null) ?? total;
 

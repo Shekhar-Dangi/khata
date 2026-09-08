@@ -35,24 +35,27 @@ export type ItemStats = {
 };
 
 /**
- * The three views of the catalogue, in the order they are worked.
+ * The two views of the catalogue: the work, and everything.
  *
- * A PARTITION here, unlike the inbox's overlapping chips: a product either has a category or it
- * does not, and "All" is the two together. So these counts do add up, and the server can answer
- * each with one predicate rather than the page counting rows it has not fetched.
+ * There was a third, "Filed", and it was a mistake twice over. It bought nothing — a filed
+ * product is reachable from All, by search, and its category is editable where it sits — and it
+ * could not be answered honestly: the server has predicates for "unclassified" and "all" and
+ * none for its complement, so the page filtered a SERVER PAGE on the client. Fifty rows would
+ * arrive, three would survive the filter, and the pager would go on claiming a hundred and
+ * twenty. That is the same "paged counts describe a different set from the page" this codebase
+ * has now been bitten by twice; a view that cannot be counted should not be offered.
+ *
+ * What is left is a partition the server answers directly, so the counts cannot drift.
  */
-export type ItemFilter = "unclassified" | "classified" | "all";
+export type ItemFilter = "unclassified" | "all";
 
 export const ITEM_FILTERS: { id: ItemFilter; label: string }[] = [
   { id: "unclassified", label: "No category" },
-  { id: "classified", label: "Filed" },
   { id: "all", label: "All" },
 ];
 
 /** How many rows each view holds, from the stats call — never counted off a page. */
 export function countFor(filter: ItemFilter, stats: ItemStats | null): number | null {
   if (stats === null) return null;
-  if (filter === "unclassified") return stats.unclassified;
-  if (filter === "classified") return stats.total - stats.unclassified;
-  return stats.total;
+  return filter === "unclassified" ? stats.unclassified : stats.total;
 }
