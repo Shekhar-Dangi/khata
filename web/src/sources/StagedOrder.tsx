@@ -272,6 +272,9 @@ function LineRow({
             <ItemCombo
               value={chosenName}
               itemId={itemId}
+              // What the resolver proposed for THIS line. Offered before anything is typed,
+              // which is the moment they answer the question.
+              suggestions={line.resolution.candidates}
               onPick={(item) => onMap(line.canonical ?? line.description, item)}
             />
           )}

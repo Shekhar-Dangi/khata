@@ -32,6 +32,7 @@ const LIMIT = 6;
 export default function ItemCombo({
   value,
   itemId,
+  suggestions = [],
   placeholder = "New product",
   onPick,
   disabled = false,
@@ -40,6 +41,15 @@ export default function ItemCombo({
   value: string | null;
   /** Its id, shown beside the name: the only way to tell two same-named products apart. */
   itemId: string | null;
+  /**
+   * What the RESOLVER thought this line might be, with how alike the strings are.
+   *
+   * These are the reason a line is marked "needs input" at all, and they were lost when this
+   * control replaced the panel that used to list them — leaving the box empty on exactly the
+   * lines where the app had an opinion and no way to say it. Shown before anything is typed,
+   * because that is when they are the answer.
+   */
+  suggestions?: { item_id: string; name: string; similarity: number }[];
   placeholder?: string;
   /** Null clears the choice, which is the same as saying "make a new product". */
   onPick: (item: { id: string; name: string } | null) => void;
@@ -142,7 +152,28 @@ export default function ItemCombo({
               `results.map`, which drew a bordered box six pixels tall under the input and
               looked exactly like a broken popover — the one state a search box must never be
               in is "open, and apparently empty for no reason". */}
-          {term === "" ? (
+          {term === "" && suggestions.length > 0 ? (
+            <>
+              <p className="combo-said soft">We think it might be one of these</p>
+              {suggestions.map((c) => (
+                <button
+                  key={c.item_id}
+                  type="button"
+                  className="combo-hit"
+                  onClick={() => {
+                    onPick({ id: c.item_id, name: c.name });
+                    setQuery("");
+                    setOpen(false);
+                  }}
+                >
+                  <span className="clip">{c.name}</span>
+                  <span className="soft mono combo-hit-meta">
+                    {c.similarity}% alike · #{c.item_id}
+                  </span>
+                </button>
+              ))}
+            </>
+          ) : term === "" ? (
             <p className="combo-said soft">
               Type to search your catalogue. Leave it empty and a new product is created.
             </p>

@@ -59,3 +59,37 @@ export function countFor(filter: ItemFilter, stats: ItemStats | null): number | 
   if (stats === null) return null;
   return filter === "unclassified" ? stats.unclassified : stats.total;
 }
+
+/**
+ * One pair the resolver suspects is a single product.
+ *
+ * `lo_*` is the KEEPER — the lower id, which is the older row, so the survivor is the one more
+ * history already points at. Worth naming on screen: which of the two lives decides what the
+ * merged product ends up called.
+ */
+export type MergeProposal = {
+  id: string;
+  /** 0-100. How alike the two canonical names are — the reason the pair was raised. */
+  similarity: number;
+  status: "open" | "accepted" | "rejected";
+  lo_id: string;
+  lo_canonical: string;
+  lo_name: string | null;
+  hi_id: string;
+  hi_canonical: string;
+  hi_name: string | null;
+};
+
+export type ProposalsResponse = {
+  proposals: MergeProposal[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+/**
+ * What the Products page can be showing. The first two are views of the SAME rows; "merge" is a
+ * different table entirely — pairs, not products — which is why it is a tab rather than a
+ * filter. Keeping it here means the tab row is one list with one shape.
+ */
+export type ItemTab = ItemFilter | "merge";

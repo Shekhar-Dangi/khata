@@ -2765,3 +2765,11 @@ footer .shell {
 .catalogue-said {
   font-size: 12.5px;
 }
+
+/* Merge / Different, side by side at the end of a pair. */
+.merge-verdict {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: flex-end;
+}

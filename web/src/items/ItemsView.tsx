@@ -6,11 +6,20 @@ import { errorText, mutate } from "../shared/api";
 import { useLedgerVersion } from "../shared/ledgerVersion";
 import type { Category } from "../shared/transactions";
 import { useBusy, useDebounced, useFetch } from "../shared/useFetch";
-import { ITEM_FILTERS, countFor, type Item, type ItemFilter, type ItemStats, type ItemsResponse } from "./items";
+import MergeQueue from "./MergeQueue";
+import {
+  ITEM_FILTERS,
+  countFor,
+  type Item,
+  type ItemFilter,
+  type ItemStats,
+  type ItemTab,
+  type ItemsResponse,
+} from "./items";
 
 // THE PRODUCT CATALOGUE — every product the ledger knows, and what each is filed under.
 //
-// This is the flywheel's third entity and the page that makes it
+// This is the flywheel's third entity, after merchants and rules, and the page that makes it
 // pay: a household buys the same few hundred things forever, so classifying one product once
 // covers every future basket. Which is exactly why the list leads with HOW OFTEN each was
 // bought rather than with what you last edited — the rows worth your attention are the ones
@@ -34,7 +43,12 @@ const PAGE = 50;
 
 export default function ItemsView() {
   const { version, bump } = useLedgerVersion();
-  const [filter, setFilter] = useState<ItemFilter>("unclassified");
+  // Which tab, where two of the three are views of the products table and the third swaps it
+  // for the merge queue. `filter` stays the products-only concept, so the fetch below cannot
+  // accidentally ask the items route for a pair.
+  const [tab, setTab] = useState<ItemTab>("unclassified");
+  const filter: ItemFilter = tab === "merge" ? "unclassified" : tab;
+  const merging = tab === "merge";
   const [query, setQuery] = useState("");
   const [offset, setOffset] = useState(0);
   // Selection is a SET OF IDS plus a flag for "everything that matches". Two different facts:
@@ -56,6 +70,9 @@ export default function ItemsView() {
   const list = useFetch<ItemsResponse>(`/items${params}`, {
     keepPreviousData: true,
     revalidateOn: version,
+    // The products table is not on screen while the queue is, and this is the page's most
+    // expensive read.
+    enabled: !merging,
   });
   // The counts the tabs carry. Its own call because they describe the WHOLE catalogue, not the
   // page — a tab counting the rows on screen would say "50" whatever the truth was.
@@ -70,8 +87,8 @@ export default function ItemsView() {
   const total = list.data?.total ?? 0;
   const matching = countFor(filter, stats.data ?? null) ?? total;
 
-  function reset(next: Partial<{ filter: ItemFilter; query: string; offset: number }>) {
-    if (next.filter !== undefined) setFilter(next.filter);
+  function reset(next: Partial<{ filter: ItemTab; query: string; offset: number }>) {
+    if (next.filter !== undefined) setTab(next.filter);
     if (next.query !== undefined) setQuery(next.query);
     setOffset(next.offset ?? 0);
     setPicked(new Set());
@@ -151,8 +168,7 @@ export default function ItemsView() {
         <span className="soft mono catalogue-said">
           {stats.data === null
             ? ""
-            : `${stats.data.total} products · ${stats.data.aliases} spellings` +
-              (stats.data.open_proposals > 0 ? ` · ${stats.data.open_proposals} to merge` : "")}
+            : `${stats.data.total} products · ${stats.data.aliases} spellings`}
         </span>
       </div>
 
@@ -162,22 +178,39 @@ export default function ItemsView() {
           return (
             <button
               key={f.id}
-              className={"tf-tab" + (n === 0 && filter !== f.id ? " zero" : "")}
-              aria-current={filter === f.id}
+              className={"tf-tab" + (n === 0 && tab !== f.id ? " zero" : "")}
+              aria-current={tab === f.id}
               onClick={() => reset({ filter: f.id })}
             >
               {f.label} <b className="mono">{n ?? "—"}</b>
             </button>
           );
         })}
+        {/* The queue is a tab rather than a line in the heading, because a count you cannot
+            click is a count that reports work nobody can do. */}
+        <button
+          className={
+            "tf-tab" + (stats.data?.open_proposals === 0 && !merging ? " zero" : "")
+          }
+          aria-current={merging}
+          onClick={() => reset({ filter: "merge" })}
+        >
+          Might be duplicates <b className="mono">{stats.data?.open_proposals ?? "—"}</b>
+        </button>
+        {!merging && (
         <input
           className="search tf-search"
           value={query}
           placeholder="Search a product, or any spelling of it"
           onChange={(e) => reset({ query: e.target.value })}
         />
+        )}
       </div>
 
+      {merging && <MergeQueue />}
+
+      {!merging && (
+      <>
       {/* ALWAYS ON SCREEN, dimmed when nothing is ticked. A bar that appears on the first tick
           pushes the table down under the cursor that just ticked it. */}
       <div className="finder-bar">
@@ -314,6 +347,8 @@ export default function ItemsView() {
         unit="products"
         busy={working}
       />
+      </>
+      )}
     </div>
   );
 }
