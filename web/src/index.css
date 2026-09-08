@@ -2760,3 +2760,8 @@ footer .shell {
   overflow: visible;
   text-overflow: clip;
 }
+
+/* The catalogue's one-line summary, on the baseline of its heading. */
+.catalogue-said {
+  font-size: 12.5px;
+}

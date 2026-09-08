@@ -12,6 +12,7 @@ import {
   mergeItems,
   rejectProposal,
   resolveAndRecord,
+  setCategoryForMany,
   setItemCategory,
 } from "./../items-store.ts";
 
@@ -188,6 +189,60 @@ router.patch("/items/:id", route(async (req, res) => {
     }
 
     return res.json(await getItem(client, id));
+  });
+}));
+
+/**
+ * POST /items/category — file many products at once. `{ category_id, item_ids? , q?, unclassified? }`
+ *
+ * `item_ids` is an explicit selection. WITHOUT it, the filter decides — which is the only
+ * honest way to offer "all 119 matching" from a server-paged list, since the browser holds one
+ * page and cannot name the rest. Shipping ids there would quietly mean the page, which is the
+ * bug the staged worklist's select-all exists to avoid.
+ *
+ * One statement, one transaction: filing ninety products is one decision a person made once,
+ * and ninety PATCHes would leave half of it applied when the fortieth fails.
+ */
+router.post("/items/category", route(async (req, res) => {
+  const body = req.body as {
+    category_id?: unknown; item_ids?: unknown; q?: unknown; unclassified?: unknown;
+  };
+
+  if (!("category_id" in body)) throw badRequest("category_id is required (null clears it)");
+  const raw = body.category_id;
+  let categoryId: number | null = null;
+  if (raw !== null) {
+    if (typeof raw !== "number" || !Number.isInteger(raw)) {
+      throw badRequest("category_id must be an integer or null");
+    }
+    categoryId = raw;
+  }
+
+  let itemIds: number[] | undefined;
+  if (body.item_ids !== undefined) {
+    if (!Array.isArray(body.item_ids) || body.item_ids.length === 0) {
+      throw badRequest("item_ids must be a non-empty array");
+    }
+    itemIds = body.item_ids.map((v) => {
+      const n = typeof v === "number" ? v : Number(v);
+      if (!Number.isInteger(n)) throw badRequest("item_ids must be integers");
+      return n;
+    });
+  }
+
+  const q = typeof body.q === "string" && body.q.trim() !== "" ? body.q.trim() : undefined;
+  const unclassifiedOnly = body.unclassified === true;
+  if (itemIds === undefined && q === undefined && !unclassifiedOnly) {
+    throw badRequest("send item_ids, or a filter — refusing to file the whole catalogue");
+  }
+
+  return withTransaction(async (client) => {
+    if (categoryId !== null) {
+      const exists = await client.query("SELECT 1 FROM categories WHERE id = $1", [categoryId]);
+      if (exists.rowCount === 0) throw badRequest(`no category ${categoryId}`);
+    }
+    const filed = await setCategoryForMany(client, { categoryId, itemIds, q, unclassifiedOnly });
+    return res.json({ filed });
   });
 }));
 

@@ -262,8 +262,78 @@ export type ItemRow = {
   category_name: string | null;
   category_source: string | null;
   alias_count: number;
+  /**
+   * How many invoice LINES across the whole ledger resolve to this product.
+   *
+   * Derived, not stored, and that is the honest shape: nothing increments a counter today, so a
+   * column would be a cache with no writer. Computed by walking the confirmed evidence payloads
+   * and joining their line skus to this item's aliases — the same key `resolveAndRecord` wrote,
+   * so the count and the resolution cannot disagree.
+   *
+   * Zero is a real answer: an item created by hand through `POST /items/resolve` has no
+   * purchase behind it yet.
+   */
+  times_seen: number;
   updated_at: string;
 };
+
+/**
+ * File MANY products under one category, in one statement.
+ *
+ * Two ways to say which, and the difference matters. `itemIds` is an explicit selection — the
+ * rows a person ticked, and exactly those. A filter instead means "everything matching what is
+ * on screen", which is the only honest way to offer "all 119" from a server-paged list: the
+ * browser holds one page and cannot name the rest, so shipping ids would silently mean the
+ * page. Same reasoning as the staged worklist's select-all.
+ *
+ * Always `source = 'user'`: this is reached only from a person pressing a button, and 'user' is
+ * the provenance the design  says a re-run of the classifier may never
+ * overwrite. Confidence is 100 for the same reason — a decision, not an estimate.
+ */
+export async function setCategoryForMany(
+  client: PoolClient,
+  opts: {
+    categoryId: number | null;
+    itemIds?: number[];
+    q?: string;
+    unclassifiedOnly?: boolean;
+  },
+): Promise<number> {
+  const params: unknown[] = [opts.categoryId, opts.categoryId === null ? null : 100];
+  const where: string[] = [];
+
+  if (opts.itemIds !== undefined) {
+    params.push(opts.itemIds);
+    where.push(`id = ANY($${params.length}::bigint[])`);
+  } else {
+    // Mirrors listItems' predicates exactly. Two places building "which items" from the same
+    // query string is how a bulk action comes to touch a different set from the one shown.
+    if (opts.q) {
+      params.push(`%${opts.q.toLowerCase()}%`);
+      where.push(`(canonical_name LIKE $${params.length} OR lower(display_name) LIKE $${params.length})`);
+    }
+    if (opts.unclassifiedOnly) where.push("category_id IS NULL");
+  }
+
+  // An unfiltered, unselected call would file the WHOLE catalogue. Refused rather than
+  // obeyed: there is no button that should mean that, so a request shaped like one is a bug.
+  if (where.length === 0) throw new Error("refusing to file every item — send item_ids or a filter");
+
+  const done = await client.query(
+    // `category_source` follows the id in and out. `items_category_has_source` CHECKs that the
+    // two are null together — a category with no provenance is unreviewable — so writing
+    // 'user' beside a cleared id is a constraint violation, not a stylistic slip. Same shape
+    // and the same casts as `setItemCategory`, for the same reason recorded there.
+    `UPDATE items
+        SET category_id = $1,
+            category_source = CASE WHEN $1::bigint IS NULL THEN NULL ELSE 'user' END,
+            category_confidence = $2::smallint,
+            updated_at = now()
+      WHERE ${where.join(" AND ")}`,
+    params,
+  );
+  return done.rowCount ?? 0;
+}
 
 export async function listItems(
   client: PoolClient,
@@ -279,13 +349,37 @@ export async function listItems(
   const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
   const rows = await client.query<ItemRow>(
-    `SELECT i.id, i.canonical_name, i.display_name, i.category_id,
+    // MOST-BOUGHT FIRST, because the products worth classifying are the ones you buy again —
+    // that is the entire economic argument for a catalogue. Most
+    // recently touched, the old order, put whatever you happened to edit last at the top, which
+    // is a fact about your session rather than about your shopping.
+    //
+    // The count is a CTE computed once per request rather than a correlated subquery per row.
+    // It walks every confirmed payload, which is bounded by how much has been imported and is
+    // ~400 rows here; if that stops being cheap the fix is a counter maintained by
+    // `resolveAndRecord`, not a page whose order depends on which slice you asked for.
+    `WITH seen AS (
+       SELECT a.item_id, count(*)::int AS times
+         FROM evidence e
+         CROSS JOIN LATERAL jsonb_array_elements(e.payload->'invoices') inv
+         CROSS JOIN LATERAL jsonb_array_elements(inv->'lines') ln
+         JOIN item_aliases a
+           ON a.source_type = e.source_type
+          AND a.alias_kind = 'sku'
+          AND a.alias_value = ln->>'sku'
+        WHERE ln->>'kind' IS DISTINCT FROM 'fee'
+        GROUP BY a.item_id
+     )
+     SELECT i.id, i.canonical_name, i.display_name, i.category_id,
             c.name AS category_name, i.category_source,
             (SELECT count(*)::int FROM item_aliases a WHERE a.item_id = i.id) AS alias_count,
+            COALESCE(s.times, 0) AS times_seen,
             i.updated_at
-       FROM items i LEFT JOIN categories c ON c.id = i.category_id
+       FROM items i
+       LEFT JOIN categories c ON c.id = i.category_id
+       LEFT JOIN seen s ON s.item_id = i.id
        ${clause}
-      ORDER BY i.updated_at DESC, i.id DESC
+      ORDER BY times_seen DESC, i.updated_at DESC, i.id DESC
       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
     [...params, opts.limit, opts.offset],
   );

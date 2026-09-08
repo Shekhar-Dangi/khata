@@ -9,6 +9,7 @@ import AnomaliesView from "./anomalies/AnomaliesView";
 import RulesView from "./rules/RulesView";
 import ReportsView from "./reports/ReportsView";
 import CategoriesView from "./categories/CategoriesView";
+import ItemsView from "./items/ItemsView";
 import SourcesView from "./sources/SourcesView";
 
 type View =
@@ -17,6 +18,7 @@ type View =
   | "transfers"
   | "rules"
   | "categories"
+  | "products"
   | "sources"
   | "anomalies";
 
@@ -26,6 +28,9 @@ const TABS: { key: View; label: string }[] = [
   { key: "transfers", label: "Internal transfers" },
   { key: "rules", label: "Rules" },
   { key: "categories", label: "Categories" },
+  // Products sits beside Categories because it is the same kind of thing — a vocabulary you
+  // maintain — and immediately before Sources, which is where the rows in it come from.
+  { key: "products", label: "Products" },
   // Rules, Categories and Sources are the machinery that adds meaning; Anomalies stays
   // last because it is the integrity check, not another place to configure something.
   { key: "sources", label: "Sources" },
@@ -75,6 +80,7 @@ function App() {
             {view === "reports" && <ReportsView />}
             {view === "rules" && <RulesView />}
             {view === "categories" && <CategoriesView />}
+          {view === "products" && <ItemsView />}
           {view === "sources" && <SourcesView />}
             {view === "anomalies" && <AnomaliesView />}
           </div>
