@@ -2752,11 +2752,14 @@ footer .shell {
    reached past the row into the line-item table nested inside it and clipped the catalogue
    popover to an 8px sliver. Measured, not guessed: the popover was 52px tall with the right
    contents and a `<td>` above it was `overflow: hidden`.
-   Scoped overrides rather than weakening the original, which the Splitwise tables still want:
-   equal specificity, declared later, so these win exactly where they apply. */
+   Scoped to the CELLS THAT HOST A POPOVER, and no wider. The first attempt said `.pick-table
+   td`, which at (0,1,1) outranked `.narration` at (0,1,0) — so the bank narration in the
+   Splitwise record expand stopped truncating, kept its `nowrap`, and ran straight over the
+   Account column. An escape hatch from clipping must never reach a cell whose whole job is to
+   clip. */
 .record-table td.order-detail,
-.record-table .pick-table td,
-.pick-table td {
+.record-table td.combo-cell,
+.pick-table td.combo-cell {
   overflow: visible;
   text-overflow: clip;
 }

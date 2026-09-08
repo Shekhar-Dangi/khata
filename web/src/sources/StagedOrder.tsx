@@ -263,7 +263,9 @@ function LineRow({
           <span className="clip mono soft">{line.canonical ?? "—"}</span>
         </td>
 
-        <td>
+        {/* `combo-cell` is what lets the catalogue popover leave this cell. Named rather than
+            selected by position, so widening it can never reach a cell that must truncate. */}
+        <td className="combo-cell">
           {line.kind === "fee" ? (
             // A fee is money, not merchandise. It never reaches the catalogue, so there is
             // nothing to pick and a disabled box would only invite a click.

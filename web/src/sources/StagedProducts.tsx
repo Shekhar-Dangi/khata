@@ -211,7 +211,7 @@ export default function StagedProducts({
                     <span className="clip mono soft">{item.canonical}</span>
                   </td>
 
-                  <td>
+                  <td className="combo-cell">
                     <ItemCombo
                       value={picked === null ? null : picked.name}
                       itemId={picked === null ? null : picked.id}
