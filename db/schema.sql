@@ -85,8 +85,9 @@ CREATE TABLE categories (
   -- Allocations here are money that moved but was NOT consumption. Needed because a shared
   -- expense is a PARTIAL exclusion (2,000 of a 4,000 debit is spend, 2,000 is not), and
   -- EXPLAINABLE_SPEND is a predicate over transactions, which cannot express "half of this
-  -- one". A flag rather than a name checked in code, because a name in code is the
-  -- a category named debit lexical trap. See the design.
+  -- one". A flag rather than a name checked in code, because a name in code is a lexical
+  -- trap: a user category that happens to be called "debit" would match every narration
+  -- that says "UPI-Debit".
   -- Checked on a category OR ITS PARENT by src/consumption.ts, so flagging a parent covers
   -- its whole subtree. Set on Transfers (own money moving) and Income (a real inflow, but
   -- not something consumed).
@@ -210,7 +211,7 @@ CREATE INDEX allocations_confirmed_from_rule_idx
 -- source_type is UNIQUE so re-connecting UPSERTs instead of accumulating tokens where the
 -- newest is only PROBABLY the live one. Stored in plaintext deliberately: the same
 -- database already holds the ledger, which is more sensitive than a read-scoped token.
--- See the design.
+-- See migration 004 for the full reasoning.
 CREATE TABLE connections (
   id                 BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   source_type        TEXT NOT NULL UNIQUE,          -- 'splitwise' | ...
@@ -247,18 +248,18 @@ CREATE TABLE oauth_states (
 CREATE INDEX oauth_states_expires_idx ON oauth_states (expires_at);
 
 -- consumption: burden that never moved through the bank — someone else paid for your share.
--- 43 of 93 expenses in the verified Splitwise sample were this, so it is not an edge case.
+-- In a real Splitwise export a large share of expenses were this, so it is not an edge case.
 --
 -- A SEPARATE slice table rather than a nullable allocations.transaction_id, and the reason is
 -- measured: EXPLAINABLE_SPEND is a predicate over transactions and cannot gate allocations,
 -- and four of the ~19 queries touching `allocations` never join a transaction, so they would
 -- silently start counting non-cash rows with no single place to fix it. The default would be
 -- wrong. A category_id on `evidence` fails differently — one evidence row can carry many
--- categories, which is why the design keeps categories out of it.
+-- categories, which is why the itemisation design keeps categories out of it.
 --
 -- The consumption FIGURE is a union of this table and allocations-excluding-shared. That union
 -- belongs in ONE module (src/consumption.ts), for the reason src/spend.ts already argues about
--- EXPLAINABLE_SPEND. See the design.
+-- EXPLAINABLE_SPEND.
 CREATE TABLE consumption (
   id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   evidence_id  BIGINT NOT NULL REFERENCES evidence(id) ON DELETE CASCADE,
@@ -273,7 +274,7 @@ CREATE TABLE consumption (
   source       TEXT NOT NULL CHECK (source IN ('evidence', 'user', 'rule')),
   -- Deliberately NO `confidence`, unlike allocations: the category comes from a static map of
   -- a closed taxonomy, so it would be a constant. Same disease as the parked constant-0.8
-  -- per-rule confidence; the design measured that self-reported confidence carries no
+  -- per-rule confidence; measurement showed that self-reported confidence carries no
   -- information. A model handling the catch-all should ABSTAIN, not record a number.
   note         TEXT,
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -283,13 +284,13 @@ CREATE INDEX consumption_evidence_idx ON consumption (evidence_id);
 CREATE INDEX consumption_consumed_on_idx ON consumption (consumed_on);
 
 -- artifacts: the bytes a person uploaded, kept BEFORE anything tries to understand them.
--- the design/the design make this slice 1 of invoice ingestion: a parser
+-- Storing the bytes first is slice 1 of invoice ingestion, for one reason: a parser
 -- bug must cost a re-run, never the document. A Splitwise CSV is re-downloadable in ten
 -- seconds; a Blinkit invoice is exposed per order and never in bulk. See migration 011 for
 -- the full reasoning on each column.
 CREATE TABLE artifacts (
   id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  -- The ARTIFACT layer of the design's three: "you already uploaded this exact file".
+  -- The ARTIFACT layer of the three idempotency layers: "you already uploaded this exact file".
   -- Cheap, needs no parse, and deliberately NOT the correctness boundary.
   content_hash  TEXT NOT NULL,
   -- In the database, not on disk, because POST /evidence/import?dry_run=1 rolls back: a file
@@ -303,10 +304,13 @@ CREATE TABLE artifacts (
   -- NULL means nothing recognised it — a real answer, not a missing one.
   source_type   TEXT,
   parse_status  TEXT NOT NULL DEFAULT 'pending'
-                CHECK (parse_status IN ('pending', 'parsed', 'unsupported', 'failed')),
+                CHECK (parse_status IN ('pending', 'staged', 'parsed', 'unsupported', 'failed')),
   parse_error   TEXT,
   -- Loose reference on purpose: an artifact outlives the evidence row it produced.
   external_ref  TEXT,
+  -- The parsed OrderRecord, held pending confirmation. NULL once landed is not meaningful
+  -- — read parse_status instead. Nothing reaches the ledger until a person confirms it.
+  record        JSONB,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   parsed_at     TIMESTAMPTZ,
   CONSTRAINT artifacts_byte_size_positive CHECK (byte_size > 0),
@@ -316,3 +320,199 @@ CREATE TABLE artifacts (
 CREATE UNIQUE INDEX artifacts_content_hash_uniq ON artifacts (content_hash);
 CREATE INDEX artifacts_parse_status_idx ON artifacts (parse_status, created_at DESC);
 CREATE INDEX artifacts_external_ref_idx ON artifacts (external_ref) WHERE external_ref IS NOT NULL;
+CREATE INDEX artifacts_staged_idx ON artifacts (created_at DESC) WHERE parse_status = 'staged';
+
+-- ═══════════════════════════════════════════════════════════════════════════════════════
+-- What a source's own category vocabulary means here.
+--
+-- From migration 006, and missing from this file for the same reason 012-016 were: nobody
+-- folded it back. The SEEDED ROWS are deliberately not here — a schema declares shape, and the
+-- mappings are data the import path and db/categories.sql supply.
+-- ═══════════════════════════════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS source_category_map (
+  -- Keyed by source from the start. Splitwise is the only one today, but an invoice
+  -- merchant has its own taxonomy and will want this same table; the discriminator costs
+  -- nothing now and a rename later is not free.
+  source_type     TEXT NOT NULL,
+  source_category TEXT NOT NULL,
+
+  -- NULLABLE, and the null carries meaning. There are TWO distinct states here and
+  -- collapsing them is the mistake this column exists to avoid:
+  --
+  --   no row at all      -> never seen. Belongs in the "needs mapping" queue.
+  --   row, category NULL -> deliberately unmappable. Do NOT ask again.
+  --
+  -- The catch-all ('General') is the second kind: it carries no information, so mapping it
+  -- anywhere would be a guess. Without the distinction it would sit in the queue forever,
+  -- and the owner would either map it wrongly to silence it or learn to ignore the queue.
+  -- Both are worse than the honest gap.
+  category_id     BIGINT REFERENCES categories(id),
+
+  note            TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (source_type, source_category)
+);
+
+COMMENT ON COLUMN source_category_map.category_id IS
+  'NULL means "deliberately unmappable" — a decision already taken. A MISSING ROW means '
+  '"not yet seen" and belongs in the review queue. These are different states.';
+
+-- Seed the vocabulary observed in a real Splitwise export. Resolved by name so this does
+-- not depend on seed ids, and skipped silently if a category has been renamed — a mapping
+-- that quietly points at the wrong category would be worse than a missing one.
+
+-- ═══════════════════════════════════════════════════════════════════════════════════════
+-- The product catalogue, and what each confirmed invoice line landed on.
+--
+-- Folded in from migrations 012-016, which had never reached this file: a database built from
+-- it lacked the whole catalogue AND rejected `parse_status = 'staged'`, so a fresh install
+-- could not import a single receipt. The migrations are how an EXISTING database gets here;
+-- this file is what a new one is built from, and the two have to describe the same thing.
+-- ═══════════════════════════════════════════════════════════════════════════════════════
+
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+CREATE TABLE IF NOT EXISTS items (
+  id             BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+
+  -- What a person sees, and what similarity is computed against. Normalised for comparison
+  -- (lowercased, merchant noise stripped) — see `canonicalName` in src/items.ts.
+  canonical_name TEXT NOT NULL,
+  -- The fullest raw string we have seen for this product, kept verbatim. When a merchant
+  -- truncates a name differently next week, the longest one we ever saw is still here.
+  display_name   TEXT,
+
+  -- NULL means "not classified yet", and that is a VALID state, not a missing value.
+  -- An unclassified item simply is not allocated, and its
+  -- amount lands in the computed remainder — partial itemisation is a first-class outcome.
+  category_id    BIGINT REFERENCES categories(id),
+  -- Who decided the CATEGORY. 'user' is the override the model may never overwrite; that is
+  -- the same invariant `allocations.source` carries and the rules engine calls its most
+  -- important one. 'seed' exists so a shipped starter catalogue stays distinguishable from a
+  -- person's decisions — without it a seed error is uncorrectable in bulk.
+  category_source     TEXT CHECK (category_source IN ('user', 'llm', 'seed', 'hsn')),
+  -- 0..100. NOT displayed as a model's self-report: measurement showed that a local
+  -- model returned 0.95 for a correct answer and 0.95 for "Unknown", so a self-reported number
+  -- carries no information. This column is for a DERIVED confidence only.
+  category_confidence SMALLINT CHECK (category_confidence BETWEEN 0 AND 100),
+
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  CONSTRAINT items_canonical_name_not_blank CHECK (btrim(canonical_name) <> ''),
+  -- A category without a provenance is unreviewable: nobody can tell whether a person chose it
+  -- or a model guessed. Either both are present or neither is.
+  CONSTRAINT items_category_has_source
+    CHECK ((category_id IS NULL) = (category_source IS NULL))
+);
+
+-- Similarity search for merge CANDIDATES. A GIN trigram index,
+-- so `similarity(canonical_name, $1)` is an index scan rather than a table scan. This is the
+-- whole reason pg_trgm is enabled: candidate generation is a Postgres feature here, not a new
+-- dependency or a service.
+CREATE INDEX IF NOT EXISTS items_canonical_name_trgm
+  ON items USING gin (canonical_name gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS items_unclassified_idx
+  ON items (updated_at DESC) WHERE category_id IS NULL;
+
+-- The merchant strings that point at an item. THE identity mechanism.
+CREATE TABLE IF NOT EXISTS item_aliases (
+  id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  item_id     BIGINT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+
+  -- Scoped to the merchant DELIBERATELY, including for name aliases. A cross-merchant name
+  -- alias would auto-merge products the corpus proves are different: Blinkit's "Coca-Cola Zero
+  -- Sugar Soft Drink(PET Bottle)" (HSN 22029990) and Amazon's "Coca-Cola Zero Sugar ... Can,
+  -- 300 Ml" (HSN 22021010) canonicalise alike and are not the same thing — the Government
+  -- taxes them differently. Cross-merchant identity is NEVER automatic; it happens only
+  -- through an accepted merge proposal, which re-points these rows.
+  source_type TEXT NOT NULL,
+  -- 'sku'  the merchant's own id — ASIN, UPC/EAN. Exact, stable, free.
+  -- 'name'  a canonicalised name, for merchants that expose no id.
+  alias_kind  TEXT NOT NULL CHECK (alias_kind IN ('sku', 'name')),
+  alias_value TEXT NOT NULL,
+
+  -- How this link was decided. 'exact' is a SKU or a previously-seen name; 'trigram' is a
+  -- string-similarity link that is provisional until reviewed; 'user' is a person's decision
+  -- and outranks everything; 'llm' is reserved and unused today.
+  source      TEXT NOT NULL DEFAULT 'exact'
+              CHECK (source IN ('exact', 'trigram', 'user', 'llm')),
+  -- 0..100, DERIVED — an exact SKU hit is 100, a trigram link carries its similarity. Unlike
+  -- the category confidence above this one is meaningful, because it is computed rather than
+  -- reported.
+  confidence  SMALLINT NOT NULL DEFAULT 100 CHECK (confidence BETWEEN 0 AND 100),
+  -- The merchant's printed string for THIS variant (size, flavour, pack). The item is the
+  -- product; the alias is the thing actually bought, so grouping sizes stays lossless.
+  label       TEXT,
+  -- What distinguishes this variant: {"size":"750 ml","pack":"pet bottle"}. size and pack are
+  -- extracted deterministically; open-set axes are derived from sibling names.
+  attributes  JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  -- The alias IS the identity. One raw string can mean exactly one product, and making the
+  -- duplicate unrepresentable is better than asking every future writer to remember
+  -- (a dedupe implemented as SELECT-then-INSERT is a race and a lie).
+  CONSTRAINT item_aliases_uniq UNIQUE (source_type, alias_kind, alias_value)
+);
+
+CREATE INDEX IF NOT EXISTS item_aliases_item_idx ON item_aliases (item_id);
+
+-- Merges a person has not decided yet.
+--
+-- A proposal, never an action. The asymmetry that drives the whole design: a DUPLICATE item
+-- costs a split frequency count and one manual merge, and is visible on the Items page; a
+-- WRONG MERGE silently routes every future purchase of both products into one category and is
+-- invisible. So the resolver creates rather than merges, and everything uncertain lands here.
+CREATE TABLE IF NOT EXISTS item_merge_proposals (
+  id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  -- Ordered by the writer so (A,B) and (B,A) are the same row. Without that a pair proposed
+  -- from both directions becomes two questions about one decision.
+  lo_item_id  BIGINT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+  hi_item_id  BIGINT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+  similarity  SMALLINT NOT NULL CHECK (similarity BETWEEN 0 AND 100),
+  source      TEXT NOT NULL DEFAULT 'trigram' CHECK (source IN ('trigram', 'llm')),
+  status      TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'accepted', 'rejected')),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  decided_at  TIMESTAMPTZ,
+
+  CONSTRAINT item_merge_ordered CHECK (lo_item_id < hi_item_id),
+  CONSTRAINT item_merge_uniq UNIQUE (lo_item_id, hi_item_id)
+);
+
+CREATE INDEX IF NOT EXISTS item_merge_open_idx
+  ON item_merge_proposals (created_at DESC) WHERE status = 'open';
+
+CREATE INDEX IF NOT EXISTS item_aliases_attributes_gin
+  ON item_aliases USING gin (attributes jsonb_path_ops);
+
+CREATE TABLE IF NOT EXISTS evidence_lines (
+  evidence_id  BIGINT  NOT NULL REFERENCES evidence(id) ON DELETE CASCADE,
+  -- Position within the record's flattened line list, exactly as `listStaged` numbers it and
+  -- as an override key names it (`"<artifact_id>:<line_index>"`). One order can be several
+  -- invoices, so this counts across all of them rather than restarting per invoice.
+  line_index   INT     NOT NULL,
+
+  -- NULL for a fee. A delivery charge is money, not merchandise: it never reaches the
+  -- catalogue, and a row pointing at no item is how that is said. It is still stored, because
+  -- the fee is part of what the order cost and dropping it would make the lines stop summing.
+  item_id      BIGINT  REFERENCES items(id) ON DELETE SET NULL,
+  kind         TEXT    NOT NULL CHECK (kind IN ('goods', 'fee')),
+  amount_paise BIGINT  NOT NULL,
+
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  PRIMARY KEY (evidence_id, line_index),
+  -- 'goods' must name an item; a fee must not. Without this a line could be goods pointing at
+  -- nothing, which allocates nothing and looks identical to an uncategorised product — two
+  -- different facts that must not wear the same shape.
+  CONSTRAINT evidence_lines_kind_has_item
+    CHECK ((kind = 'fee') = (item_id IS NULL))
+);
+
+-- The re-derivation lookup: "every order touching this product". Runs on every category edit.
+CREATE INDEX IF NOT EXISTS evidence_lines_item_idx ON evidence_lines (item_id);
+
+COMMENT ON TABLE evidence_lines IS
+  'Which catalogue item each confirmed invoice line resolved to. The handle that makes a '
+  'category retroactive: filing a product re-derives every order containing it.';
