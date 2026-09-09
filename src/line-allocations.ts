@@ -143,9 +143,17 @@ export async function deriveForEvidence(
   const remaining = new Map(byCategory);
   for (const t of amounts.rows) {
     // Never allocate more than a transaction holds: you cannot have spent more than left the
-    // account, and a negative remainder is a number that cannot be true.
+    // account, and a negative remainder is a number that cannot be true. The arithmetic runs on
+    // MAGNITUDES so the capping reads plainly...
     let room = Math.abs(Number(t.amount_paise));
     if (room <= 0) continue;
+
+    // ...and the written row carries the TRANSACTION'S OWN SIGN. An invoice is money leaving,
+    // so its allocations are negative, exactly as every rule and Splitwise allocation in the
+    // ledger already is. Writing magnitudes made each one read as INCOME: the amounts were
+    // right and the direction was inverted, so they summed into no spend bar and the products
+    // filed on the Products page appeared to have changed nothing.
+    const sign = Number(t.amount_paise) < 0 ? -1 : 1;
 
     for (const categoryId of [...remaining.keys()]) {
       if (room <= 0) break;
@@ -159,7 +167,7 @@ export async function deriveForEvidence(
         `INSERT INTO allocations
            (transaction_id, amount_paise, category_id, confidence, source, evidence_id, note)
          VALUES ($1, $2, $3, 1.00, 'evidence', $4, $5)`,
-        [t.id, give, categoryId, evidenceId, "from the order's line items"],
+        [t.id, sign * give, categoryId, evidenceId, "from the order's line items"],
       );
       remaining.set(categoryId, left - give);
       room -= give;
