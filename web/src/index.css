@@ -2673,16 +2673,6 @@ footer .shell {
   color: #a8a293;
   font-style: italic;
 }
-/* The id rides under the box rather than inside it: it must not be something you delete
-   before you can type. */
-.combo-id {
-  display: block;
-  font-size: 11px;
-  margin-top: 2px;
-}
-/* The panel is the WIDTH OF THE CELL it drops out of. It carried a `min-width` that made it
-   wider than the box above it on every narrow column, so the message inside started to the
-   left of nothing and the whole thing read as misaligned. Names inside ellipsise instead. */
 .combo-pop {
   position: absolute;
   z-index: 20;

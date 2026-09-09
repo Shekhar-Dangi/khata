@@ -11,8 +11,8 @@ import { useDebounced, useFetch } from "../shared/useFetch";
 // same flicker the rest of this screen has been spent removing.
 //
 // THE EMPTY BOX IS AN ANSWER. Nothing selected means "no catalogue item matched, so one will be
-// created", which is what the resolver already decided and by far the commonest outcome — 230 of
-// 230 items on the first real drop. That is why there is no "make it a new product" control
+// created", which is what the resolver already decided and by far the commonest outcome — every
+// item on a first real drop. That is why there is no "make it a new product" control
 // anywhere: it would be a button for the state you are already in.
 //
 // The list only ever opens on a real query. A blank box fetching "the first page of everything"
@@ -117,6 +117,13 @@ export default function ItemCombo({
           }
         }}
         aria-label="Find a product in your catalogue"
+        // The id lives here rather than on a line of its own under the box. It is still the
+        // only way to tell two same-named products apart — so it has to stay reachable — but a
+        // second line made this the one cell in the row that was two lines tall, and every
+        // other cell in the table then sat off-centre against it. The picker's own results
+        // carry the id too, which is where the "is this the same product?" question is
+        // actually asked.
+        title={value === null ? undefined : itemId === null ? value : `${value} · #${itemId}`}
       />
 
       {/* Clearing has to be reachable from the CELL. It was only offered at the bottom of the
@@ -137,13 +144,6 @@ export default function ItemCombo({
         >
           ×
         </button>
-      )}
-
-      {/* The id, always, and never inside the input — a person checking whether two orders
-          really reached the same product has nothing else to compare, and it must not be
-          something they have to delete before they can type. */}
-      {value !== null && itemId !== null && !open && (
-        <span className="combo-id mono soft">#{itemId}</span>
       )}
 
       {open && (
