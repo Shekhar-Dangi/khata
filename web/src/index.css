@@ -2776,3 +2776,15 @@ footer .shell {
   align-items: center;
   justify-content: flex-end;
 }
+
+/* A category picker INSIDE a table cell fills the cell, and no more.
+   `.cat-select`'s 220px minimum is right where it was written — a standalone filter that must
+   stay readable next to other controls — and wrong in a `table-layout: fixed` row, where the
+   column width is already decided. A minimum wider than the column does not widen the column;
+   it spills the control across the next two, which is how the staged Products table ended up
+   with its Category dropdown lying over Lines and Orders. */
+.record-table td .cat-select,
+.pick-table td .cat-select {
+  min-width: 0;
+  width: 100%;
+}
