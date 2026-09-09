@@ -9,8 +9,10 @@
 import type { PoolClient } from "pg";
 
 import { type Candidate, matchToTransaction } from "./evidence-match.ts";
+import type { MatchSummary } from "./evidence-detect.ts";
 import { canonicalName } from "./items.ts";
 import { itemSummary, previewLine, resolveAndRecord } from "./items-store.ts";
+import { deriveForEvidence } from "./line-allocations.ts";
 import type { ParsedLine, ParsedRecord } from "./pdf-extract.ts";
 
 export type LineResolutionView = {
@@ -442,7 +444,14 @@ export async function confirmOne(
    * twelve times, and the twelfth answer silently winning wherever it differed.
    */
   overrides: Record<string, ConfirmOverride>,
-): Promise<{ external_ref: string; evidence_id: string; items_resolved: number }> {
+): Promise<{
+  external_ref: string;
+  evidence_id: string;
+  items_resolved: number;
+  /** Whether a bank row was recorded as paying for this order. */
+  matched: boolean;
+  allocations_written: number;
+}> {
   const row = await client.query<{ external_ref: string; source_type: string | null; record: ParsedRecord; parse_status: string }>(
     "SELECT external_ref, source_type, record, parse_status FROM artifacts WHERE id = $1",
     [artifactId],
@@ -478,13 +487,36 @@ export async function confirmOne(
     ],
   );
 
+  const evidenceId = evidence.rows[0].id;
+
+  // Re-confirming the same order replaces its lines rather than doubling them. The natural key
+  // upserts the evidence row, so the lines under it have to follow the same rule.
+  await client.query("DELETE FROM evidence_lines WHERE evidence_id = $1", [evidenceId]);
+
   let resolved = 0;
+  // Counted across ALL invoices of the order and incremented for fees too, because that is how
+  // `listStaged` numbers a line and how an override key names one. A second numbering would
+  // point a person's decision at a different line than the one they were looking at.
+  let index = 0;
   for (const invoice of record.invoices) {
     for (const line of invoice.lines) {
-      if (line.kind === "fee") continue; // fees are money, never catalogue entries
+      const here = index++;
+
+      if (line.kind === "fee") {
+        // A fee never reaches the catalogue — but it is still part of what the order cost, and
+        // dropping the row would make the stored lines stop summing to the order.
+        await client.query(
+          `INSERT INTO evidence_lines (evidence_id, line_index, item_id, kind, amount_paise)
+           VALUES ($1, $2, NULL, 'fee', $3)`,
+          [evidenceId, here, line.amount_paise],
+        );
+        continue;
+      }
+
       // Same key the items view emits, so a decision made there reaches every sighting.
       const canon = canonicalName(line.description);
       const override = overrides[`${sourceType}:${line.sku ?? `name:${canon}`}`];
+      let itemId: string;
       if (override?.item_id) {
         // A person pointed this line at a product. That is a DECISION, so the alias is written
         // with source 'user' — the strongest provenance, and one a re-run must never overwrite.
@@ -494,17 +526,151 @@ export async function confirmOne(
            ON CONFLICT (source_type, alias_kind, alias_value) DO NOTHING`,
           [override.item_id, sourceType, line.sku ?? line.description.slice(0, 180), line.description.slice(0, 500)],
         );
+        itemId = String(override.item_id);
       } else {
-        await resolveAndRecord(client, toRawLine(sourceType, line));
+        itemId = (await resolveAndRecord(client, toRawLine(sourceType, line))).itemId;
       }
+
+      // WHERE THIS LINE LANDED, kept. Confirming is where line -> item stops being provisional,
+      // and storing the settled answer is what makes a later category change reach back into
+      // this order — see migration 016.
+      await client.query(
+        `INSERT INTO evidence_lines (evidence_id, line_index, item_id, kind, amount_paise)
+         VALUES ($1, $2, $3, 'goods', $4)`,
+        [evidenceId, here, itemId, line.amount_paise],
+      );
       resolved++;
     }
   }
+
+  // THE MATCH, RECORDED. It was computed and shown on the review screen and then thrown away,
+  // so every confirmed order arrived on the ledger explaining nothing and attached to nothing.
+  // The same matcher the screen used, with the same merchant filter, so what was shown before
+  // pressing confirm is what gets written.
+  const candidates = await loadCandidates(client);
+  const outcome = matchToTransaction(
+    {
+      externalRef: record.external_ref,
+      date: isoDate(record.order_date) ?? "",
+      expectedPaise: -record.total_paise,
+      sourceType,
+    },
+    candidates,
+  );
+  let matched = false;
+  if (outcome.kind === "matched") {
+    // ON CONFLICT because the pair IS the identity: re-confirming the same order must not
+    // record the same payment twice.
+    await client.query(
+      `INSERT INTO evidence_transactions (evidence_id, transaction_id) VALUES ($1, $2)
+       ON CONFLICT DO NOTHING`,
+      [evidenceId, outcome.transactionId],
+    );
+    matched = true;
+  }
+  // AMBIGUOUS is left unlinked on purpose. Two bank rows fit and only a person can say which;
+  // picking one here would be the silent guess on money this codebase refuses everywhere else.
+
+  const derived = await deriveForEvidence(client, evidenceId);
 
   await client.query(
     "UPDATE artifacts SET parse_status = 'parsed', external_ref = $2 WHERE id = $1",
     [artifactId, record.external_ref],
   );
 
-  return { external_ref: record.external_ref, evidence_id: evidence.rows[0].id, items_resolved: resolved };
+  return {
+    external_ref: record.external_ref,
+    evidence_id: evidenceId,
+    items_resolved: resolved,
+    matched,
+    allocations_written: derived.allocationsWritten,
+  };
+}
+
+
+/**
+ * Re-match every confirmed invoice that still has no bank row, and re-derive what it explains.
+ *
+ * The registry's extension point (`src/evidence-sources.ts`), so `POST /evidence/rematch` and
+ * the statement-import path reach invoices without either of them learning anything about
+ * invoices. Run it after importing a STATEMENT: the design records that the commonest
+ * reason an order is unmatched is that its month had not arrived yet, and this is the sweep
+ * that resolves that case.
+ *
+ * Idempotent, and for the same reason the Splitwise sweep is: it considers only orders with no
+ * link yet, so a link a person made by hand is never re-decided, and running it twice does the
+ * work of running it once.
+ */
+export async function matchReceiptEvidence(
+  client: PoolClient,
+  sourceType: string,
+): Promise<MatchSummary> {
+  const summary: MatchSummary = {
+    considered: 0, matched: 0, ambiguous: 0, noCandidate: 0, noCashExpected: 0,
+    allocationsWritten: 0, partiallyAllocated: 0, conflicted: 0, displaced: 0, nearMissed: 0,
+    // Filled as the sweep goes: a preview has to show WHAT matched, not only how many.
+    conflicts: [], pairs: [],
+  };
+
+  const unlinked = await client.query<{ id: string; external_ref: string; evidence_date: string | null; amount_paise: string }>(
+    `SELECT id, external_ref, evidence_date::text, amount_paise
+       FROM evidence e
+      WHERE e.source_type = $1
+        AND NOT EXISTS (SELECT 1 FROM evidence_transactions x WHERE x.evidence_id = e.id)`,
+    [sourceType],
+  );
+  if (unlinked.rowCount === 0) return summary;
+
+  const candidates = await loadCandidates(client);
+
+  for (const ev of unlinked.rows) {
+    summary.considered++;
+    const outcome = matchToTransaction(
+      {
+        externalRef: ev.external_ref,
+        date: ev.evidence_date ?? "",
+        // Already stored negative — an invoice is money leaving.
+        expectedPaise: Number(ev.amount_paise),
+        sourceType,
+      },
+      candidates,
+    );
+
+    if (outcome.kind === "ambiguous") { summary.ambiguous++; continue; }
+    if (outcome.kind !== "matched") { summary.noCandidate++; continue; }
+
+    await client.query(
+      `INSERT INTO evidence_transactions (evidence_id, transaction_id) VALUES ($1, $2)
+       ON CONFLICT DO NOTHING`,
+      [ev.id, outcome.transactionId],
+    );
+    const derived = await deriveForEvidence(client, ev.id);
+    summary.pairs.push({
+      evidenceId: ev.id,
+      externalRef: ev.external_ref,
+      description: null,
+      evidenceDate: ev.evidence_date ?? "",
+      amountPaise: Number(ev.amount_paise),
+      transactionId: outcome.transactionId,
+      txnDate: "",
+      txnAmountPaise: Number(ev.amount_paise),
+      narration: null,
+      dayGap: outcome.dayGap,
+    });
+    if (derived.refused > 0) {
+      summary.conflicts.push({
+        externalRef: ev.external_ref,
+        transactionId: outcome.transactionId,
+        reason: "something you wrote already explains that bank row",
+      });
+      // Something we may not overrule already explains that row. The LINK stands — the order
+      // really was paid by it — and only the allocations are withheld, which is the state the
+      // worklist can show and a person can resolve.
+      summary.conflicted++;
+    }
+    summary.matched++;
+    summary.allocationsWritten += derived.allocationsWritten;
+  }
+
+  return summary;
 }

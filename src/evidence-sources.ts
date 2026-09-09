@@ -1,10 +1,9 @@
 // The registry of evidence sources, and the re-match sweep that runs over them.
 //
-// WHY THIS EXISTS. the design requires that matching be re-runnable and be re-run
-// after every statement import, because the most common reason a record is unmatched is that
-// its month has not been imported yet — "not orphaned, early". the design measured
-// exactly that on real data: two September orders sitting outside a ledger that ends in
-// August. Nothing resolves them until matching runs again.
+// WHY THIS EXISTS. Matching must be re-runnable and be re-run after every statement import,
+// because the most common reason a record is unmatched is that its month has not been
+// imported yet — "not orphaned, early". Real data showed exactly that: orders placed after
+// the last imported statement ended. Nothing resolves them until matching runs again.
 //
 // That re-run had no way to happen. `matchSplitwiseEvidence` is reachable only from
 // `scripts/match-splitwise.ts` and from inside the import route, so the sweep ran when a
@@ -13,17 +12,18 @@
 //
 // WHY A REGISTRY RATHER THAN A GENERALISED MATCHER. The tempting move is to abstract the
 // sweep itself: a strategy interface over "what cash do we expect" and "how do we allocate".
-// the design explicitly rules that out — "Do not extract a shared matcher yet. Two
-// instances is not a pattern... Build the third concretely, then extract with three real cases
-// in hand." The generic parts (`matchToTransaction`, `nearMisses`, the candidate load) are
-// ALREADY shared, and they are the parts that carry the money rules. What differs per source
-// is genuinely different: a Splitwise expense splits between people, an invoice splits between
-// categories. So the seam is a LIST — adding a source is one entry — and the sweep behind each
-// entry stays concrete until there are three of them to generalise from.
+// That is ruled out on purpose — do not extract a shared matcher yet. Two instances is not a
+// pattern; build the third concretely, then extract with three real cases in hand. The generic
+// parts (`matchToTransaction`, `nearMisses`, the candidate load) are ALREADY shared, and they are
+// the parts that carry the money rules. What differs per source is genuinely different: a
+// Splitwise expense splits between people, an invoice splits between categories. So the seam is a
+// LIST — adding a source is one entry — and the sweep behind each entry stays concrete until
+// there are three of them to generalise from.
 
 import type { PoolClient } from "pg";
 
 import { type MatchSummary, matchSplitwiseEvidence } from "./evidence-detect.ts";
+import { matchReceiptEvidence } from "./staging.ts";
 
 export type EvidenceSource = {
   /** Matches `evidence.source_type`. */
@@ -62,7 +62,21 @@ const splitwise: EvidenceSource = {
  * An invoice parser adds one entry here and changes nothing else — not the route, not the
  * response shape, not the statement-import path that will call this.
  */
-export const EVIDENCE_SOURCES: EvidenceSource[] = [splitwise];
+/**
+ * Invoices. The registry's promise made good: one entry, and nothing else changed — not the
+ * route, not the response shape, not the statement-import path.
+ *
+ * `unavailable` is always null, unlike Splitwise: an invoice needs no configuration to match,
+ * because everything it matches on (amount, date, merchant) is in the document itself.
+ */
+const amazon: EvidenceSource = {
+  sourceType: "amazon",
+  label: "Amazon invoices",
+  unavailable: () => null,
+  sweep: (client) => matchReceiptEvidence(client, "amazon"),
+};
+
+export const EVIDENCE_SOURCES: EvidenceSource[] = [splitwise, amazon];
 
 export type SweepResult =
   | { sourceType: string; label: string; ran: true; summary: MatchSummary }
@@ -74,7 +88,7 @@ export type SweepResult =
  * Idempotent by construction rather than by care: every sweep considers only records with no
  * transaction linked yet (`UNLINKED` in evidence-detect.ts), so running this twice does the
  * same work as running it once, and a link a person made by hand is never re-decided. That is
- * the invariant the design asks for, and it is what makes this safe to call
+ * the invariant re-matching needs, and it is what makes this safe to call
  * unconditionally after an import.
  *
  * @param sourceType run just one source, or every registered one when omitted.

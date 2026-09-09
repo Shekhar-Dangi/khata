@@ -2,6 +2,7 @@ import { Router } from "express";
 
 import { pool } from "./../db.ts";
 import { parsePaging } from "./../filters.ts";
+import { rederiveForItems } from "./../line-allocations.ts";
 import { badRequest, intParam, notFound, route, withTransaction } from "./../http.ts";
 import {
   getItem,
@@ -188,7 +189,14 @@ router.patch("/items/:id", route(async (req, res) => {
       if (r.rowCount === 0) throw notFound(`no item ${id}`);
     }
 
-    return res.json(await getItem(client, id));
+    // A CATEGORY CHANGE IS RETROACTIVE. the design: classify a product once
+    // and every basket that already contains it has to update, or the catalogue only pays
+    // forwards. Same transaction as the write, so the two cannot end up disagreeing.
+    const rederived = "category_id" in body
+      ? await rederiveForItems(client, [id])
+      : { orders: 0, allocationsWritten: 0, refused: 0 };
+
+    return res.json({ ...(await getItem(client, id)), rederived });
   });
 }));
 
@@ -242,7 +250,9 @@ router.post("/items/category", route(async (req, res) => {
       if (exists.rowCount === 0) throw badRequest(`no category ${categoryId}`);
     }
     const filed = await setCategoryForMany(client, { categoryId, itemIds, q, unclassifiedOnly });
-    return res.json({ filed });
+    // The ids the UPDATE actually touched, straight from it — see the note on the writer.
+    const rederived = await rederiveForItems(client, filed.itemIds);
+    return res.json({ filed: filed.count, rederived });
   });
 }));
 
@@ -280,7 +290,13 @@ router.post("/items/proposals/:id/accept", route(async (req, res) => {
     if (proposal.status !== "open") throw badRequest(`proposal ${id} is already ${proposal.status}`);
     const result = await mergeItems(client, Number(proposal.lo_item_id), Number(proposal.hi_item_id));
     if (!result.ok) throw badRequest(result.error ?? "merge failed");
+    // A merge re-points aliases, so lines that used to mean the loser now mean the keeper —
+    // and the keeper may carry a different category. Re-derive both sides.
+    const rederived = await rederiveForItems(client, [
+      Number(proposal.lo_item_id), Number(proposal.hi_item_id),
+    ]);
     return res.json({
+      rederived,
       keeper_item_id: proposal.lo_item_id,
       merged_item_id: proposal.hi_item_id,
       aliases_moved: result.aliasesMoved,

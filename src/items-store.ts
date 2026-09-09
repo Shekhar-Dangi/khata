@@ -103,7 +103,7 @@ async function addAlias(
   confidence: number,
 ): Promise<void> {
   // The label is what the merchant actually printed, kept per ALIAS rather than per item.
-  // It is what makes grouping sizes lossless: the item says "Continental Coffee", the alias
+  // It is what makes grouping sizes lossless: the item says "Instant Coffee", the alias
   // says which pouch (migration 013).
   const label = line.description.trim().slice(0, 500);
   // Size and pack, kept rather than discarded (migration 014). Deterministic -- the same
@@ -191,8 +191,8 @@ export async function itemSummary(client: PoolClient, itemId: string) {
  * Turn one raw merchant line into a catalogue item, writing whatever that implies.
  *
  * The ONE entry point a parser calls. It never blocks and never merges: the worst outcome is a
- * new item plus a question in the review queue, which is the safe direction (the design
- * — a duplicate is visible and recoverable, a wrong merge is silent and permanent).
+ * new item plus a question in the review queue, which is the safe direction (a duplicate is
+ * visible and recoverable, a wrong merge is silent and permanent).
  */
 export async function resolveAndRecord(
   client: PoolClient,
@@ -287,8 +287,8 @@ export type ItemRow = {
  * page. Same reasoning as the staged worklist's select-all.
  *
  * Always `source = 'user'`: this is reached only from a person pressing a button, and 'user' is
- * the provenance the design  says a re-run of the classifier may never
- * overwrite. Confidence is 100 for the same reason — a decision, not an estimate.
+ * the provenance a re-run of the classifier may never overwrite. Confidence is 100 for the same
+ * reason — a decision, not an estimate.
  */
 export async function setCategoryForMany(
   client: PoolClient,
@@ -298,7 +298,11 @@ export async function setCategoryForMany(
     q?: string;
     unclassifiedOnly?: boolean;
   },
-): Promise<number> {
+  // RETURNING its own ids rather than letting a caller re-select them. A filter call cannot
+  // name what it touched until the UPDATE has run, and a second query built from the same
+  // filter is a second definition of "which items" — the exact drift this function's `where`
+  // was written in one place to avoid.
+): Promise<{ count: number; itemIds: number[] }> {
   const params: unknown[] = [opts.categoryId, opts.categoryId === null ? null : 100];
   const where: string[] = [];
 
@@ -329,10 +333,14 @@ export async function setCategoryForMany(
             category_source = CASE WHEN $1::bigint IS NULL THEN NULL ELSE 'user' END,
             category_confidence = $2::smallint,
             updated_at = now()
-      WHERE ${where.join(" AND ")}`,
+      WHERE ${where.join(" AND ")}
+      RETURNING id`,
     params,
   );
-  return done.rowCount ?? 0;
+  return {
+    count: done.rowCount ?? 0,
+    itemIds: done.rows.map((r) => Number((r as { id: string }).id)),
+  };
 }
 
 export async function listItems(
@@ -410,8 +418,8 @@ export async function getItem(client: PoolClient, id: number) {
  * Set (or clear) an item's category.
  *
  * `source` is required and carries the override invariant: a 'user' row is a DECISION, and
- * the design makes it the most important line in that design — a re-run of
- * the model must never overwrite it. Nothing here enforces that on its own; the future
+ * the most important line in the catalogue's design is that a re-run of the model must never
+ * overwrite it. Nothing here enforces that on its own; the future
  * classifier does, by refusing to touch rows where category_source = 'user'.
  */
 export async function setItemCategory(
@@ -446,7 +454,7 @@ export async function setItemCategory(
  *   1. aliases move — DO NOTHING on conflict, since an alias the keeper already owns is the
  *      same fact and the loser's copy is redundant
  *   2. the keeper adopts a category only if it HAS none. Never the other way round: silently
- *      replacing a category someone chose is exactly the override violation the design forbids
+ *      replacing a category someone chose is exactly the override violation the catalogue forbids
  *   3. proposals touching the loser are closed, so the queue does not keep asking about a row
  *      that no longer exists
  *   4. the loser is deleted; ON DELETE CASCADE removes anything still pointing at it
