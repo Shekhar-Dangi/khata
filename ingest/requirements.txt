@@ -1,2 +1,7 @@
 pdfplumber
 openpyxl
+
+# The model path, for invoices no parser can read. HEAVY: pulls torch and transformers, and
+# downloads layout/OCR models on first use. The deterministic path needs none of it, which
+# is why to_markdown.py imports it lazily and answers `models_missing` when it is absent.
+docling

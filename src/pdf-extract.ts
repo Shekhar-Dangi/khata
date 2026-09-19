@@ -1,6 +1,6 @@
 // The TypeScript half of the seam: run the Python extractor OUT OF PROCESS, safely.
 //
-// the design puts the boundary here — Python extracts, TypeScript owns dedupe,
+// The boundary sits here — Python extracts, TypeScript owns dedupe,
 // matching, allocation and persistence — so this module's whole job is to get a Document back
 // or a reason why not. It knows nothing about invoices and nothing about the ledger.
 //
@@ -118,7 +118,7 @@ export type ExtractResult =
  * Where the venv interpreter lives.
  *
  * The path genuinely differs by platform — `Scripts/python.exe` on Windows, `bin/python`
- * elsewhere — and the project notes records that following the Unix one on this machine fails. The
+ * elsewhere — and following the Unix one on a Windows machine fails outright. The
  * env override exists so a different environment does not need a code change.
  */
 export function pythonBin(): string {
@@ -129,7 +129,7 @@ export function pythonBin(): string {
     : path.join(root, "ingest", ".venv", "bin", "python");
 }
 
-function repoRoot(): string {
+export function repoRoot(): string {
   // src/ -> the repo. The child must run from here for `-m ingest.receipts.cli` to resolve.
   return path.resolve(import.meta.dirname, "..");
 }
@@ -233,7 +233,7 @@ export function extractPdf(
         finish({
           ok: true,
           document: body.document as ExtractedDocument,
-          // The reconcile gate runs INSIDE the child, so a record that
+          // The reconcile gate runs INSIDE the child (shapes.reconcile), so a record that
           // comes back has already been proved to add up. A parse that did not is reported
           // here as parseError and never as a record — there is no third state where we hold
           // a basket we know is wrong.
