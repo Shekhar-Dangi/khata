@@ -10,7 +10,7 @@
 
 import { readFileSync } from "node:fs";
 
-import { RECEIPT_LLM } from "../src/receipt-llm-config.ts";
+import { RECEIPT_LLM } from "../src/llm-config.ts";
 import { extractMarkdown } from "../src/markdown-extract.ts";
 import { extractPdf } from "../src/pdf-extract.ts";
 import { LlmParseFailure, readInvoice } from "../src/receipt-llm.ts";

@@ -1,6 +1,6 @@
 // Reading an invoice with a model, and refusing to believe it without evidence.
 //
-// the design. This is the SECOND way to turn a document into an
+// This is the SECOND way to turn a document into an
 // `OrderRecord`; `ingest/receipts/*` is the first and stays the preferred one. What is new here
 // is not the shape of the answer — it is that the answer arrives from something that can be
 // confidently wrong, so most of this file is about not trusting it.
@@ -17,7 +17,7 @@
 //     every document in a batch, so the runtime replays them from cache. Measured at ~4x on
 //     this project. The document goes LAST, always.
 //
-// AND THE ONE THAT SHAPES EVERYTHING ELSE: the design measured self-reported
+// AND THE ONE THAT SHAPES EVERYTHING ELSE: an earlier experiment measured self-reported
 // confidence at 0.95 on a correct answer, 0.95 on "Unknown" and 0.80 on a wrong one. **The
 // model is never asked how sure it is.** Confidence here is DERIVED, from four checks against
 // the document, in `verify()` below.
@@ -25,14 +25,15 @@
 import { createHash } from "node:crypto";
 
 import type { ErrorKind } from "./parse-queue-policy.ts";
-import { RECEIPT_LLM, type ReceiptLlmConfig } from "./receipt-llm-config.ts";
+import { RECEIPT_LLM, type ReceiptLlmConfig, ollamaRequestBase } from "./llm-config.ts";
+import { diagnoseOllamaRefusal } from "./ollama.ts";
 
 /** Bump to discard every cached answer produced by an older prompt. Same rule as `llm.ts`. */
 export const RECEIPT_PROMPT_VERSION = "r1";
 
 // THE MODEL, THE WINDOW, THE OUTPUT CAP AND THE TIMEOUT ARE SETTINGS, not constants — they are
-// properties of the machine, not of the app. See `receipt-llm-config.ts` for every variable and
-// the design for the measurements behind the defaults. Two facts from that
+// properties of the machine, not of the app. See `llm-config.ts` for every variable and
+// the measurements behind the defaults. Two facts from that
 // history are worth keeping in view here, because this file is where they bite:
 //
 //  - The window is SET EXPLICITLY, always. Ollama defaults `num_ctx` to 4096 whatever the model
@@ -153,72 +154,27 @@ const PREFIX =
  * SAME question the worker asks — a probe with its own copy of the prompt measures a prompt
  * nobody uses.
  */
-export function buildRequest(markdown: string, cfg: ReceiptLlmConfig = RECEIPT_LLM) {
-  const body: Record<string, unknown> = {
-    model: cfg.model,
-    prompt: PREFIX + markdown + "\n",
-    stream: false,
-    format: SCHEMA,
-    // The free-form options first and the dedicated settings on top. The config already
-    // refuses a clash between the two, so this order is a second guard, not the only one.
-    options: {
-      ...cfg.extraOptions,
-      temperature: cfg.temperature,
-      num_ctx: cfg.numCtx,
-      num_predict: cfg.numPredict,
-    },
-  };
-  // `unset` OMITS the field. Some models' APIs reject `think` outright instead of ignoring it,
-  // so "do not send it" has to be a real choice and not the same thing as `false`.
-  if (cfg.think !== "unset") body.think = cfg.think;
-  // Ollama takes a bare number as SECONDS and anything with a unit as a duration string.
-  if (cfg.keepAlive !== null) {
-    body.keep_alive = /^-?\d+(\.\d+)?$/.test(cfg.keepAlive) ? Number(cfg.keepAlive) : cfg.keepAlive;
-  }
-  return body;
+export function buildRequest(markdown: string, cfg: ReceiptLlmConfig = RECEIPT_LLM): Record<string, unknown> {
+  // Model, options, think and keep_alive are built by the one function both jobs share, so a
+  // setting means the same thing here as it does for category suggestions.
+  return { ...ollamaRequestBase(cfg), prompt: PREFIX + markdown + "\n", format: SCHEMA };
 }
 
 /**
- * Turn Ollama's refusal into a failure a person can act on.
+ * Turn Ollama's refusal into a failure the queue can act on.
  *
- * Three of Ollama's errors are SETTINGS problems, not transient ones, and they are exactly the
- * three a person running this on their own machine will meet first: a model they have not
- * pulled, a window their RAM cannot hold, and a thinking flag their model does not take. All
- * three fail identically on every retry — and each retry reloads the model, 65s on the machine
- * this was built on — so they are `llm_misconfigured`, permanent, and the detail names the one
- * variable to change. Anything else stays `llm_unavailable`, which is retried.
- *
- * Exported and pure so it is tested against the messages Ollama actually sends.
+ * The diagnosis is shared with llm.ts (`diagnoseOllamaRefusal`); what is specific to receipts
+ * is only the KIND it maps to. A settings problem is `llm_misconfigured`, permanent — it fails
+ * identically on every retry and reloads the model each time — and anything else stays
+ * `llm_unavailable`, which is retried.
  */
 export function classifyHttpFailure(
   status: number,
   body: string,
   cfg: ReceiptLlmConfig = RECEIPT_LLM,
 ): LlmParseFailure {
-  if (status === 404 || /model ['"]?[^'"]*['"]? not found/i.test(body)) {
-    return new LlmParseFailure(
-      "llm_misconfigured",
-      `the model "${cfg.model}" is not available in Ollama — run \`ollama pull ${cfg.model}\`, ` +
-        "or set RECEIPT_LLM_MODEL to a model you have",
-    );
-  }
-  if (/out[- ]of[- ]memory|requires more system memory|failed to allocate|insufficient memory/i.test(body)) {
-    return new LlmParseFailure(
-      "llm_misconfigured",
-      `"${cfg.model}" does not fit in memory with a ${cfg.numCtx}-token window — lower ` +
-        "RECEIPT_LLM_NUM_CTX, or set RECEIPT_LLM_MODEL to a smaller model",
-    );
-  }
-  if (/does not support thinking/i.test(body)) {
-    return new LlmParseFailure(
-      "llm_misconfigured",
-      `"${cfg.model}" does not accept a thinking setting — set RECEIPT_LLM_THINK=unset`,
-    );
-  }
-  return new LlmParseFailure(
-    "llm_unavailable",
-    `the local model answered ${status}${body ? `: ${body}` : ""}`,
-  );
+  const d = diagnoseOllamaRefusal(status, body, cfg);
+  return new LlmParseFailure(d.misconfigured ? "llm_misconfigured" : "llm_unavailable", d.message);
 }
 
 export class LlmParseFailure extends Error {
