@@ -13,8 +13,8 @@ Order Id : 404-0000001-0000001
 
 | Sr | Item Description                | Qty | Amount |
 |----|---------------------------------|-----|--------|
-| 1  | Heritage Farm Fresh Toned Milk  | 2   | 44.38  |
-| 2  | Safal Frozen Green Peas 500 g   | 1   | 123.62 |
+| 1  | Example Farm Fresh Toned Milk   | 2   | 44.38  |
+| 2  | Example Frozen Green Peas 500 g | 1   | 123.62 |
 Total 168.00
 `;
 
@@ -32,8 +32,8 @@ const record = (over: Partial<LlmRecord> = {}): LlmRecord => ({
       invoice_date: "2026-09-01",
       total_paise: 16800,
       lines: [
-        { kind: "goods", description: "Heritage Farm Fresh Toned Milk", sku: null, qty: 2, amount_paise: 4438 },
-        { kind: "goods", description: "Safal Frozen Green Peas 500 g", sku: null, qty: 1, amount_paise: 12362 },
+        { kind: "goods", description: "Example Farm Fresh Toned Milk", sku: null, qty: 2, amount_paise: 4438 },
+        { kind: "goods", description: "Example Frozen Green Peas 500 g", sku: null, qty: 1, amount_paise: 12362 },
       ],
     },
   ],
@@ -55,8 +55,8 @@ describe("verify — is this even an invoice", () => {
   });
 
   it("holds a credit note rather than calling it broken", () => {
-    // 29 of the corpus are credit notes. They are read correctly and cannot be represented
-    // yet, which is a different thing from a failed parse.
+    // A real order history holds a fair number of credit notes. They are read correctly and
+    // cannot be represented yet, which is a different thing from a failed parse.
     const v = verify(record({ is_credit_note: true }), DOC);
     assert.equal(v.ok === false && v.kind, "credit_note");
   });
@@ -101,9 +101,9 @@ describe("verify — arithmetic", () => {
     const r = record({ total_paise: 16800 });
     r.invoices = [
       { ...r.invoices[0], invoice_number: "A", total_paise: 10000,
-        lines: [{ kind: "goods", description: "Heritage Farm Fresh Toned Milk", sku: null, qty: 1, amount_paise: 9000 }] },
+        lines: [{ kind: "goods", description: "Example Farm Fresh Toned Milk", sku: null, qty: 1, amount_paise: 9000 }] },
       { ...r.invoices[0], invoice_number: "B", total_paise: 6800,
-        lines: [{ kind: "goods", description: "Safal Frozen Green Peas 500 g", sku: null, qty: 1, amount_paise: 7800 }] },
+        lines: [{ kind: "goods", description: "Example Frozen Green Peas 500 g", sku: null, qty: 1, amount_paise: 7800 }] },
     ];
     const v = verify(r, DOC);
     assert.equal(v.ok === false && v.kind, "does_not_reconcile");
@@ -124,21 +124,21 @@ describe("verify — groundedness", () => {
 
   it("tolerates case, punctuation and whitespace differences", () => {
     const r = record();
-    r.invoices[0].lines[0].description = "HERITAGE  FARM-FRESH   TONED MILK";
+    r.invoices[0].lines[0].description = "EXAMPLE  FARM-FRESH   TONED MILK";
     assert.equal(verify(r, DOC).ok, true);
   });
 
   it("accepts a long description re-flowed by the converter", () => {
     // Only the leading run has to match, because a converter may break a long line anywhere.
     const r = record();
-    r.invoices[0].lines[1].description = "Safal Frozen Green Peas 500 g Pouch Fresh Pack";
+    r.invoices[0].lines[1].description = "Example Frozen Green Peas 500 g Pouch Fresh Pack";
     assert.equal(verify(r, DOC).ok, true);
   });
 
   it("does NOT accept a short description on a leading-words match", () => {
     // Two or three words match by accident far too easily, so short ones must match whole.
     const r = record();
-    r.invoices[0].lines[0].description = "Heritage Farm Organic";
+    r.invoices[0].lines[0].description = "Example Farm Organic";
     assert.equal(verify(r, DOC).ok, false);
   });
 
@@ -183,5 +183,27 @@ describe("coverage", () => {
     // Still accepted — an invoice quotes plenty of numbers that are not line items.
     assert.equal(v.ok, true);
     assert.ok(v.warnings.some((w) => w.includes("claimed by a line")), JSON.stringify(v.warnings));
+  });
+});
+
+import { merchantSlug } from "./receipt-llm-job.ts";
+import { detectReceiptTemplate } from "./receipt-templates.ts";
+
+describe("which merchant a model-read document belongs to", () => {
+  it("is the template's key when a template recognises the document", () => {
+    // Found on the first real run: the model named the SELLER's legal entity. The template
+    // detector reads the same marker and answers with the canonical key the rest of the app
+    // already groups and catalogues by.
+    assert.equal(detectReceiptTemplate("Sold By\nBLINK COMMERCE PRIVATE LIMITED\nTax Invoice"), "blinkit");
+  });
+
+  it("strips legal-form noise so one merchant printed two ways gets one key", () => {
+    assert.equal(merchantSlug("ZEPTO MARKETPLACE PVT LTD"), "zepto-marketplace");
+    assert.equal(merchantSlug("Zepto Marketplace Private Limited"), "zepto-marketplace");
+  });
+
+  it("never produces an empty key", () => {
+    assert.equal(merchantSlug("Private Limited"), "unrecognised");
+    assert.equal(merchantSlug("   "), "unrecognised");
   });
 });

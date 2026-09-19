@@ -36,10 +36,16 @@ import traceback
 #: purpose — that limit protects the process, this one protects the ANSWER.
 MAX_PAGES = 20
 
-#: Refuse markdown larger than this. the design: the budget is 24,000
-#: characters, and returning more only to have TypeScript reject it wastes the conversion.
-#: Checked here so the caller never has to hold a document it cannot use.
-MAX_MARKDOWN_CHARS = 24_000
+#: Refuse markdown larger than this. the design 2026-09-19:
+#: the model's window is 8,192 tokens (16,384 ran the machine out of memory), minus 2,048 for
+#: the answer and ~250 for the instructions leaves ~5,900 tokens of document, and docling's
+#: markdown measured 2.99 characters per token — denser than prose, because table padding and
+#: IDs tokenise badly. That is ~17,600 characters; 17,000 keeps a margin, and is still 1.5x the
+#: largest real invoice (11,370). The first value, 24,000, assumed 4 chars/token and a 16k
+#: window — both wrong, and together they would have admitted documents the model then
+#: silently truncated. receipt-llm.ts now also checks the reported token counts, so this is the
+#: cheap first gate rather than the only one.
+MAX_MARKDOWN_CHARS = 17_000
 
 
 def _answer(payload: dict) -> int:

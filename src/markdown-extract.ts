@@ -31,9 +31,11 @@ import type { ErrorKind } from "./parse-queue-policy.ts";
  *
  * Far longer than `EXTRACT_TIMEOUT_MS`'s 20s, because these are not comparable operations:
  * pdfplumber reads a text layer, docling runs layout analysis and possibly OCR over every
- * page. 120s is a ceiling on pathological input rather than a target — and it sits inside the
- * worker's own 180s budget, so the child is killed by this timer and reported properly rather
- * than by the lease expiring and reading as `worker_died`.
+ * page. 120s is a ceiling on pathological input rather than a target: measured with OCR off
+ * (the default for a PDF with a text layer), a 2-3 page invoice converts in 10-36s once the
+ * models are loaded and ~48s in a fresh process. The worker's heartbeat keeps the lease alive
+ * across this and the model read, so a slow document is reported by THIS timer rather than
+ * mistaken for a dead worker.
  */
 export const EXTRACT_MARKDOWN_TIMEOUT_MS = 120_000;
 

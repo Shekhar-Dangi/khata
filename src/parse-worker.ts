@@ -1,6 +1,6 @@
 // The loop that drains the queue, and the only thing in this feature that runs on its own.
 //
-// the design slice 2. It owns exactly three concerns — WHEN to look
+// It owns exactly three concerns — WHEN to look
 // for work, HOW to hold a job while doing it, and WHAT to do when a handler throws — and knows
 // nothing about docling, models or invoices. The handler is injected, so this machinery is
 // provable before either heavy dependency exists.
@@ -33,8 +33,9 @@ const IDLE_POLL_MS = 2_000;
  *
  * MUST be comfortably under LEASE_MS or a job that is merely SLOW gets reclaimed while it is
  * still working — and then two workers parse one document, which is the exact thing
- * SKIP LOCKED exists to prevent, reintroduced through the back door. A model call is allowed
- * 180s against a 300s lease, so a third of the lease is generous.
+ * SKIP LOCKED exists to prevent, reintroduced through the back door. One job can legitimately
+ * run ~6 minutes on a CPU (docling ~45s, then a ~4-5 minute model read), far past the 5-minute
+ * lease — which is fine ONLY because this renews it every ~100s while the job works.
  */
 const HEARTBEAT_MS = Math.floor(LEASE_MS / 3);
 
