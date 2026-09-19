@@ -216,7 +216,9 @@ function Row({
         onClick={() => onExpand(expanded ? null : record.evidenceId)}
       >
         <td className="mono soft">{record.evidenceDate}</td>
-        <td>{what}</td>
+        {/* One line, truncated, the rest on hover — the pattern the catalogue and the order lines
+            already use. A receipt's "+ 5 more" hovers as the five, one per line. */}
+        <td className="narration" title={record.descriptionFull ?? what}>{what}</td>
         {/* WHERE THE MONEY WENT, not what the source called it — they can differ the moment
             anyone answers a catch-all by hand, and a column still reading "General" over a
             row now filed under Groceries would report finished work as outstanding. The

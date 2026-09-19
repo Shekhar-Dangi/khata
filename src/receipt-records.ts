@@ -14,7 +14,8 @@
 // Kept apart from evidence-detect.ts rather than folded into it: that module's arithmetic is a
 // Splitwise split (shares, nets, a shared bucket), and a receipt has none of it. What a receipt
 // writes is its LINE ITEMS — `rederiveAndBackfill` — so the writer differs and only the shape
-// and the vocabulary are shared. the design: build each source concretely.
+// and the vocabulary are shared. Build each source concretely; extract a shared abstraction
+// only once three real cases exist.
 
 import type { PoolClient } from "pg";
 
@@ -76,16 +77,23 @@ export async function isReceipt(client: PoolClient, evidenceId: string): Promise
  * What was bought, in the words a person will recognise the order by.
  *
  * The stored description is "amazon order 404-…", which identifies nothing in a list of sixty.
- * The first thing on the order does — "Heritage Toned Milk + 2 more" — and it is already in the
+ * The first thing on the order does — "Example Toned Milk + 2 more" — and it is already in the
  * payload, so nothing new is stored.
  */
-function whatWasBought(row: Row): string {
+function whatWasBought(row: Row): { short: string; full: string | null } {
   const goods = (row.payload?.invoices ?? [])
     .flatMap((i) => i.lines ?? [])
-    .filter((l) => l.kind !== "fee" && typeof l.description === "string");
-  if (goods.length === 0) return `${row.source_type} order ${row.external_ref ?? ""}`.trim();
-  const first = (goods[0].description as string).split(/[|(\n]/)[0].trim().slice(0, 60);
-  return goods.length === 1 ? first : `${first} + ${goods.length - 1} more`;
+    .filter((l) => l.kind !== "fee" && typeof l.description === "string")
+    // The name, without the merchant's furniture: an ASIN after a pipe, an HSN in brackets.
+    .map((l) => (l.description as string).split(/[|(\n]/)[0].trim());
+  if (goods.length === 0) {
+    return { short: `${row.source_type} order ${row.external_ref ?? ""}`.trim(), full: null };
+  }
+  // Not cut here: the cell truncates to its own width with an ellipsis, and the hover shows the
+  // rest. A fixed cut would hide text the column had room for.
+  const short = goods.length === 1 ? goods[0] : `${goods[0]} + ${goods.length - 1} more`;
+  // One product per line in the hover, so "+ 5 more" becomes the five.
+  return { short, full: goods.join("\n") };
 }
 
 /**
@@ -151,6 +159,7 @@ export async function listReceiptRecords(
     // Stored NEGATIVE already: an order is money leaving.
     const expected = Number(ev.amount_paise);
 
+    const bought = whatWasBought(ev);
     const linked: LinkedTransaction[] = ev.linked.map((l) => ({
       transactionId: l.transactionId,
       txnDate: l.txnDate,
@@ -203,7 +212,8 @@ export async function listReceiptRecords(
     out.push({
       evidenceId: ev.id,
       externalRef: ev.external_ref ?? "",
-      description: whatWasBought(ev),
+      description: bought.short,
+      descriptionFull: bought.full,
       evidenceDate: date,
       amountPaise: Number(ev.amount_paise),
       expectedPaise: expected,
@@ -269,8 +279,8 @@ export async function listReceiptImports(client: PoolClient): Promise<ImportBatc
  * A Splitwise link runs with a person's authority and may replace what they wrote, because it
  * always writes a split in its place. A receipt may write NOTHING: its line items explain only
  * the products already filed, and an order whose products are not filed yet explains Rs 0.
- * Found by scripts/check-receipt-link.ts on the real ledger (2026-09-19): re-attaching an Amazon
- * order with a person's authority deleted a hand-written explanation and put nothing
+ * Found by scripts/check-receipt-link.ts on real data (2026-09-19): re-attaching an Amazon
+ * order with a person's authority deleted a large hand-written explanation and put nothing
  * in its place — the exact shape of the 2026-09-09 incident. So the derive runs as `auto`: the
  * LINK records which payment it was, and a row you explained keeps your explanation. That is
  * the same state confirming already produces.

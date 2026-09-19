@@ -119,6 +119,8 @@ export type EvidenceRecord = {
   evidenceId: string;
   externalRef: string;
   description: string | null;
+  /** Everything `description` shortens ("+ 1 more"), one product per line. Receipts only. */
+  descriptionFull?: string | null;
   evidenceDate: string;
   amountPaise: number;
   expectedPaise: number;
@@ -249,7 +251,7 @@ export function shortDate(iso: string): string {
  * A group name for the import, derived from the filename.
  *
  * The export does not name its group anywhere inside the file — only the filename carries it,
- * and the group is part of a record's identity. Derived rather than
+ * and the group is part of a record's identity (the export has no expense id). Derived rather than
  * asked for, because a person renaming their download should not silently create a second
  * group; shown in the form so it can be corrected when it matters.
  */

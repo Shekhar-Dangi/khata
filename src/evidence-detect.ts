@@ -2,7 +2,7 @@
 // src/detect.ts is the DB half of src/transfers.ts.
 //
 // Finds the bank transactions behind each unmatched record and, where it finds them, writes
-// the allocations that split them. Design in the design.
+// the allocations that split them.
 //
 // A record can be paid by SEVERAL transactions (migration 010), so every link goes through
 // `evidence_transactions` rather than a column on `evidence`.
@@ -57,9 +57,10 @@ export type MatchSummary = {
   /**
    * Rule allocations the engine wrote back over the remainder the displacement left.
    *
-   * The other half of `displaced`, and the reason displacing is no longer a net loss:
-   * the design. Reported so a preview can show the WHOLE trade rather
-   * than only its cost — "removed 32, refilled 30" is a different sentence from "removed 32".
+   * The other half of `displaced`, and the reason displacing is no longer a net loss: the
+   * engine backfills what evidence left spare, in the same transaction. Reported so a preview
+   * can show the WHOLE trade rather than only its cost — "removed 5, refilled 4" is a
+   * different sentence from "removed 5".
    */
   backfilled: number;
   /** Held back only by the date rule — waiting for a human (see listNearMisses). */
@@ -126,7 +127,7 @@ async function loadCandidates(client: PoolClient): Promise<Candidate[]> {
 type ApplyResult = {
   conflict?: string;
   displaced: number;
-  /** Rule rows the engine refilled the remainder with afterwards. See the design. */
+  /** Rule rows the engine refilled the remainder with afterwards, in the same transaction. */
   backfilled: number;
   /** Of those, how many a PERSON had authored. Only ever non-zero on a manual link. */
   displacedAuthored: number;
@@ -160,8 +161,8 @@ async function applyMatch(
    *
    * Used INSTEAD OF the source-category map, and only ever supplied by a human. It exists
    * because two of the map's rows are NULL on purpose: Splitwise's `General` is a catch-all
-   * holding anything from an appliance to a repair visit, so no single mapping is right for all of it.
-   * The map cannot answer, and before this nothing could — the owner's share of every such
+   * holding anything from an appliance to a repair visit, so no single mapping is right for all
+   * of it. The map cannot answer, and before this nothing could — the owner's share of every such
    * expense stayed an unexplained remainder with no way to resolve it in the app.
    *
    * NOT stored anywhere of its own. The category lives on the allocation, which is the one
@@ -241,7 +242,7 @@ async function applyMatch(
   // So the allocatable amount is CAPPED at what was actually selected. Under-selecting scales
   // the split down proportionally; over-selecting (paid 2,745, entered 2,700) does not scale
   // at all, and the extra stays as the transaction's unexplained remainder, which is where
-  // the design says uncertainty belongs.
+  // uncertainty belongs: never scale an amount to make it fit the bank.
   const cap = Math.min(recordTotal, linkedTotal);
   const scaledDown = cap < recordTotal;
 
@@ -266,7 +267,8 @@ async function applyMatch(
 
   // Confidence is 1.00 and that is a claim, not a shrug: an evidence allocation is not a
   // guess. The amounts come from a record of something that happened. A graded score here
-  // would be the constant-0.8 disease from the design, carrying no information.
+  // would be the constant-0.8 disease self-reported model confidence showed when measured,
+  // carrying no information.
   for (const [i, share] of perTxn.entries()) {
     // A zero-paise allocation is rejected by the CHECK on `allocations`, and rightly so — it
     // would claim a slice of a transaction while saying nothing about it.
@@ -305,7 +307,7 @@ async function applyMatch(
   // this it goes back to reading as unexplained until somebody runs the engine by hand.
   //
   // Evidence rows count against the engine's remainder budget, so it can only take what is
-  // genuinely spare. the design.
+  // genuinely spare.
   const backfilled = (await applyRules(client, null, transactionIds)).created;
 
   return {
@@ -476,7 +478,7 @@ export type LinkResult =
       displaced: number;
       /** Of those, how many the person had written themselves — the irreversible part. */
       displacedAuthored: number;
-      /** What the engine refilled the leftover remainder with. See the design. */
+      /** What the engine refilled the leftover remainder with, in the same transaction. */
       backfilled: number;
       allocationsWritten: number;
       partial: boolean;
@@ -584,6 +586,12 @@ export type EvidenceRecord = {
   evidenceId: string;
   externalRef: string;
   description: string | null;
+  /**
+   * Everything `description` shortens, for the cell's hover — "Example Paneer + 1 more"
+   * names one product, and this names both. Null when the description is already the whole of
+   * it, as a Splitwise record's is.
+   */
+  descriptionFull?: string | null;
   evidenceDate: string;
   amountPaise: number;
   /** What the bank should show, signed: negative means cash should have left. */
@@ -620,8 +628,8 @@ export type EvidenceRecord = {
    *
    * False where the map DOES answer, and that is not timidity. A record's allocations are
    * re-derived from the map every time it is linked again, so an override there would be
-   * quietly undone by the next unlink — a decision reversed by a machine, which
-   * the design forbids. Where the map has an answer, the place to change
+   * quietly undone by the next unlink — a decision reversed by a machine, which the rules
+   * engine's most important invariant forbids. Where the map has an answer, the place to change
    * the answer is the map.
    */
   canChoose: boolean;
@@ -642,9 +650,9 @@ type WorklistRow = EvidenceRow & {
 /**
  * Every record that needs a person, with the state it is currently in.
  *
- * Records expecting no cash of ours are LEFT OUT — 63 of 93 in the real export. Someone else
+ * Records expecting no cash of ours are LEFT OUT — most of a real export. Someone else
  * paid, their consumption is already recorded, and there is nothing to look for. Listing them
- * would bury the 30 rows that are work under twice as many that are not. The batch header
+ * would bury the rows that are work under many more that are not. The batch header
  * counts them, so the number stays visible; it just is not a queue.
  *
  * Computed in one pass over the whole ledger rather than paged in SQL, for the reason
@@ -848,7 +856,7 @@ export type ImportBatch = {
  * The imports this ledger holds, newest first.
  *
  * Keyed by GROUP, not by upload. Re-importing the same export is the SAME import: the writer
- * upserts on the natural key, so a second upload updates 93 rows rather than adding 93 more,
+ * upserts on the natural key, so a second upload updates every row rather than adding a copy,
  * and a screen that showed it as a second batch would be describing an event rather than the
  * state of the ledger. Two different groups are two batches, which is the distinction that
  * actually separates one pile of work from another.
@@ -952,8 +960,8 @@ export type CategoryResult =
  * Give one record a category, when the source's own category cannot answer for it.
  *
  * The case this exists for: Splitwise's `General` is mapped to NULL on purpose (a catch-all
- * holding anything from an appliance to a repair visit — no single category is right for all of it), so
- * `applyMatch` writes only the shared slice and the owner's share stays as an unexplained
+ * holding anything from an appliance to a repair visit — no single category is right for all of
+ * it), so `applyMatch` writes only the shared slice and the owner's share stays as an unexplained
  * remainder. Before this there was no way to resolve that inside the app.
  *
  * Two steps, and the second is the one that matters. Writing the column alone would change
@@ -1028,9 +1036,9 @@ export async function setEvidenceCategory(
  * File a record's own share under a category, on a record that is already linked.
  *
  * The gap this closes: `source_category_map` maps `General` and `Payment` to NULL on purpose
- * — Splitwise's `General` is a catch-all holding anything from an appliance to a repair visit, and any
- * single mapping would be wrong for most of it. So `applyMatch` writes only the shared slice
- * and the owner's share stays an unexplained remainder. That rule was decided about IMPORT
+ * — Splitwise's `General` is a catch-all holding anything from an appliance to a repair visit,
+ * and any single mapping would be wrong for most of it. So `applyMatch` writes only the shared
+ * slice and the owner's share stays an unexplained remainder. That rule was decided about IMPORT
  * time, where the question is asked in bulk about rows nobody is looking at; at REVIEW time,
  * with the description and the amount on screen, it is an easy question. The rule was right
  * and its scope was too wide.
