@@ -24,51 +24,24 @@
 
 import { createHash } from "node:crypto";
 
-import { LLM_MODEL } from "./llm.ts";
 import type { ErrorKind } from "./parse-queue-policy.ts";
-
-const OLLAMA = process.env.OLLAMA_HOST ?? "http://127.0.0.1:11434";
+import { RECEIPT_LLM, type ReceiptLlmConfig } from "./receipt-llm-config.ts";
 
 /** Bump to discard every cached answer produced by an older prompt. Same rule as `llm.ts`. */
 export const RECEIPT_PROMPT_VERSION = "r1";
 
-/**
- * The context window, SET EXPLICITLY.
- *
- * Ollama defaults `num_ctx` to 4096 regardless of what the model supports, and a 9k-token
- * prompt is then silently truncated AT THE FRONT — the instructions survive, the invoice's
- * later pages do not, and the model answers confidently about half a document. That is the
- * worst possible failure here because it is invisible: the JSON is well-formed and the
- * arithmetic may even reconcile over the half it saw. `readInvoice` now CHECKS for it, using
- * the token counts Ollama reports back.
- *
- * 8192, MEASURED (2026-09-19, gemma4:26b, CPU only, 31.5 GB RAM, no GPU). The first value,
- * 16384, did not fit: Ollama answered 500 with `out-of-memory during startup` — the window's KV
- * cache is allocated up front, on top of 18.6 GB of weights. 8192 loads, at 9.7 GB resident. A
- * real 2-page Blinkit invoice then used 2,501 prompt + 453 output tokens, so the largest
- * measured document (~11,400 chars, ~3,800 tokens at the measured 2.99 chars/token) fits with
- * room for its answer. `MAX_MARKDOWN_CHARS` in to_markdown.py is derived from this number.
- */
-export const NUM_CTX = 8_192;
-
-/**
- * Output cap. A 2-page invoice with a handful of lines took 453 tokens; a line costs ~50-60, so
- * 2,048 covers a ~30-line order and still bounds a runaway generation. It is also SPENT from the
- * same 8,192 window as the prompt, which is why MAX_MARKDOWN_CHARS is derived from both.
- */
-export const NUM_PREDICT = 2_048;
-
-/**
- * How long one read may take before it is abandoned.
- *
- * MEASURED, and far longer than a model call on a GPU would need: on this CPU, reading the
- * 2,501-token prompt took 143s (18 tok/s) and writing 453 tokens took 87s (5.2 tok/s), plus 65s
- * to load the model on the first document of a batch. ~5 minutes cold, ~4 warm. The first value,
- * 180s, would have killed that read — and `llm_timeout` is transient, so it would then have
- * retried twice more, reloading the model each time, to fail three times at the same wall.
- * 10 minutes is a ceiling on pathology, ~2x the slowest real case.
- */
-const TIMEOUT_MS = 600_000;
+// THE MODEL, THE WINDOW, THE OUTPUT CAP AND THE TIMEOUT ARE SETTINGS, not constants — they are
+// properties of the machine, not of the app. See `receipt-llm-config.ts` for every variable and
+// the design for the measurements behind the defaults. Two facts from that
+// history are worth keeping in view here, because this file is where they bite:
+//
+//  - The window is SET EXPLICITLY, always. Ollama defaults `num_ctx` to 4096 whatever the model
+//    supports, and a prompt that does not fit is silently truncated AT THE FRONT — the answer
+//    can be well-formed and even reconcile over the half the model saw. `readInvoice` now
+//    CHECKS for that using the token counts Ollama reports back, rather than hoping.
+//  - The first values were wrong for the machine they were written on: a 16,384 window ran it
+//    out of memory, and a 180s timeout would have killed every read on a CPU. A setting that is
+//    wrong for a machine is now a NAMED failure pointing at the variable to change.
 
 /** What the model is asked to produce. Mirrors `shapes.py`, which is the canonical shape. */
 export type LlmLine = {
@@ -180,15 +153,72 @@ const PREFIX =
  * SAME question the worker asks — a probe with its own copy of the prompt measures a prompt
  * nobody uses.
  */
-export function buildRequest(markdown: string, numCtx = NUM_CTX) {
-  return {
-    model: LLM_MODEL,
+export function buildRequest(markdown: string, cfg: ReceiptLlmConfig = RECEIPT_LLM) {
+  const body: Record<string, unknown> = {
+    model: cfg.model,
     prompt: PREFIX + markdown + "\n",
     stream: false,
-    think: false,
     format: SCHEMA,
-    options: { temperature: 0, num_ctx: numCtx, num_predict: NUM_PREDICT },
+    // The free-form options first and the dedicated settings on top. The config already
+    // refuses a clash between the two, so this order is a second guard, not the only one.
+    options: {
+      ...cfg.extraOptions,
+      temperature: cfg.temperature,
+      num_ctx: cfg.numCtx,
+      num_predict: cfg.numPredict,
+    },
   };
+  // `unset` OMITS the field. Some models' APIs reject `think` outright instead of ignoring it,
+  // so "do not send it" has to be a real choice and not the same thing as `false`.
+  if (cfg.think !== "unset") body.think = cfg.think;
+  // Ollama takes a bare number as SECONDS and anything with a unit as a duration string.
+  if (cfg.keepAlive !== null) {
+    body.keep_alive = /^-?\d+(\.\d+)?$/.test(cfg.keepAlive) ? Number(cfg.keepAlive) : cfg.keepAlive;
+  }
+  return body;
+}
+
+/**
+ * Turn Ollama's refusal into a failure a person can act on.
+ *
+ * Three of Ollama's errors are SETTINGS problems, not transient ones, and they are exactly the
+ * three a person running this on their own machine will meet first: a model they have not
+ * pulled, a window their RAM cannot hold, and a thinking flag their model does not take. All
+ * three fail identically on every retry — and each retry reloads the model, 65s on the machine
+ * this was built on — so they are `llm_misconfigured`, permanent, and the detail names the one
+ * variable to change. Anything else stays `llm_unavailable`, which is retried.
+ *
+ * Exported and pure so it is tested against the messages Ollama actually sends.
+ */
+export function classifyHttpFailure(
+  status: number,
+  body: string,
+  cfg: ReceiptLlmConfig = RECEIPT_LLM,
+): LlmParseFailure {
+  if (status === 404 || /model ['"]?[^'"]*['"]? not found/i.test(body)) {
+    return new LlmParseFailure(
+      "llm_misconfigured",
+      `the model "${cfg.model}" is not available in Ollama — run \`ollama pull ${cfg.model}\`, ` +
+        "or set RECEIPT_LLM_MODEL to a model you have",
+    );
+  }
+  if (/out[- ]of[- ]memory|requires more system memory|failed to allocate|insufficient memory/i.test(body)) {
+    return new LlmParseFailure(
+      "llm_misconfigured",
+      `"${cfg.model}" does not fit in memory with a ${cfg.numCtx}-token window — lower ` +
+        "RECEIPT_LLM_NUM_CTX, or set RECEIPT_LLM_MODEL to a smaller model",
+    );
+  }
+  if (/does not support thinking/i.test(body)) {
+    return new LlmParseFailure(
+      "llm_misconfigured",
+      `"${cfg.model}" does not accept a thinking setting — set RECEIPT_LLM_THINK=unset`,
+    );
+  }
+  return new LlmParseFailure(
+    "llm_unavailable",
+    `the local model answered ${status}${body ? `: ${body}` : ""}`,
+  );
 }
 
 export class LlmParseFailure extends Error {
@@ -203,9 +233,19 @@ export class LlmParseFailure extends Error {
 
 const cache = new Map<string, LlmRecord>();
 
-function cacheKey(markdown: string): string {
+/**
+ * Every setting that can change the ANSWER is in the key; the ones that only change how long it
+ * takes (host, timeout, keep_alive) are not. Keying on the model and the window alone would let
+ * a change of temperature or of an extra option serve an answer produced under the old one.
+ */
+function cacheKey(markdown: string, cfg: ReceiptLlmConfig = RECEIPT_LLM): string {
+  const { model, think, temperature, numCtx, numPredict, extraOptions } = cfg;
   return createHash("sha256")
-    .update([LLM_MODEL, RECEIPT_PROMPT_VERSION, NUM_CTX, markdown].join("\u0000"))
+    .update(JSON.stringify({
+      v: RECEIPT_PROMPT_VERSION, model, think, temperature, numCtx, numPredict, extraOptions,
+    }))
+    .update("\u0000")
+    .update(markdown)
     .digest("hex");
 }
 
@@ -223,14 +263,15 @@ export async function readInvoice(markdown: string): Promise<LlmRecord> {
   // and it makes re-parsing an artifact after a code change free.
   if (hit !== undefined) return hit;
 
+  const cfg = RECEIPT_LLM;
   const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => ctl.abort(), cfg.timeoutMs);
   let raw: string;
   try {
-    const res = await fetch(OLLAMA + "/api/generate", {
+    const res = await fetch(cfg.host + "/api/generate", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(buildRequest(markdown)),
+      body: JSON.stringify(buildRequest(markdown, cfg)),
       signal: ctl.signal,
     });
     if (!res.ok) {
@@ -238,10 +279,7 @@ export async function readInvoice(markdown: string): Promise<LlmRecord> {
       // memory, a crashed runner, a grammar it cannot compile — and says which in the body.
       // A bare status code in the failure list is a reason nobody can act on.
       const why = (await res.text().catch(() => "")).slice(0, 300);
-      throw new LlmParseFailure(
-        "llm_unavailable",
-        `the local model answered ${res.status}${why ? `: ${why}` : ""}`,
-      );
+      throw classifyHttpFailure(res.status, why, cfg);
     }
     const body = (await res.json()) as {
       response?: unknown;
@@ -262,11 +300,12 @@ export async function readInvoice(markdown: string): Promise<LlmRecord> {
     const promptTokens = Number(body.prompt_eval_count);
     const outputTokens = Number(body.eval_count);
     if (Number.isFinite(promptTokens) && Number.isFinite(outputTokens) &&
-        promptTokens + outputTokens >= NUM_CTX) {
+        promptTokens + outputTokens >= cfg.numCtx) {
       throw new LlmParseFailure(
         "too_large",
-        `the document filled the model's ${NUM_CTX}-token window ` +
-          `(${promptTokens} in, ${outputTokens} out) and may have been cut`,
+        `the document filled the model's ${cfg.numCtx}-token window ` +
+          `(${promptTokens} in, ${outputTokens} out) and may have been cut — raise ` +
+          "RECEIPT_LLM_NUM_CTX if this machine has the memory",
       );
     }
     // The generation stopped because it hit `num_predict`, not because it finished. The JSON
@@ -274,18 +313,23 @@ export async function readInvoice(markdown: string): Promise<LlmRecord> {
     if (body.done_reason === "length") {
       throw new LlmParseFailure(
         "llm_truncated",
-        `the model's answer hit the ${NUM_PREDICT}-token output cap before it finished`,
+        `the model's answer hit the ${cfg.numPredict}-token output cap before it finished — ` +
+          "raise RECEIPT_LLM_NUM_PREDICT for invoices this long",
       );
     }
     raw = body.response;
   } catch (err) {
     if (err instanceof LlmParseFailure) throw err;
     if (ctl.signal.aborted) {
-      throw new LlmParseFailure("llm_timeout", `the local model exceeded ${TIMEOUT_MS}ms`);
+      throw new LlmParseFailure(
+        "llm_timeout",
+        `the local model took longer than ${Math.round(cfg.timeoutMs / 1000)}s — raise ` +
+          "RECEIPT_LLM_TIMEOUT_MS on a slow machine",
+      );
     }
     throw new LlmParseFailure(
       "llm_unavailable",
-      `could not reach the local model at ${OLLAMA} — is Ollama running?`,
+      `could not reach the local model at ${cfg.host} — is Ollama running?`,
     );
   } finally {
     clearTimeout(timer);

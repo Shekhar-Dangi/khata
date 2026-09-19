@@ -10,7 +10,7 @@
 
 import { readFileSync } from "node:fs";
 
-import { LLM_MODEL } from "../src/llm.ts";
+import { RECEIPT_LLM } from "../src/receipt-llm-config.ts";
 import { extractMarkdown } from "../src/markdown-extract.ts";
 import { extractPdf } from "../src/pdf-extract.ts";
 import { LlmParseFailure, readInvoice } from "../src/receipt-llm.ts";
@@ -50,10 +50,10 @@ const t0 = Date.now();
 const markdown = await toMarkdown();
 const convertSeconds = (Date.now() - t0) / 1000;
 
-console.log(`model     ${LLM_MODEL}`);
+console.log(`model     ${RECEIPT_LLM.model}  ctx ${RECEIPT_LLM.numCtx}  out ${RECEIPT_LLM.numPredict}  think ${RECEIPT_LLM.think}  timeout ${RECEIPT_LLM.timeoutMs / 1000}s`);
 console.log(`document  ${path.split(/[\\/]/).pop()}`);
 console.log(`extractor ${usePlumber ? "pdfplumber" : "docling"}  ${convertSeconds.toFixed(1)}s`);
-console.log(`markdown  ${markdown.length} chars (budget 17000)`);
+console.log(`markdown  ${markdown.length} chars (budget ${RECEIPT_LLM.maxMarkdownChars})`);
 
 const t1 = Date.now();
 try {

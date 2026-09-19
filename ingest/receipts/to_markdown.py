@@ -36,7 +36,7 @@ import traceback
 #: purpose — that limit protects the process, this one protects the ANSWER.
 MAX_PAGES = 20
 
-#: Refuse markdown larger than this. the design 2026-09-19:
+#: Refuse markdown larger than this. MEASURED 2026-09-19:
 #: the model's window is 8,192 tokens (16,384 ran the machine out of memory), minus 2,048 for
 #: the answer and ~250 for the instructions leaves ~5,900 tokens of document, and docling's
 #: markdown measured 2.99 characters per token — denser than prose, because table padding and
@@ -46,6 +46,21 @@ MAX_PAGES = 20
 #: silently truncated. receipt-llm.ts now also checks the reported token counts, so this is the
 #: cheap first gate rather than the only one.
 MAX_MARKDOWN_CHARS = 17_000
+
+
+def _max_markdown_chars() -> int:
+    """The budget the caller derived from the model's window, or the default when run by hand.
+
+    src/markdown-extract.ts passes RECEIPT_MAX_MARKDOWN_CHARS, computed from RECEIPT_LLM_NUM_CTX
+    in receipt-llm-config.ts, so this module never needs to know which model or window is in use.
+    Anything that is not a plain positive integer falls back to the default rather than failing:
+    the value is always validated on the TypeScript side, so a bad one here means the script was
+    run by hand, and a conservative default is the right answer then.
+    """
+    import os
+
+    raw = os.environ.get("RECEIPT_MAX_MARKDOWN_CHARS", "").strip()
+    return int(raw) if raw.isdigit() and int(raw) > 0 else MAX_MARKDOWN_CHARS
 
 
 def _answer(payload: dict) -> int:
@@ -71,7 +86,7 @@ def _inspect(data: bytes) -> tuple[int | None, bool]:
     OCR off converted in 10-36s per document, OCR on in 30-117s — about 3x slower — and the
     markdown was identical apart from 23 characters read off the merchant's logo. A PDF that
     already carries its text gains nothing from reading its own pixels. The spacing artefacts in
-    docling's output ("09 AAFCG 9846 E", "Lay ' s") were present with OCR OFF too, so they come
+    docling's output ("09 AAFCG 9846 E", "Brand ' s") were present with OCR OFF too, so they come
     from the PDF parser and OCR does not fix them either.
 
     ONE scanned page turns OCR on for the whole document. Correctness over speed: skipping OCR
@@ -230,16 +245,17 @@ def main() -> int:
             "error": "the document converted to no text at all",
         })
 
-    if len(text) > MAX_MARKDOWN_CHARS:
-        # NEVER TRUNCATE. the design: a truncated invoice silently loses
+    budget = _max_markdown_chars()
+    if len(text) > budget:
+        # NEVER TRUNCATE. A truncated invoice silently loses
         # line items, and a lost line item is money in the wrong category. Refusing keeps the
         # failure loud, and the bytes survive in the artifact store for a later splitter.
         return _answer({
             "ok": False,
             "kind": "too_large",
             "error": (
-                f"{len(text)} characters of markdown exceeds the {MAX_MARKDOWN_CHARS} budget; "
-                "splitting on invoice boundaries is not built yet"
+                f"{len(text)} characters of markdown exceeds the {budget} budget for the model's "
+                "window — raise RECEIPT_LLM_NUM_CTX if this machine has the memory"
             ),
         })
 

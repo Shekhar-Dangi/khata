@@ -25,6 +25,7 @@ import { spawn } from "node:child_process";
 
 import { pythonBin, repoRoot } from "./pdf-extract.ts";
 import type { ErrorKind } from "./parse-queue-policy.ts";
+import { RECEIPT_LLM } from "./receipt-llm-config.ts";
 
 /**
  * How long docling may run before it is killed.
@@ -37,7 +38,7 @@ import type { ErrorKind } from "./parse-queue-policy.ts";
  * across this and the model read, so a slow document is reported by THIS timer rather than
  * mistaken for a dead worker.
  */
-export const EXTRACT_MARKDOWN_TIMEOUT_MS = 120_000;
+export const EXTRACT_MARKDOWN_TIMEOUT_MS = RECEIPT_LLM.extractTimeoutMs; // RECEIPT_EXTRACT_TIMEOUT_MS, default 120s
 
 /** Markdown is text and text is small. This guards the pipe, not the budget. */
 const MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
@@ -75,6 +76,11 @@ export function extractMarkdown(
       cwd: repoRoot(),
       shell: false,
       stdio: ["pipe", "pipe", "pipe"],
+      // The markdown budget is DERIVED from the model's window (receipt-llm-config.ts), so it is
+      // handed to Python rather than kept as a second constant there. Raising the window then
+      // admits bigger documents in one place, and the two halves cannot disagree about the size
+      // of a document the model can read.
+      env: { ...process.env, RECEIPT_MAX_MARKDOWN_CHARS: String(RECEIPT_LLM.maxMarkdownChars) },
     });
 
     const out: Buffer[] = [];

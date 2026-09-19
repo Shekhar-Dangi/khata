@@ -12,7 +12,7 @@
 // member without deciding its policy FAILS TO COMPILE, which a CHECK cannot do.
 
 /**
- * Every way parsing a document can end badly. the design.
+ * Every way parsing a document can end badly.
  *
  * Named rather than numbered, and closed rather than free text, because a worker that reports
  * "failed" is a worker nobody trusts — and because the retry decision below dispatches on it.
@@ -31,6 +31,9 @@ export const ERROR_KINDS = [
   "extract_crashed",
   // -- the model
   "llm_unavailable",
+  // A SETTING is wrong for this machine: the model is not pulled, the window does not fit in
+  // memory, or the model rejects the thinking flag. Not the document, and not a hiccup.
+  "llm_misconfigured",
   "llm_timeout",
   "llm_truncated",
   "schema_violation",
@@ -105,6 +108,13 @@ export function retryPolicy(kind: ErrorKind): "transient" | "permanent" {
     case "models_missing":
       return "permanent";
 
+    // Same argument, and the retry is worse than useless: every attempt RELOADS the model
+    // (65s on the machine this was built on) to fail identically, because the setting that
+    // caused it has not changed. The detail names the variable; fixing it and re-running is
+    // the cure, and a retry is not.
+    case "llm_misconfigured":
+      return "permanent";
+
     case "unknown":
       return "permanent";
   }
@@ -124,7 +134,7 @@ export function isTransient(kind: ErrorKind): boolean {
 export function explain(kind: ErrorKind): string {
   switch (kind) {
     case "empty": return "the file had no content";
-    case "too_large": return "this document is too big to read in one pass, and splitting it found no invoice boundary";
+    case "too_large": return "this document is too big for the model to read in one pass — the detail says which limit";
     case "unreadable_mime": return "nothing here reads that kind of file";
     case "encrypted": return "the PDF is password-protected";
     case "corrupt": return "the PDF could not be opened";
@@ -133,6 +143,7 @@ export function explain(kind: ErrorKind): string {
     case "extract_timeout": return "reading the document took too long";
     case "extract_crashed": return "the document reader stopped unexpectedly";
     case "llm_unavailable": return "the local model is not running — is Ollama started?";
+    case "llm_misconfigured": return "the local model is not set up for this — the detail says which setting to change";
     case "llm_timeout": return "the local model took too long to answer";
     case "llm_truncated": return "the model's answer was cut off before it finished";
     case "schema_violation": return "the model's answer was not in the shape we asked for";
