@@ -69,7 +69,8 @@ export function useFetch<T>(
 
     (async () => {
       try {
-        const res = await fetch(url);
+        const res = await fetchSurvivingRestarts(url, () => cancelled);
+        if (res === null) return; // unmounted or re-targeted while waiting to retry
         if (!res.ok) throw new Error(`request failed: ${res.status}`);
         const json = (await res.json()) as T;
         // Stamp the url the data came from, so `isStale` can tell whether what is on
@@ -99,6 +100,51 @@ export function useFetch<T>(
     error,
     refetch,
   };
+}
+
+/**
+ * How long to keep asking while the API is restarting: three more tries over ~2.6s.
+ *
+ * MEASURED (2026-09-19): during a restart the Vite proxy answers 502 with an empty body for
+ * ~200-300ms, then the new process answers normally. And in development the API restarts a lot
+ * more than anyone edits it — `node --watch` restarts on change events in node_modules files
+ * nobody touched (something on Windows fires them; nine times in one session). A read that
+ * landed in that window used to put "request failed: 502" on screen over data that was fine a
+ * moment later, and only a manual refresh cleared it.
+ */
+const RESTART_RETRY_MS = [300, 800, 1500];
+
+/**
+ * `fetch`, retried across an API restart — for READS only.
+ *
+ * Retries a 502/503/504 or a refused connection, which is what "the server is not there right
+ * now" looks like through the proxy. Never a 4xx or a 500: those are answers, and asking again
+ * gets the same one. Writes (`mutate`) deliberately do NOT do this — a 502 can arrive after the
+ * server has already processed a write, and repeating a confirm blindly is not safe.
+ *
+ * Returns null if the caller stopped caring while it waited (unmounted, or the url changed),
+ * so a stale retry can never land over newer data.
+ */
+async function fetchSurvivingRestarts(
+  url: string,
+  stopped: () => boolean,
+): Promise<Response | null> {
+  for (let attempt = 0; ; attempt++) {
+    let res: Response | null = null;
+    let failure: unknown = null;
+    try {
+      res = await fetch(url);
+    } catch (e) {
+      failure = e;
+    }
+    const restarting = res === null || res.status === 502 || res.status === 503 || res.status === 504;
+    if (!restarting || attempt >= RESTART_RETRY_MS.length) {
+      if (res === null) throw failure;
+      return res;
+    }
+    await new Promise((r) => setTimeout(r, RESTART_RETRY_MS[attempt]));
+    if (stopped()) return null;
+  }
 }
 
 // Delay a fast-changing value so it can be used to build a fetch url.
