@@ -5,7 +5,7 @@ import { useLedgerVersion } from "../shared/ledgerVersion";
 import { rupees } from "../shared/format";
 import CategoryBars from "./CategoryBars";
 import MonthTrend from "./MonthTrend";
-import ConsumptionPanel from "./ConsumptionPanel";
+import ConsumedView from "./ConsumedView";
 import DateRange, { rangeParams } from "../shared/DateRange";
 import {
   monthLabel,
@@ -39,6 +39,8 @@ export default function ReportsView() {
   const [period, setPeriod] = useState<Period>(options[4]!); // All time
   const [accountId, setAccountId] = useState("");
   const [comparing, setComparing] = useState(false);
+  // Which money the category table shows. See the note where the toggle is drawn.
+  const [lens, setLens] = useState<"spent" | "consumed">("spent");
 
   const { version } = useLedgerVersion();
   const accounts = useFetch<{ accounts: Account[] }>("/accounts");
@@ -172,24 +174,24 @@ export default function ReportsView() {
 
       <div className={busy ? "is-stale" : undefined}>
         <div className="tiles">
-          <div className="tile">
+          <div className="tile" title="Everything that left your accounts in this period. Moving money between your own accounts is not counted.">
             <span className="label">Money out</span>
             <b className="mono">{rupees(out)}</b>
             <span className="tile-sub soft mono">
               {data.transactions} transactions
             </span>
           </div>
-          <div className="tile">
+          <div className="tile" title="Money out you explained yourself — written by you, or a rule's guess you confirmed.">
             <span className="label">{STATE.user}</span>
             <b className="mono st-confirmed">{rupees(confirmed)}</b>
             <span className="tile-sub soft mono">of money out</span>
           </div>
-          <div className="tile">
+          <div className="tile" title="Money out explained only by a rule's guess. Open a transaction to confirm it.">
             <span className="label">{STATE.rule}</span>
             <b className="mono st-provisional">{rupees(provisional)}</b>
             <span className="tile-sub soft mono">of money out</span>
           </div>
-          <div className="tile">
+          <div className="tile" title="Money out with no explanation yet — the number this app exists to shrink.">
             <span className="label">{STATE.unexplained}</span>
             <b className="mono st-unexplained">{rupees(unexplained)}</b>
             <span className="tile-sub soft mono">of money out</span>
@@ -209,23 +211,47 @@ export default function ReportsView() {
           <p className="soft">{trend.error ?? "Loading…"}</p>
         )}
 
-        <h3 className="report-h">Spending</h3>
-        <CategoryBars rows={spend} compare={compareMap} baseQuery={baseQuery} />
+        {/* ONE TABLE, TWO MONIES (owner, 2026-09-19). Consumption used to be a second table
+            stacked under this one — the same categories, different money, nothing saying how
+            one became the other, and all-time whatever the dates above said. The argument for
+            stacking was that the GAP between spending and consumption is the meaningful part.
+            It still is, and it is now WRITTEN DOWN rather than left to be inferred: the Consumed
+            view opens with the formula that walks the Money out tile to what you consumed. */}
+        <div className="mode-switch report-lens" role="tablist" aria-label="Which money">
+          <button
+            role="tab"
+            aria-selected={lens === "spent"}
+            className={lens === "spent" ? "mode on" : "mode"}
+            title="What left your accounts, by category"
+            onClick={() => setLens("spent")}
+          >
+            Spent
+          </button>
+          <button
+            role="tab"
+            aria-selected={lens === "consumed"}
+            className={lens === "consumed" ? "mode on" : "mode"}
+            title="What you actually used, whoever paid for it"
+            onClick={() => setLens("consumed")}
+          >
+            Consumed
+          </button>
+        </div>
 
-        {income.length > 0 && (
+        {lens === "spent" ? (
           <>
-            <h3 className="report-h">Money in</h3>
-            <CategoryBars rows={income} compare={compareMap} baseQuery={baseQuery} />
-          </>
-        )}
+            <CategoryBars rows={spend} compare={compareMap} baseQuery={baseQuery} />
 
-        {/* Consumption is STACKED under cash rather than toggled against it. Everything
-            above answers "what left my account"; this answers "what did I actually use".
-            A toggle would hide one to show the other, and the GAP between them is the
-            meaningful part — the design: reconcile the two views, do not merge
-            them. It reads all-time regardless of the filters above, which is why it
-            carries its own heading rather than pretending to obey them. */}
-        <ConsumptionPanel />
+            {income.length > 0 && (
+              <>
+                <h3 className="report-h">Money in</h3>
+                <CategoryBars rows={income} compare={compareMap} baseQuery={baseQuery} />
+              </>
+            )}
+          </>
+        ) : (
+          <ConsumedView baseQuery={baseQuery} />
+        )}
       </div>
     </>
   );

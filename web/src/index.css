@@ -1681,7 +1681,7 @@ footer .shell {
 }
 
 /* One hue per state, and nothing else on the page needs a hue. These three were
-   computed against a contrast validator, not picked — see the working notes. */
+   computed against a contrast validator, not picked by eye — change them the same way. */
 .seg-unexplained { fill: var(--st-unexplained); }
 .seg-provisional { fill: var(--st-provisional); }
 .seg-confirmed { fill: var(--st-confirmed); }
@@ -2361,18 +2361,6 @@ footer .shell {
   font-size: 12px;
   text-align: right;
 }
-
-/* Consumption share bar. Same device as CategoryBars so the two panels read as one
-   system: a flat accent-tinted rule, no gradient, no rounded pill. */
-.consumed-bar {
-  display: block;
-  height: 8px;
-  min-width: 1px;
-  background: var(--accent);
-  opacity: 0.45;
-  border-radius: 1px;
-}
-
 /* Narrow: the action bar stops fitting beside the tally long before the tables do. */
 @media (max-width: 720px) {
   .batch-when {
@@ -2406,7 +2394,7 @@ footer .shell {
 /* ── bringing invoices in ─────────────────────────────
    Two hundred and fifty files at a time, four at once. The only new device on this screen is
    a DETERMINATE bar: everywhere else the app draws a .busybar, because "a request is in
-   flight" has no denominator — here it has one, and "112 of 252" is the whole difference
+   flight" has no denominator — here it has one, and "112 of 250" is the whole difference
    between a two-minute wait and a hung page. Same hairline geometry as the busybar, so the
    two still read as one system. */
 .up-track {
@@ -2501,9 +2489,10 @@ footer .shell {
 /* ── one invoice line ─────────────────────────────────
    Two decisions per line, and they differ in kind: WHICH PRODUCT this is (a fact about the
    invoice, answered once) and WHAT IT IS FOR (a fact about the product, answered once ever,
-   everywhere). They used to be two columns, which split the one sentence needs a person
-   to read. Stacked in ONE column the name sits directly above the select, so the control says
-   "Sprite Zero is Groceries" by construction — and the table is a column shorter. */
+   everywhere). They used to be two columns, which split the one sentence a person needs to read:
+   a category belongs to the product, not the line. Stacked in ONE column the name sits directly
+   above the select, so the control says "Sprite Zero is Groceries" by construction — and the
+   table is a column shorter. */
 .line-row.is-writing {
   opacity: 0.55;
   transition: opacity 0.16s ease-out;
@@ -2627,7 +2616,7 @@ footer .shell {
   line-height: 1.4;
 }
 
-/* "All 10 on this page" / "Select all 221". Sits between the action bar and the table, and
+/* "All 10 on this page" / "Select all 200". Sits between the action bar and the table, and
    only when the two answers differ — with a single page there is nothing to disambiguate. */
 .staged-scope {
   margin: 0 0 6px;
@@ -2785,4 +2774,59 @@ footer .shell {
 .pick-table td .cat-select {
   min-width: 0;
   width: 100%;
+}
+
+
+/* ── Spent | Consumed ─────────────────────────────────
+   The toggle sits where the "Spending" heading was: it IS the heading now, naming which money
+   the table below shows. */
+.report-lens {
+  margin: 28px 0 12px;
+}
+
+/* The formula that walks Money out to Consumed. A short ledger, not a card: labels left, sums
+   right in tabular figures, the result ruled off above like the total on a receipt. Every
+   line carries its definition as a title, hence the help cursor. */
+.formula {
+  max-width: 380px;
+  margin: 0 0 18px;
+  font-size: 13px;
+}
+.formula .f-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 3px 0;
+  cursor: help;
+}
+.formula dt {
+  color: var(--ink-soft);
+}
+.formula dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.formula .f-sign {
+  display: inline-block;
+  width: 1.2em;
+}
+.formula .total {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--rule);
+}
+.formula .total dt,
+.formula .total dd {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+/* One series, so one colour — the same fill the old consumption bars used. */
+.seg-consumed {
+  background: var(--accent);
+  opacity: 0.45;
+}
+/* The "not counted" line belongs to the formula above it, not to the first bar below. */
+.formula + .up-note {
+  margin: -8px 0 16px;
 }

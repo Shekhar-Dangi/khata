@@ -1,10 +1,10 @@
 import { Router } from "express";
 
 import { pool } from "./../db.ts";
-import { route } from "./../http.ts";
-import { isSpendOnly, parseFilters } from "./../filters.ts";
+import { intParam, route } from "./../http.ts";
+import { isIsoDate, isSpendOnly, parseFilters, parsePaging } from "./../filters.ts";
 import { EXPLAINABLE_SPEND } from "./../spend.ts";
-import { CONSUMPTION_ROWS } from "./../consumption.ts";
+import { CONSUMPTION_ROWS, type ConsumptionTerms, unaccounted } from "./../consumption.ts";
 
 const router = Router();
 export { router as reports };
@@ -286,11 +286,16 @@ router.get("/reports/by-month", route(async (req, res) => {
 // The union itself lives in src/consumption.ts, for the reason src/spend.ts already argues:
 // two copies of a definition drift, and then the headline metric and the engine quietly
 // disagree about what they are talking about.
-router.get("/reports/consumption", route(async (_req, res) => {
-  // All-time, deliberately: no date filter is accepted YET. Parsing filters and then not
-  // applying them would answer ?from=2026-01-01 with every row and look correct, which is a
-  // worse failure than not offering the parameter. Add it here and in the SQL together.
-  const result = await pool.query(
+router.get("/reports/consumption", route(async (req, res) => {
+  // THE PAGE'S FILTERS NOW APPLY (owner, 2026-09-19: "it doesn't seem to be updating with
+  // date"). This read all-time regardless, deliberately, because half a filter is worse than
+  // none. Both arms carry a date — the bank row's day, and the day the thing was consumed for
+  // what a flatmate paid — so the period is applied to both, here and in the SQL together.
+  const f = consumptionFilters(req.query);
+  if (!f.ok) return res.status(400).json({ error: f.error });
+  const params = [f.from, f.to, f.accountId];
+
+  const byCategory = await pool.query(
     `WITH rows AS (${CONSUMPTION_ROWS})
      SELECT c.id, c.name, c.parent_id, p.name AS parent_name,
             COALESCE(SUM(-rows.amount_paise), 0) AS consumed_paise,
@@ -298,34 +303,81 @@ router.get("/reports/consumption", route(async (_req, res) => {
        FROM rows
        JOIN categories c ON c.id = rows.category_id
        LEFT JOIN categories p ON p.id = c.parent_id
+      WHERE ${ROWS_IN_SCOPE}
       GROUP BY c.id, p.name
       ORDER BY SUM(-rows.amount_paise) DESC`,
+    params,
   );
 
-  // Cash that never moved through the bank at all — someone else paid our share. Reported
-  // separately because it is the part a bank statement can NEVER show, and a single total
-  // would hide the one number that only this feature can produce.
-  const nonCash = await pool.query(
-    `SELECT COALESCE(SUM(-amount_paise), 0) AS paise, COUNT(*) AS entries FROM consumption`,
+  // The consumption side of the formula, from the SAME rows as the categories above.
+  const side = await pool.query(
+    `WITH rows AS (${CONSUMPTION_ROWS})
+     SELECT COALESCE(SUM(-amount_paise) FILTER (WHERE kind = 'paid_for_you'), 0)         AS paid_for_you,
+            COALESCE(SUM(amount_paise)  FILTER (WHERE kind = 'bank' AND amount_paise > 0), 0) AS received,
+            COALESCE(SUM(-amount_paise), 0)                                             AS consumed
+       FROM rows
+      WHERE ${ROWS_IN_SCOPE}`,
+    params,
   );
 
-  // Consumption we know happened and cannot categorise: the source category has no mapping
-  // yet. Surfaced rather than absent — otherwise the total quietly understates and looks fine.
+  // The money side: what left your accounts, and the two parts of it that are NOT consumption.
+  // Computed per TRANSACTION first, like /summary, so a partly explained debit contributes its
+  // unexplained remainder rather than all or nothing. Same EXPLAINABLE_SPEND and the same period
+  // and account as the "Money out" tile, so the first line of the formula IS that tile.
+  const money = await pool.query(
+    `WITH per_txn AS (
+         SELECT t.id, t.amount_paise,
+                COALESCE(SUM(al.amount_paise), 0) AS explained,
+                COALESCE(SUM(al.amount_paise) FILTER (
+                  WHERE cat.excluded_from_spend OR COALESCE(par.excluded_from_spend, false)
+                ), 0) AS fronted
+           FROM transactions t
+           LEFT JOIN allocations al ON al.transaction_id = t.id
+           LEFT JOIN categories cat ON cat.id = al.category_id
+           LEFT JOIN categories par ON par.id = cat.parent_id
+          WHERE ${EXPLAINABLE_SPEND} AND t.amount_paise < 0
+            AND ($1::date IS NULL OR t.txn_date >= $1::date)
+            AND ($2::date IS NULL OR t.txn_date <= $2::date)
+            AND ($3::bigint IS NULL OR t.account_id = $3::bigint)
+          GROUP BY t.id
+       )
+     SELECT COALESCE(SUM(-amount_paise), 0)                  AS money_out,
+            COALESCE(SUM(ABS(amount_paise - explained)), 0) AS unexplained,
+            COALESCE(SUM(-fronted), 0)                      AS fronted
+       FROM per_txn`,
+    params,
+  );
+
+  // Consumption we know happened and cannot categorise: a flatmate paid, and the source
+  // category has no mapping yet. Not in the total — said beside it. Not tied to any account,
+  // so it is only counted when no account is picked.
   const unclassified = await pool.query(
-    `SELECT COALESCE(SUM(ABS((ev.payload->'nets_paise'->>$1)::bigint)), 0) AS paise
+    `SELECT COALESCE(SUM(ABS((ev.payload->'nets_paise'->>$4)::bigint)), 0) AS paise
        FROM evidence ev
       WHERE ev.source_type = 'splitwise'
         AND ev.payload->>'kind' = 'expense'
-        AND (ev.payload->'nets_paise'->>$1)::bigint < 0
+        AND (ev.payload->'nets_paise'->>$4)::bigint < 0
         AND (SELECT m.category_id FROM source_category_map m
               WHERE m.source_type = 'splitwise'
-                AND m.source_category = ev.payload->>'source_category') IS NULL`,
-    [process.env.SPLITWISE_ME ?? ""],
+                AND m.source_category = ev.payload->>'source_category') IS NULL
+        AND ($1::date IS NULL OR ev.evidence_date >= $1::date)
+        AND ($2::date IS NULL OR ev.evidence_date <= $2::date)
+        AND $3::bigint IS NULL`,
+    [...params, process.env.SPLITWISE_ME ?? ""],
   );
 
   // pg returns BIGINT as a STRING; coerced once here rather than hopefully in the browser.
+  const terms: ConsumptionTerms = {
+    money_out_paise: Number(money.rows[0].money_out),
+    unexplained_paise: Number(money.rows[0].unexplained),
+    fronted_paise: Number(money.rows[0].fronted),
+    paid_for_you_paise: Number(side.rows[0].paid_for_you),
+    received_paise: Number(side.rows[0].received),
+    consumed_paise: Number(side.rows[0].consumed),
+  };
+
   return res.json({
-    categories: result.rows.map((r) => ({
+    categories: byCategory.rows.map((r) => ({
       id: Number(r.id),
       name: r.name,
       parent_id: r.parent_id === null ? null : Number(r.parent_id),
@@ -333,8 +385,86 @@ router.get("/reports/consumption", route(async (_req, res) => {
       consumed_paise: Number(r.consumed_paise),
       entries: Number(r.entries),
     })),
-    non_cash_paise: Number(nonCash.rows[0].paise),
-    non_cash_entries: Number(nonCash.rows[0].entries),
+    terms,
+    // Non-zero only if the ledger breaks an invariant the formula relies on. Shown, never
+    // rounded away: a formula that "adds up" by fiat is the thing this view exists to replace.
+    unaccounted_paise: unaccounted(terms),
     unclassified_paise: Number(unclassified.rows[0].paise),
   });
 }));
+
+/**
+ * GET /reports/consumption/entries?category_id=&from=&to=&account_id=&limit=&offset=
+ *
+ * What is inside one category's consumed figure: bank rows AND what a flatmate paid, from the
+ * same CONSUMPTION_ROWS the total came from — so the list always adds up to the bar above it.
+ */
+router.get("/reports/consumption/entries", route(async (req, res) => {
+  const f = consumptionFilters(req.query);
+  if (!f.ok) return res.status(400).json({ error: f.error });
+  const categoryId = intParam(req.query.category_id, "category_id");
+  const paging = parsePaging(req.query);
+  if (!paging.ok) return res.status(400).json({ error: paging.error });
+
+  const params = [f.from, f.to, f.accountId, categoryId];
+  const rows = await pool.query(
+    `WITH rows AS (${CONSUMPTION_ROWS})
+     SELECT rows.consumed_on, rows.kind, rows.detail, -rows.amount_paise AS consumed_paise,
+            acc.name AS account_name, rows.transaction_id, rows.evidence_id,
+            COUNT(*) OVER () AS total
+       FROM rows
+       LEFT JOIN accounts acc ON acc.id = rows.account_id
+      WHERE ${ROWS_IN_SCOPE} AND rows.category_id = $4
+      ORDER BY rows.consumed_on DESC, rows.transaction_id DESC NULLS LAST, rows.evidence_id DESC
+      LIMIT $5 OFFSET $6`,
+    [...params, paging.limit, paging.offset],
+  );
+
+  return res.json({
+    entries: rows.rows.map((r) => ({
+      date: r.consumed_on,
+      kind: r.kind,
+      detail: r.detail,
+      consumed_paise: Number(r.consumed_paise),
+      account_name: r.account_name,
+      transaction_id: r.transaction_id === null ? null : String(r.transaction_id),
+      evidence_id: r.evidence_id === null ? null : String(r.evidence_id),
+    })),
+    total: rows.rows.length === 0 ? 0 : Number(rows.rows[0].total),
+    limit: paging.limit,
+    offset: paging.offset,
+  });
+}));
+
+/** The rows of CONSUMPTION_ROWS inside the period and account. $1 from, $2 to, $3 account. */
+const ROWS_IN_SCOPE = `
+  ($1::date IS NULL OR rows.consumed_on >= $1::date)
+  AND ($2::date IS NULL OR rows.consumed_on <= $2::date)
+  -- What a flatmate paid touched no account of yours, so picking an account leaves it out.
+  AND ($3::bigint IS NULL OR rows.account_id = $3::bigint)`;
+
+/**
+ * The three filters the Consumed view honours, validated the way `parseFilters` validates them.
+ *
+ * Not `parseFilters` itself: it writes clauses against `t.txn_date`, and half of consumption —
+ * what a flatmate paid — has no bank transaction to hang them on.
+ */
+function consumptionFilters(
+  query: Record<string, unknown>,
+):
+  | { ok: true; from: string | null; to: string | null; accountId: number | null }
+  | { ok: false; error: string } {
+  const one = (v: unknown) => (typeof v === "string" && v !== "" ? v : null);
+  const from = one(query.from);
+  const to = one(query.to);
+  if (from !== null && !isIsoDate(from)) return { ok: false, error: "from must be YYYY-MM-DD" };
+  if (to !== null && !isIsoDate(to)) return { ok: false, error: "to must be YYYY-MM-DD" };
+  if (from !== null && to !== null && from > to) {
+    return { ok: false, error: "from must not be after to" };
+  }
+  const rawAccount = one(query.account_id);
+  if (rawAccount !== null && !/^\d+$/.test(rawAccount)) {
+    return { ok: false, error: "account_id must be a positive integer" };
+  }
+  return { ok: true, from, to, accountId: rawAccount === null ? null : Number(rawAccount) };
+}
