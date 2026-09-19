@@ -884,7 +884,11 @@ export async function listImports(client: PoolClient, me: string): Promise<Impor
         unmatched: count("unmatched"),
         // Everything the worklist skipped, which is exactly what it left out.
         noCashExpected: Number(t.records) - mine.length,
-        lastImportedAt: t.last,
+        // pg returns a TIMESTAMPTZ aggregate as a Date OBJECT, whatever the row type claims. The
+        // sort below calls localeCompare on it — which had never run, because there has only
+        // ever been one group; a second one would have made this endpoint throw. An ISO string
+        // is what the type says and what the JSON always carried, so it is made true here.
+        lastImportedAt: new Date(t.last).toISOString(),
       };
     })
     .sort((a, b) => b.lastImportedAt.localeCompare(a.lastImportedAt));

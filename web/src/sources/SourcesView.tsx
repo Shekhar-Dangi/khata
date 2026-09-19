@@ -35,7 +35,7 @@ import { groupFromFilename, type ImportBatch, type ImportResponse } from "./sour
 //                                 can displace a rule's guess, so `dry_run` shows what it will
 //                                 do before it does it.
 //   invoices (PDF)             —  bounded-concurrent upload straight to the INBOX. There is
-//                                 nothing to preview: the design puts a person
+//                                 nothing to preview: the two-phase import puts a person
 //                                 between the parse and the ledger already, and a dry run would
 //                                 be a second, weaker version of the review screen below.
 //
@@ -56,7 +56,7 @@ const PDF_MAGIC = [0x25, 0x50, 0x44, 0x46, 0x2d];
 
 async function looksLikePdf(file: File): Promise<boolean> {
   // Five bytes off the front, never the whole file: this decides a route, and reading 10 MB to
-  // do it would stall the drop of 252 files before the first request went out.
+  // do it would stall a drop of a few hundred files before the first request went out.
   const head = new Uint8Array(await file.slice(0, PDF_MAGIC.length).arrayBuffer());
   return head.length === PDF_MAGIC.length && PDF_MAGIC.every((b, i) => head[i] === b);
 }
@@ -171,7 +171,7 @@ export default function SourcesView() {
         setFile(null);
         // The import's own batch, open, so the work it just created is the thing you are
         // looking at rather than something to go and find.
-        setOpen(new Set([group]));
+        setOpen(new Set([`splitwise:${group}`]));
         // Balances, categories and the unexplained total all move on an import, and the
         // summary strip lives in a different subtree — see ledgerVersion.tsx.
         bump();
@@ -326,12 +326,14 @@ export default function SourcesView() {
                   not judge today is still waiting next week, and it would be lost if it only
                   ever appeared on the screen that produced it. */}
               <div className={working || imports.isStale ? "is-stale" : undefined}>
+                {/* Keyed by source AND group: a Splitwise group someone named "amazon" must not
+                    share an identity with the Amazon receipts. */}
                 {shown.map((b) => (
                   <ImportBatchPanel
-                    key={b.group}
+                    key={`${b.source}:${b.group}`}
                     batch={b}
-                    expanded={isOpen(b.group)}
-                    onToggle={() => toggle(b.group)}
+                    expanded={isOpen(`${b.source}:${b.group}`)}
+                    onToggle={() => toggle(`${b.source}:${b.group}`)}
                   />
                 ))}
               </div>

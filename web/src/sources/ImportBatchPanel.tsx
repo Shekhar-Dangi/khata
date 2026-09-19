@@ -50,6 +50,10 @@ export default function ImportBatchPanel({
 
   const left = outstanding(batch);
   const segments = SEGMENTS.filter((s) => countOf(batch, s.state) > 0);
+  // Confirmed RECEIPTS use this same panel: same four states, same picker, same undo. What
+  // differs is only what the header calls them — the counterpart of the inbox's "not on your
+  // ledger yet" is "on your ledger".
+  const receipts = batch.source !== "splitwise";
 
   return (
     <section className="batch">
@@ -57,10 +61,11 @@ export default function ImportBatchPanel({
         <span className="batch-caret" aria-hidden="true">
           {expanded ? "▾" : "▸"}
         </span>
-        <span className="batch-name">{batch.group}</span>
-        <span className="pill">{batch.source}</span>
+        <span className="batch-name">{receipts ? `${batch.source} receipts` : batch.group}</span>
+        <span className="pill">{receipts ? "on your ledger" : batch.source}</span>
         <span className="soft batch-when">
-          {batch.records} records · imported {shortDate(batch.lastImportedAt.slice(0, 10))}
+          {batch.records} {receipts ? "orders" : "records"} ·{" "}
+          {receipts ? "last" : "imported"} {shortDate(batch.lastImportedAt.slice(0, 10))}
         </span>
         <span className={`batch-left${left > 0 ? " flag" : " credit"}`}>
           {left > 0
@@ -87,10 +92,11 @@ export default function ImportBatchPanel({
               <Segment
                 key={s.state}
                 group={batch.group}
+                source={receipts ? batch.source : null}
                 state={s.state}
                 title={s.title}
                 blurb={s.blurb}
-                unit={s.unit}
+                unit={receipts ? "orders" : s.unit}
                 onChanged={record}
               />
             ))
@@ -122,6 +128,7 @@ function countOf(batch: ImportBatch, state: RecordState): number {
  */
 function Segment({
   group,
+  source,
   state,
   title,
   blurb,
@@ -129,6 +136,8 @@ function Segment({
   onChanged,
 }: {
   group: string;
+  /** A receipt source ("amazon"), which reads confirmed orders; null for a Splitwise group. */
+  source: string | null;
   state: RecordState;
   title: string;
   blurb: string;
@@ -140,8 +149,10 @@ function Segment({
   const { version } = useLedgerVersion();
 
   const { data, loading, error, isStale, refreshing } = useFetch<RecordsResponse>(
-    `/evidence/records?group=${encodeURIComponent(group)}&state=${state}` +
-      `&limit=${PAGE}&offset=${offset}`,
+    (source !== null
+      ? `/evidence/records?source=${encodeURIComponent(source)}`
+      : `/evidence/records?group=${encodeURIComponent(group)}`) +
+      `&state=${state}&limit=${PAGE}&offset=${offset}`,
     // keepPreviousData: linking a record re-reads all three segments, and blanking the list
     // you are working through on every write is the flash this screen was built to remove.
     { keepPreviousData: true, revalidateOn: version },

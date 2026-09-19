@@ -1,6 +1,6 @@
 // The two-phase import: what is waiting for a person, and what happens when they say yes.
 //
-// the design. `artifacts` is the INBOX and `evidence` is the LEDGER, and this module
+// `artifacts` is the INBOX and `evidence` is the LEDGER, and this module
 // is the door between them. Uploading fills the inbox — bytes stored, order parsed, arithmetic
 // checked — and nothing else moves until someone confirms. That line is what lets the review
 // survive a page refresh, lets 200 orders land today and 10 next week, and means confirming
@@ -69,7 +69,7 @@ export type StagedOrderView = {
  * in the pure matcher is cheaper than a query per order, and it keeps the amount, date and
  * merchant rules in exactly ONE place instead of half in SQL and half in TypeScript.
  */
-async function loadCandidates(client: PoolClient): Promise<Candidate[]> {
+export async function loadCandidates(client: PoolClient): Promise<Candidate[]> {
   const rows = await client.query<Candidate>(
     `SELECT t.id, t.txn_date::text, t.amount_paise, t.narration, acc.name AS account_name
        FROM transactions t JOIN accounts acc ON acc.id = t.account_id`,
@@ -113,7 +113,7 @@ export async function listStaged(
   // no number at all.
   //
   // The cost is bounded by how much is staged, and staged is a queue a person is actively
-  // emptying rather than an archive: ~500 indexed lookups for the whole 221-order corpus. If
+  // emptying rather than an archive: a few hundred indexed lookups for a real corpus. If
   // that ever stops being true the fix is a resolution cache keyed by canonical name, not a
   // summary that quietly describes a different set from the one on screen.
   const staged = await client.query<{ id: string; external_ref: string; source_type: string | null; record: ParsedRecord }>(
@@ -162,8 +162,9 @@ export async function listStaged(
         }
 
         // "Needs input" is narrow ON PURPOSE. A new product is not a question — it is the
-        // ordinary case, and 230 of 230 items arrived that way. What deserves a person is a
-        // FUZZY link, or a create that had near-misses we were not sure enough to take.
+        // ordinary case, and on a first real import every item arrived that way. What deserves a
+        // person is a FUZZY link, or a create that had near-misses we were not sure enough to
+        // take.
         const proposals = resolution.action === "create" ? resolution.propose : [];
         const needsInput = resolution.action === "link" || proposals.length > 0;
         if (needsInput) needsAttention = true;
@@ -187,7 +188,7 @@ export async function listStaged(
 
     // An invoice is money LEAVING, so the bank should show a debit of the order total.
     // `sourceType` carries the merchant filter — without it an Amazon order can auto-accept a
-    // Flipkart debit of the same amount, which the design measured happening.
+    // Flipkart debit of the same amount, which real data showed happening.
     const outcome = matchToTransaction(
       {
         externalRef: record.external_ref,
@@ -198,7 +199,7 @@ export async function listStaged(
       candidates,
     );
     // AMBIGUOUS needs a person: two bank rows fit and only they can say which. "None" does
-    // NOT — most Amazon orders here were paid from the Amazon Pay wallet and will never have a
+    // NOT — an Amazon order paid from the Amazon Pay wallet will never have a
     // bank row, and the rest resolve themselves when the month's
     // statement is imported. Flagging those would mark almost every order as needing attention
     // and make the attention filter useless, which is the one thing this screen cannot afford.
@@ -300,8 +301,8 @@ export type StagedItemView = {
 /**
  * Every PRODUCT the staged set will touch, once.
  *
- * The unit of work is the product, not the line. 365 goods lines across the real corpus
- * resolve to 234 distinct products, and a category is a property of the product — so filing
+ * The unit of work is the product, not the line. Goods lines across a real corpus resolve to
+ * far fewer distinct products, and a category is a property of the product — so filing
  * them per line means answering the same question up to a dozen times and getting a different
  * answer on the twelfth. Fees never appear here at all: they are money, not merchandise.
  *
@@ -437,7 +438,7 @@ export async function confirmOne(
   client: PoolClient,
   artifactId: string,
   /**
-   * Keyed by PRODUCT, not by line: "amazon:B0BG6CT9ZV".
+   * Keyed by PRODUCT, not by line: "amazon:B0XXXXXXXX".
    *
    * A decision belongs to the product, so making it once has to apply to every line and every
    * order that product appears in. Keying by line meant answering the same question up to
@@ -600,7 +601,7 @@ export async function confirmOne(
  *
  * The registry's extension point (`src/evidence-sources.ts`), so `POST /evidence/rematch` and
  * the statement-import path reach invoices without either of them learning anything about
- * invoices. Run it after importing a STATEMENT: the design records that the commonest
+ * invoices. Run it after importing a STATEMENT: the commonest
  * reason an order is unmatched is that its month had not arrived yet, and this is the sweep
  * that resolves that case.
  *

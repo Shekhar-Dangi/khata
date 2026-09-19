@@ -1,4 +1,12 @@
 import { Router } from "express";
+import {
+  ReceiptLinkRefused,
+  isReceipt,
+  linkReceipt,
+  listReceiptImports,
+  listReceiptRecords,
+  unlinkReceipt,
+} from "./../receipt-records.ts";
 
 import { pool } from "./../db.ts";
 import { badRequest, intParam, route, withTransaction } from "./../http.ts";
@@ -70,8 +78,8 @@ function artifactView(artifact: StoredArtifact, parseStatus: ParseStatus) {
     mime: artifact.mime,
     byte_size: artifact.byteSize,
     parse_status: parseStatus,
-    // The artifact-level idempotency layer of the design. NOT the
-    // correctness boundary — the same order downloaded twice can differ byte-for-byte, so
+    // The artifact-level idempotency layer ("you already uploaded this exact file"), surfaced.
+    // NOT the correctness boundary — the same order downloaded twice can differ byte-for-byte, so
     // `false` here does not mean the record is new. `evidence_source_ref_uniq` decides that.
     duplicate_bytes: artifact.duplicate,
   };
@@ -112,7 +120,7 @@ router.post("/evidence/import", route(async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    // STORE FIRST, PARSE SECOND. This ordering is the entire point of the artifact store
+    // STORE FIRST, PARSE SECOND. This ordering is the entire point of the artifact store:
     // a parser bug must cost a re-run, not the document. Everything
     // below can fail, and the bytes survive it.
     //
@@ -154,8 +162,8 @@ router.post("/evidence/import", route(async (req, res) => {
     const text = bytes.toString("utf8");
     const detected = detectSource(text);
     if (detected === null) {
-      // the design: "If nothing detects, the artifact is stored unparsed and listed
-      // for review." Previously a 422 that kept nothing — the file was rejected and lost.
+      // If nothing detects, the artifact is stored unparsed and listed for review.
+      // Previously a 422 that kept nothing — the file was rejected and lost.
       await setParseStatus(client, artifact.id, "unsupported", {
         error: "no parser recognised this file",
       });
@@ -171,7 +179,7 @@ router.post("/evidence/import", route(async (req, res) => {
 
     const rawGroup = req.query.group;
     if (typeof rawGroup !== "string") {
-      // The group is part of the natural key and the export does not
+      // The group is part of the natural key (an export has no expense id) and the export does not
       // name it inside the file — only its filename does. Defaulting it would silently merge
       // two groups' expenses under one key.
       await client.query("ROLLBACK");
@@ -223,11 +231,10 @@ router.post("/evidence/import", route(async (req, res) => {
  * POST /evidence/rematch?source_type=splitwise&dry_run=1
  *
  * Re-run matching over every record that still has no transaction. **Run this after importing
- * a statement**, which is the case the design cares about and the one nothing could
- * reach before: the commonest reason a record is unmatched is that its month had not been
- * imported yet, and the design measured exactly that — two September orders against
- * a ledger ending in August. They are not orphaned, they are early, and this is what makes
- * them resolve.
+ * a statement**, which is the case nothing could reach before: the commonest reason a record
+ * is unmatched is that its month had not been imported yet, and real data showed exactly
+ * that — orders placed after the last imported statement ended. They are not orphaned, they
+ * are early, and this is what makes them resolve.
  *
  * Safe to call at any time, as often as you like. Every sweep considers only unlinked records,
  * so a link a person made by hand is never re-decided and a second run does the same work as
@@ -294,7 +301,7 @@ router.get("/evidence/artifacts", route(async (req, res) => {
 /**
  * POST /evidence/artifacts/:id/reparse?dry_run=1
  *
- * Run a STORED artifact through intake again. This is the payoff of keeping the bytes
+ * Run a STORED artifact through intake again. This is the payoff of keeping the bytes:
  * when a parser lands, every document already in the store can be read
  * without anyone re-uploading anything — and if a parser has a bug, the fix is a re-run rather
  * than a lost order.
@@ -355,12 +362,12 @@ router.post("/evidence/artifacts/:id/reparse", route(async (req, res) => {
 /**
  * GET /evidence/staged?limit=&offset=&attention=1
  *
- * What is waiting for you to confirm — the design. Reads from the server every time
- * and holds nothing in the browser, so the review survives a refresh and a person can upload
- * 200 orders today and confirm them next week.
+ * What is waiting for you to confirm; nothing reaches the ledger until a person says so. Reads
+ * from the server every time and holds nothing in the browser, so the review survives a refresh
+ * and a person can upload 200 orders today and confirm them next week.
  *
- * `attention=1` is the default view in the UI: a screen that asks someone to read 221 orders
- * will not be read. Everything else stays reachable, just not in the way.
+ * `attention=1` is the default view in the UI: a screen that asks someone to read a couple of
+ * hundred orders will not be read. Everything else stays reachable, just not in the way.
  */
 router.get("/evidence/staged", route(async (req, res) => {
   const paging = parsePaging(req.query);
@@ -382,8 +389,8 @@ router.get("/evidence/staged", route(async (req, res) => {
  * GET /evidence/staged/items?q=&needs_input=1
  *
  * Every PRODUCT the staged set will touch, once — deduplicated across orders, most-bought
- * first. The unit of work is the product rather than the line: 365 goods lines in the real
- * corpus resolve to 234 products, a category is a property of the product, and filing them
+ * first. The unit of work is the product rather than the line: in a real corpus, far fewer
+ * products than lines, a category is a property of the product, and filing them
  * per line means answering one question a dozen times.
  *
  * Fees never appear. They are money, not merchandise, and nothing here should ever offer to
@@ -452,7 +459,7 @@ router.post("/evidence/staged/confirm", route(async (req, res) => {
  * Records whose amount and direction match a bank row exactly, but whose date falls just
  * outside the accept window. Never auto-accepted: the judgement they need is whether a bank
  * narration and a free-text description are the same event, which the matcher structurally
- * cannot make. See the design.
+ * cannot make.
  */
 router.get("/evidence/near-misses", route(async (_req, res) => {
   const client = await pool.connect();
@@ -530,9 +537,21 @@ router.post("/evidence/:id/match", route(async (req, res) => {
   const categoryId =
     rawCategory === undefined || rawCategory === null ? null : String(rawCategory);
 
-  const result = await withTransaction((client) =>
-    linkEvidence(client, String(evidenceId), ids, owner(), categoryId),
-  );
+  // A RECEIPT is linked by its own writer: what it puts on the bank row is its line items,
+  // not a Splitwise split. Same route, same shape back, so the screen's picker is one component.
+  let result;
+  try {
+    result = await withTransaction(async (client) =>
+      (await isReceipt(client, String(evidenceId)))
+        ? linkReceipt(client, String(evidenceId), ids)
+        : linkEvidence(client, String(evidenceId), ids, owner(), categoryId),
+    );
+  } catch (err) {
+    // Thrown INSIDE the transaction so the link is rolled back rather than left attached and
+    // explaining nothing; a refusal of state, so 409 like every other one here.
+    if (err instanceof ReceiptLinkRefused) return res.status(409).json({ error: err.message });
+    throw err;
+  }
   if (!result.ok) return res.status(409).json({ error: result.error });
   return res.status(200).json(result);
 }));
@@ -549,7 +568,11 @@ router.post("/evidence/:id/match", route(async (req, res) => {
 router.get("/evidence/imports", route(async (_req, res) => {
   const client = await pool.connect();
   try {
-    return res.status(200).json({ imports: await listImports(client, owner()) });
+    // Splitwise exports AND confirmed receipts, one list: an order you confirmed is still an
+    // import you can come back to, not something that left the page. Newest first across both.
+    const imports = [...(await listImports(client, owner())), ...(await listReceiptImports(client))]
+      .sort((a, b) => b.lastImportedAt.localeCompare(a.lastImportedAt));
+    return res.status(200).json({ imports });
   } finally {
     client.release();
   }
@@ -587,12 +610,26 @@ router.get("/evidence/records", route(async (req, res) => {
   // the same rows rather than quietly return an empty worklist.
   const group = rawGroup === undefined ? undefined : normaliseGroup(rawGroup);
 
+  // `source` says WHICH list: a receipt source reads confirmed orders, anything else (or
+  // nothing) reads Splitwise records by group, exactly as before.
+  const rawSource = req.query.source;
+  if (rawSource !== undefined && (typeof rawSource !== "string" || !/^[a-z0-9-]+$/.test(rawSource))) {
+    return res.status(400).json({ error: "source must be a source key like amazon" });
+  }
+  const receiptSource = rawSource !== undefined && rawSource !== "splitwise" ? rawSource : null;
+
   const client = await pool.connect();
   try {
-    const all = await listRecords(client, owner(), {
-      group,
-      state: rawState as RecordState | undefined,
-    });
+    const all =
+      receiptSource !== null
+        ? await listReceiptRecords(client, {
+            source: receiptSource,
+            state: rawState as RecordState | undefined,
+          })
+        : await listRecords(client, owner(), {
+            group,
+            state: rawState as RecordState | undefined,
+          });
     return res.status(200).json({
       records: all.slice(paging.offset, paging.offset + paging.limit),
       total: all.length,
@@ -615,8 +652,10 @@ router.get("/evidence/records", route(async (req, res) => {
  */
 router.delete("/evidence/:id/match", route(async (req, res) => {
   const evidenceId = intParam(req.params.id, "evidence id");
-  const result = await withTransaction((client) =>
-    unlinkEvidence(client, String(evidenceId)),
+  const result = await withTransaction(async (client) =>
+    (await isReceipt(client, String(evidenceId)))
+      ? unlinkReceipt(client, String(evidenceId))
+      : unlinkEvidence(client, String(evidenceId)),
   );
   if (!result.ok) {
     return res.status(result.error === "no such record" ? 404 : 409).json({ error: result.error });
@@ -630,9 +669,9 @@ router.delete("/evidence/:id/match", route(async (req, res) => {
  * File an already-linked record's own share under a category.
  *
  * The gap it closes: `source_category_map` maps Splitwise's `General` to NULL on purpose — it
- * is a catch-all holding anything from an appliance to a repair visit, so no single mapping is right for
- * most of it. The importer therefore writes only the shared slice and the owner's share stays
- * an unexplained remainder. That rule was decided about IMPORT time, where the question is
+ * is a catch-all holding anything from an appliance to a repair visit, so no single mapping is
+ * right for most of it. The importer therefore writes only the shared slice and the owner's share
+ * stays an unexplained remainder. That rule was decided about IMPORT time, where the question is
  * asked in bulk about rows nobody is looking at; at REVIEW time, with the description and the
  * amount on screen, it is an easy question. The rule was right and its scope was too wide.
  *
