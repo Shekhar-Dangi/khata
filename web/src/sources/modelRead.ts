@@ -4,7 +4,7 @@ import { useFetch } from "../shared/useFetch";
 import { useLedgerVersion } from "../shared/ledgerVersion";
 
 // The model path, as the browser sees it: what could be read, what is being read, and how far
-// along it is. Shapes mirror src/routes/parse.ts. the design.
+// along it is. Shapes mirror src/routes/parse.ts.
 
 /** Why the model could not read a document the last time it was asked. */
 export type LastFailure = {
@@ -84,8 +84,8 @@ const POLL_MS = 5_000;
  * the first read sees it running.
  *
  * Two components use this (the Sources panel and the tab's own count), and each polls on its
- * own. That is the known trade-off of `useFetch` — no de-duplication — recorded in the
- * the working notes, and at one indexed query per five seconds it is not yet the one worth fixing.
+ * own. That is the known trade-off of `useFetch` — no de-duplication — and at one indexed
+ * query per five seconds it is not yet the one worth fixing.
  */
 export function useParseProgress() {
   const { version } = useLedgerVersion();
@@ -117,12 +117,20 @@ export function useParseProgress() {
  * every five seconds to report that nothing changed would be the waste the poll was careful
  * to avoid.
  */
-export function useOnAdvance(batches: Batch[], onAdvance: () => void) {
-  const finished = batches.reduce((a, b) => a + b.done + b.failed, 0);
+export function useOnAdvance(batches: Batch[] | null, onAdvance: () => void) {
+  // NULL UNTIL THE DATA HAS ARRIVED, and that distinction is the whole fix.
+  //
+  // This took its baseline from the first RENDER, when nothing had been read yet — so the count
+  // was 0, the first real answer (a batch that finished an hour ago) looked like progress, and
+  // every visit to the Sources page bumped the ledger version: the summary strip, the inbox and
+  // everything else on the page re-read for no reason. Found by tracing the page's requests.
+  // A count we have not read is not zero; it is unknown, and unknown is not a baseline.
+  const finished = batches === null ? null : batches.reduce((a, b) => a + b.done + b.failed, 0);
   const seen = useRef<number | null>(null);
   useEffect(() => {
-    // The first reading is a baseline, not an advance: a page opened after a batch finished
-    // has nothing new to announce.
+    if (finished === null) return;
+    // The first REAL reading is a baseline, not an advance: a page opened after a batch
+    // finished has nothing new to announce.
     if (seen.current !== null && finished > seen.current) onAdvance();
     seen.current = finished;
   }, [finished, onAdvance]);

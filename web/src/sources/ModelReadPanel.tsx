@@ -13,8 +13,9 @@ import {
   useOnAdvance,
   useParseProgress,
 } from "./modelRead";
+import { useReportActivity } from "./pageActivity";
 
-// Reading, with the local model, the documents no parser can. the design.
+// Reading, with the local model, the documents no parser can.
 //
 // Three states, and the page shows whichever are true — they are not a wizard:
 //
@@ -49,8 +50,10 @@ export default function ModelReadPanel() {
     { keepPreviousData: true, revalidateOn: version },
   );
 
+  useReportActivity(progress.loading || candidates.loading, candidates.refreshing);
+
   // Documents finishing move the inbox below; this makes it re-read, once per document.
-  useOnAdvance(batches, useCallback(() => bump(), [bump]));
+  useOnAdvance(progress.data?.batches ?? null, useCallback(() => bump(), [bump]));
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -117,16 +120,12 @@ export default function ModelReadPanel() {
         />
       )}
 
-      {/* Tried before and failed. Never re-offered automatically — the same model on the same
-          document gives the same answer — but a person who has changed something (pulled a
-          model, raised a window) needs a way to ask again, and the reason beside each file is
-          what tells them whether that is worth doing. Hidden while a batch runs so the page
-          is not two lists of the same files. */}
+      {/* Tried before and failed: never re-offered automatically — the same model on the same
+          document gives the same answer. Hidden while a batch runs so the page is not two lists
+          of the same files. */}
       {failedBefore.length > 0 && live.length === 0 && (
         <details className="fold">
-          <summary>
-            {failedBefore.length} the local model could not read before
-          </summary>
+          <summary>{failedBefore.length} couldn't be read before</summary>
           <FailureTable
             rows={failedBefore.map((c) => ({
               artifact_id: c.artifact_id,
@@ -140,13 +139,11 @@ export default function ModelReadPanel() {
             <button
               className="btn-secondary"
               disabled={busy}
+              title="Worth it after a change — a model pulled, a window raised — and not otherwise"
               onClick={() => void read(failedBefore.map((c) => c.artifact_id))}
             >
-              Try these again
+              Try again
             </button>
-            <span className="soft">
-              worth it after a change — a model pulled, a window raised — and not otherwise
-            </span>
           </div>
         </details>
       )}
@@ -155,6 +152,10 @@ export default function ModelReadPanel() {
     </div>
   );
 }
+
+// ONE LINE PER CARD: what, a count, the action. The owner's call (2026-09-19), after the first
+// real drop put a paragraph in front of two files. Anything longer is a `title` — there for the
+// person who wants it, invisible to the one who does not.
 
 function Offer({
   fresh,
@@ -173,62 +174,63 @@ function Offer({
 }) {
   return (
     <div className="receipt upload">
-      <div className="sect">
-        <span>No parser reads these yet</span>
-        <span className="pill">{fresh.length} {fresh.length === 1 ? "file" : "files"}</span>
-      </div>
-
-      <p className="receipt-said">
-        {describeCandidates(fresh)}. The local model{model !== null ? <> (<span className="mono">{model}</span>)</> : null}{" "}
-        can read {fresh.length === 1 ? "it" : "them"} in the background —{" "}
-        {estimate !== null
-          ? `${roughly(estimate)} in total on this machine.`
-          : "each can take minutes on a machine without a GPU, and the first one finished sets the estimate."}
+      <p className="up-line">
+        <b>{describeCandidates(fresh)}</b>
+        <span className="soft">
+          {" · no parser yet"}
+          {estimate !== null && ` · ${roughly(estimate)}`}
+        </span>
       </p>
-
-      <p className="soft up-note">
-        Nothing leaves this machine. Nothing reaches your ledger either: each order is checked
-        against its own totals, then waits below for you to confirm it. You can leave this page
-        while it runs.
-      </p>
-
-      <details className="fold">
-        <summary>Which files</summary>
-        <div className="table-scroll short">
-          <table>
-            <colgroup>
-              <col />
-              <col style={{ width: "120px" }} />
-              <col style={{ width: "40%" }} />
-            </colgroup>
-            <thead>
-              <tr>
-                <th>File</th>
-                <th>Merchant</th>
-                <th>Why no parser read it</th>
-              </tr>
-            </thead>
-            <tbody>
-              {fresh.map((c) => (
-                <tr key={c.artifact_id}>
-                  <td className="narration">{c.original_name ?? `document ${c.artifact_id}`}</td>
-                  <td className="soft">{c.template ?? "—"}</td>
-                  <td className="soft narration">{c.reason ?? c.parse_status}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </details>
 
       <div className="preview-actions">
-        <button className="btn" disabled={busy} onClick={onRead}>
-          {busy ? "Starting…" : `Read ${fresh.length === 1 ? "it" : `all ${fresh.length}`} with the local model`}
+        <button
+          className="btn"
+          disabled={busy}
+          // The part a person may want before agreeing, kept off the page.
+          title={
+            `${model ?? "The local model"} runs on this machine. Nothing reaches your ledger ` +
+            "until you confirm each order."
+          }
+          onClick={onRead}
+        >
+          {busy ? "Starting…" : "Read with local model"}
         </button>
         <button className="btn-secondary" disabled={busy} onClick={onLater}>
           Not now
         </button>
       </div>
+
+      <details className="fold">
+        <summary>Which files</summary>
+        <FileList files={fresh} />
+      </details>
+    </div>
+  );
+}
+
+function FileList({ files }: { files: Candidate[] }) {
+  return (
+    <div className="table-scroll short">
+      <table>
+        <colgroup>
+          <col />
+          <col style={{ width: "120px" }} />
+        </colgroup>
+        <thead>
+          <tr>
+            <th>File</th>
+            <th>Merchant</th>
+          </tr>
+        </thead>
+        <tbody>
+          {files.map((c) => (
+            <tr key={c.artifact_id} title={c.reason ?? c.parse_status}>
+              <td className="narration">{c.original_name ?? `document ${c.artifact_id}`}</td>
+              <td className="soft">{c.template ?? "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -242,43 +244,33 @@ function Reading({ batch }: { batch: Batch }) {
 
   return (
     <div className="receipt upload">
-      <div className="sect">
-        <span>Reading with the local model</span>
-        <span className="pill">{total} {total === 1 ? "file" : "files"}</span>
-      </div>
+      <p
+        className="up-line"
+        // Which file, and whether it is a retry — useful when the bar sits still for four
+        // minutes, noise otherwise.
+        title={
+          now === undefined
+            ? "Waiting for the model"
+            : `Reading ${now.original_name ?? "a document"}` +
+              (now.attempt > 1 ? ` — attempt ${now.attempt}` : "")
+        }
+      >
+        <b>
+          Reading {Math.min(finished + (now !== undefined ? 1 : 0), total)} of {total}
+        </b>
+        <span className="soft">
+          {batch.estimate_seconds !== null && ` · ${roughly(batch.estimate_seconds)} left`}
+        </span>
+        {batch.failed > 0 && <span className="flag">{` · ${batch.failed} couldn't be read`}</span>}
+      </p>
 
       <div className="up-track" aria-hidden="true">
         <i style={{ width: `${pct}%` }} />
       </div>
 
-      <p className="up-line">
-        <b className="mono">
-          {finished} of {total}
-        </b>
-        {batch.done > 0 && <span className="soft">{` · ${batch.done} waiting below`}</span>}
-        {batch.failed > 0 && <span className="flag">{` · ${batch.failed} could not be read`}</span>}
-        <span className="soft">
-          {batch.estimate_seconds !== null
-            ? ` · ${roughly(batch.estimate_seconds)} left`
-            : " · the first one finished sets the estimate"}
-        </span>
-      </p>
-
-      <p className="soft up-note">
-        {now !== undefined ? (
-          <>
-            Reading <span className="mono">{now.original_name ?? "a document"}</span>
-            {now.attempt > 1 ? ` — attempt ${now.attempt}, after the app restarted or the model was busy` : ""}.{" "}
-          </>
-        ) : (
-          "Waiting for the model. "
-        )}
-        It runs on this machine and keeps going if you leave this page.
-      </p>
-
       {batch.failures.length > 0 && (
         <details className="fold">
-          <summary>Why {batch.failures.length === 1 ? "one" : `${batch.failures.length}`} could not be read</summary>
+          <summary>Why</summary>
           <FailureTable rows={batch.failures} />
         </details>
       )}
@@ -289,22 +281,16 @@ function Reading({ batch }: { batch: Batch }) {
 function Finished({ batch, onDone }: { batch: Batch; onDone: () => void }) {
   return (
     <div className="receipt done">
-      <p className="receipt-said">
-        {batch.done > 0 ? (
-          <>
-            The local model read <b>{batch.done}</b> of {batch.total}.{" "}
-            {batch.done === 1 ? "It is" : "They are"} waiting in the inbox below for you to confirm.
-          </>
-        ) : (
-          <>The local model could not read any of the {batch.total}.</>
-        )}
-        {batch.failed > 0 && batch.done > 0 && (
-          <span className="flag"> {batch.failed} could not be read.</span>
-        )}
+      <p className="up-line">
+        <b>
+          {batch.done} of {batch.total} read
+        </b>
+        {batch.done > 0 && <span className="soft"> · waiting below to confirm</span>}
+        {batch.failed > 0 && <span className="flag">{` · ${batch.failed} couldn't be read`}</span>}
       </p>
 
       {batch.failures.length > 0 && (
-        <details className="fold" open>
+        <details className="fold">
           <summary>Why</summary>
           <FailureTable rows={batch.failures} />
         </details>
@@ -320,11 +306,8 @@ function Finished({ batch, onDone }: { batch: Batch; onDone: () => void }) {
 }
 
 /**
- * Every failure with its reason AND its detail.
- *
- * The reason is the sentence ("the line items do not add up to the total"); the detail is the
- * part a person acts on ("lines sum to Rs 1,519, the invoice states Rs 1,619", or "set
- * RECEIPT_LLM_NUM_CTX lower"). Showing only the first would be the bare status code again.
+ * Every failure with its reason AND its detail — the detail is the part a person acts on
+ * ("lines sum to Rs 1,519, the invoice states Rs 1,619", "set RECEIPT_LLM_NUM_CTX lower").
  */
 function FailureTable({ rows }: { rows: BatchFailure[] }) {
   return (
@@ -357,13 +340,9 @@ function FailureTable({ rows }: { rows: BatchFailure[] }) {
 }
 
 /**
- * "reading 2/5" beside the Sources tab, while a batch runs.
- *
- * A batch takes minutes to hours and a person will not sit on this page for it, so its progress
- * has to be visible from EVERY tab — this is the part of "always visible" the panel cannot do
- * from inside one page. Drawn with `.mode-count`, the count that already rides along on a tab,
- * rather than a new badge. Renders nothing when nothing is running, and polls only while
- * something is (see useParseProgress).
+ * "reading 2/5" beside the Sources tab, while a batch runs — visible from every tab, which is
+ * the part of "always visible" the panel cannot do from inside one page. Drawn with
+ * `.mode-count`, the count that already rides along on a tab. Polls only while something runs.
  */
 export function ReadingCount() {
   const { progress } = useParseProgress();

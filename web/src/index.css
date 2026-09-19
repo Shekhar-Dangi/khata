@@ -1934,6 +1934,14 @@ footer .shell {
 .sources-body {
   animation: rise 0.32s both;
 }
+/* Mounted — so every section is already fetching — but not shown until they all have. Hidden
+   rather than absent is the whole point: absent meant nothing below the first section could even
+   START its request. `animation: none` here, so the reveal plays when this class comes off
+   instead of finishing unseen while the page was still waiting. */
+.sources-body.pending {
+  visibility: hidden;
+  animation: none;
+}
 @media (prefers-reduced-motion: reduce) {
   .sources-body {
     animation: none;

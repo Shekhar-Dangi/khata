@@ -10,6 +10,7 @@ import ImportReceipt from "./ImportReceipt";
 import ModelReadPanel from "./ModelReadPanel";
 import StagedReview from "./StagedReview";
 import UploadQueue from "./UploadQueue";
+import { PageActivityContext, usePageActivityRoot } from "./pageActivity";
 import { groupFromFilename, type ImportBatch, type ImportResponse } from "./sources";
 
 // Where outside records come in, and what state they are in.
@@ -103,7 +104,17 @@ export default function SourcesView() {
     keepPreviousData: true,
     revalidateOn: version,
   });
-  const working = useBusy(imports.refreshing);
+  // EVERY section's state, not just the imports list. See pageActivity.ts.
+  const activity = usePageActivityRoot();
+  const ready = activity.ready && !imports.loading;
+  // THE ONE LOADING LINE on this page: the first load, and any re-read afterwards, of any
+  // section. Sections no longer draw their own.
+  const working = useBusy(!ready || imports.refreshing || activity.refreshing);
+  // REVEALED ONCE. The page waits for every section on its first load, then never hides again —
+  // hiding an upload you are watching because the inbox under it re-reads would be far worse
+  // than one section arriving a moment late.
+  const [revealed, setRevealed] = useState(false);
+  if (ready && !revealed) setRevealed(true);
   const batches = imports.data?.imports ?? [];
 
   async function accept(files: File[]) {
@@ -206,7 +217,13 @@ export default function SourcesView() {
   // it is true only on the FIRST load — so this gate costs nothing afterwards. See useFetch:
   // `refreshing` is the flag for "a request is in flight", and that one deliberately keeps
   // what is on screen rather than replacing it.
-  const settled = !imports.loading;
+  //
+  // WHAT CHANGED (2026-09-19): this used to be `!imports.loading`, and the sections below were
+  // not even MOUNTED until it was true — so the inbox and the model panel could not START
+  // fetching until the imports list had finished. A waterfall, one section after another, each
+  // drawing its own loading line. Now everything mounts at once and fetches in parallel, and
+  // the body stays invisible (not absent) until all of it is ready. See pageActivity.ts.
+  const settled = revealed;
 
   return (
     <div>
@@ -219,8 +236,8 @@ export default function SourcesView() {
         <i />
       </div>
 
-      {settled && (
-        <div className="sources-body">
+      <PageActivityContext.Provider value={activity.report}>
+        <div className={"sources-body" + (settled ? "" : " pending")}>
           {focused ? (
             <>
               {/* One way out, at the top, always in the same place. Leaving is a click rather
@@ -331,7 +348,7 @@ export default function SourcesView() {
             </>
           )}
         </div>
-      )}
+      </PageActivityContext.Provider>
     </div>
   );
 }

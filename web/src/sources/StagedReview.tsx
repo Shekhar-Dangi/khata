@@ -6,6 +6,7 @@ import { rupees } from "../shared/format";
 import { useLedgerVersion } from "../shared/ledgerVersion";
 import type { Category } from "../shared/transactions";
 import { useBusy, useFetch } from "../shared/useFetch";
+import { useReportActivity } from "./pageActivity";
 import StagedOrderRow from "./StagedOrder";
 import StagedProducts from "./StagedProducts";
 import type { StagedItem, StagedItemsResponse } from "./stagedItems";
@@ -33,8 +34,8 @@ import {
 // confirm them tomorrow. A version that kept parsed orders in browser memory would lose the
 // review on a refresh, could not be resumed, and would need a re-upload to try again.
 //
-// ATTENTION FIRST. A screen that asks a person to read 221 orders will not be read, so
-// the ~30 that need a decision ARE the list and the other ~190 sit behind a disclosure. Both
+// ATTENTION FIRST. A screen that asks a person to read a couple of hundred orders will not be
+// read, so the few that need a decision ARE the list and the rest sit behind a disclosure. Both
 // feed ONE selection, so confirming across them needs no opinion from the screen.
 
 /**
@@ -104,18 +105,14 @@ export default function StagedReview() {
   const working = useBusy(inbox.refreshing);
   const summary = inbox.data?.summary ?? null;
 
-  // SAID, not blank. Resolving every staged order against the catalogue takes seconds on a real
-  // drop, and returning null for the whole of it is why a full inbox looked like an empty one.
-  if (inbox.loading) {
-    return (
-      <div className="staged">
-        <div className="busybar on" aria-hidden="true">
-          <i />
-        </div>
-        <p className="soft batch-empty">Reading the invoice inbox…</p>
-      </div>
-    );
-  }
+  // The PAGE says it is loading, once, for every section together (see pageActivity.ts). This
+  // used to draw its own moving line and "Reading the invoice inbox…", then pop in above the
+  // list below it — measured at under 100ms, so the announcement outlasted the wait it announced.
+  useReportActivity(
+    inbox.loading || products.loading || cats.loading,
+    inbox.refreshing || products.refreshing,
+  );
+  if (inbox.loading) return null;
 
   // A FAILED READ IS SAID, an empty one is not. The two are indistinguishable from `data ===
   // null` and they are not the same fact: an inbox nobody has filled should show nothing at
@@ -237,7 +234,7 @@ function StagedGroup({
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Which half of the inbox is on screen. Orders answer "did this get paid"; products answer
-  // "what was bought". They are worked at different rates — 365 lines collapse to 234 products,
+  // "what was bought". They are worked at different rates — many lines collapse to fewer products,
   // so the product tab is usually the shorter road — and nesting one inside the other is what
   // made a person meet the same milk six times.
   const [tab, setTab] = useState<"orders" | "products">("orders");
@@ -374,10 +371,6 @@ function StagedGroup({
       <Header summary={summary} />
 
       {result !== null && <Landed result={result} onDismiss={() => setResult(null)} />}
-
-      <div className={"busybar" + (working ? " on" : "")} aria-hidden="true">
-        <i />
-      </div>
 
       {summary.staged > 0 && (
         <>
@@ -533,7 +526,7 @@ function groupSummary(orders: StagedOrder[]): StagedSummary {
  * The two sentences a person needs before pressing anything: how much money this is, and what
  * confirming will and will not do to it.
  *
- * The second is its surprise, said UP FRONT rather than discovered afterwards: every item
+ * The second is the surprise, said UP FRONT rather than discovered afterwards: every item
  * starts uncategorised, so a correct confirm of two hundred orders moves the unexplained figure
  * by nothing at all. An import that looks broken when it worked is how a person stops trusting
  * the numbers, which is the one thing this product cannot afford.
@@ -550,9 +543,7 @@ function Header({ summary }: { summary: StagedSummary }) {
   if (summary.staged === 0) {
     return (
       <p className="receipt-said">
-        Nothing is waiting to be confirmed. {summary.held} file
-        {summary.held === 1 ? " was" : "s were"} stored but cannot be posted yet — they are
-        listed below and nothing about them is lost.
+        Nothing to confirm · {summary.held} held
       </p>
     );
   }
@@ -571,7 +562,7 @@ function Header({ summary }: { summary: StagedSummary }) {
 /**
  * One page of staged orders. Presentational: it owns nothing, the way Pager owns nothing.
  *
- * THE TOTAL COMES FROM THE SUMMARY, not from the page. its response carries no `total`, and
+ * THE TOTAL COMES FROM THE SUMMARY, not from the page. The staged response carries no `total`, and
  * inventing one would be inventing an endpoint — but `summary.staged` and
  * `summary.needs_attention` already count exactly these two lists, so each is told which one it
  * is showing.
@@ -710,8 +701,6 @@ function Landed({ result, onDismiss }: { result: ConfirmResponse; onDismiss: () 
         {result.errors.length > 0 && (
           <span className="flag"> · {result.errors.length} could not be posted</span>
         )}
-        . Matching ran as they landed; anything with no bank row is picked up by a re-match once
-        the statement covering it is imported.
       </p>
       {result.errors.length > 0 && (
         <div className="table-scroll short">
@@ -745,9 +734,9 @@ function Landed({ result, onDismiss }: { result: ConfirmResponse; onDismiss: () 
 /**
  * Files that parsed as something this app cannot post yet.
  *
- * A STATE, and drawn as one — ink, not red, and no word suggesting anything went wrong. Of the
- * real corpus 29 of 252 are credit notes, and a refund is a separate event from the purchase it
- * reverses, so posting one as an order would double-count the money. They are waiting on
+ * A STATE, and drawn as one — ink, not red, and no word suggesting anything went wrong. A real
+ * corpus holds a fair number of credit notes, and a refund is a separate event from the purchase
+ * it reverses, so posting one as an order would double-count the money. They are waiting on
  * a feature, not on a fix, and the whole point of keeping the bytes is that the day it lands
  * every one of these is re-read where it sits. A correct run must not look half-broken.
  */
@@ -771,18 +760,15 @@ function Held({
           {expanded ? "▾" : "▸"}
         </span>
         <span className="batch-name">Held files</span>
-        <span className="pill">nothing reads these yet</span>
+        <span className="pill">no parser</span>
         <span className="soft batch-when mono">
-          {count} file{count === 1 ? "" : "s"} · stored, nothing lost
+          {count} file{count === 1 ? "" : "s"}
         </span>
-        <span className="batch-left soft">waiting on a feature</span>
       </button>
 
       {!expanded ? null : (
       <div className="batch-body">
-      <p className="soft batch-empty">
-        Mostly credit notes — re-read where they sit once refunds are built.
-      </p>
+
       <div className="table-scroll short">
         <table>
           <colgroup>

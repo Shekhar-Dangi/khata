@@ -10,8 +10,8 @@ import { ITEM_FILTERS, type ItemFilter, type StagedItem, inFilter } from "./stag
 
 // THE PRODUCTS IN ONE GROUP'S INBOX — every product its orders will touch, once.
 //
-// The unit of work is the PRODUCT, not the line. 365 goods lines in the real corpus resolve to
-// 234 products; a category belongs to the product, so filing per line means answering the same
+// The unit of work is the PRODUCT, not the line. Goods lines in a real corpus resolve to far
+// fewer products; a category belongs to the product, so filing per line means answering the same
 // question up to a dozen times and getting a different answer on the twelfth. Walking the
 // orders tab means meeting the same milk six times. This tab is the fast lane.
 //
@@ -123,7 +123,8 @@ export default function StagedProducts({
     }
   }
 
-  if (loading) return <p className="soft batch-empty">Reading the products…</p>;
+  // Nothing, not "Reading the products…": the page owns the one loading line.
+  if (loading) return null;
   if (readError !== null) return <p className="note">{readError}</p>;
 
   const label = ITEM_FILTERS.find((f) => f.id === filter)?.label ?? "all";

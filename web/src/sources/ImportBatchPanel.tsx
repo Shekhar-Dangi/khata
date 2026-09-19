@@ -3,6 +3,7 @@ import { useState } from "react";
 import Pager from "../shared/Pager";
 import { errorText, mutate } from "../shared/api";
 import { useBusy, useFetch } from "../shared/useFetch";
+import { useReportActivity } from "./pageActivity";
 import { useLedgerVersion } from "../shared/ledgerVersion";
 import RecordTable, { type Activity } from "./RecordTable";
 import {
@@ -78,13 +79,8 @@ export default function ImportBatchPanel({
 
           {segments.length === 0 ? (
             <p className="soft batch-empty">
-              Every record in this import that expected cash has been placed.{" "}
-              {batch.noCashExpected > 0 && (
-                <>
-                  The other {batch.noCashExpected} were paid by someone else — consumption only,
-                  with nothing to look for in your bank.
-                </>
-              )}
+              All placed
+              {batch.noCashExpected > 0 && <> · {batch.noCashExpected} paid by others</>}
             </p>
           ) : (
             segments.map((s) => (
@@ -151,6 +147,8 @@ function Segment({
     { keepPreviousData: true, revalidateOn: version },
   );
   const busy = useBusy(refreshing);
+  // The page draws the one loading line; this segment only says it is waiting.
+  useReportActivity(loading, refreshing);
 
   const rows = data?.records ?? [];
   const total = data?.total ?? 0;
@@ -174,11 +172,8 @@ function Segment({
         <span>{title}</span>
         <span className="soft">{total}</span>
       </div>
-      <p className="note">{blurb}</p>
-
-      <div className={"busybar" + (busy ? " on" : "")} aria-hidden="true">
-        <i />
-      </div>
+      {/* `.note` is the amber box for problems; a segment's description is not one. */}
+      <p className="soft up-note">{blurb}</p>
 
       <div className={busy || isStale ? "is-stale" : undefined}>
         {error !== null && <p className="note">{error}</p>}
