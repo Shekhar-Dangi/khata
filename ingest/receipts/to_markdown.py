@@ -66,6 +66,29 @@ def _page_count(data: bytes) -> int | None:
         return None
 
 
+def _is_model_fetch_failure(exc: BaseException, text: str) -> bool:
+    """Is this exception a failure to OBTAIN the models, rather than to use them?
+
+    Matched on the exception's module as well as its text, because the message is
+    user-facing prose that changes between library versions while the class does not.
+    The text check is the fallback for a failure wrapped in something generic.
+    """
+    module = type(exc).__module__ or ""
+    if module.startswith("huggingface_hub"):
+        return True
+    lowered = text.lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "localentrynotfounderror",
+            "cannot find the appropriate snapshot",
+            "we cannot find the requested files",
+            "couldn't connect to",
+            "offlinemodeisenabled",
+        )
+    )
+
+
 def main() -> int:
     # cp1252 cannot encode a rupee sign, and this runs in a subprocess with no console, so
     # printing one would kill the process with no JSON at all. Fixed here rather than asked of
@@ -89,6 +112,20 @@ def main() -> int:
     # unrunnable without a gigabyte of models installed — including for the page-limit check
     # above, which needs none of it. ImportError here is a SETUP problem with a setup fix, and
     # saying so is what stops it being retried once per document.
+    # OFFLINE, ALWAYS. The models are fetched once by `fetch_models.py` into docling's own cache;
+    # after that a conversion has no reason to touch the network, and two reasons not to. It
+    # cannot fail on a flaky connection that has nothing to do with the document, and nothing
+    # about reading an invoice ever leaves the machine — not even a revision check. Both must
+    # be set BEFORE docling is imported: huggingface_hub and docling's settings read the
+    # environment once, at import.
+    import os
+    from pathlib import Path
+
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    os.environ.setdefault(
+        "DOCLING_ARTIFACTS_PATH", str(Path.home() / ".cache" / "docling" / "models")
+    )
+
     try:
         from docling.document_converter import DocumentConverter
     except ImportError as exc:
@@ -112,15 +149,36 @@ def main() -> int:
         )
         markdown = result.document.export_to_markdown()
     except Exception as exc:  # noqa: BLE001
-        # A model download failing mid-way lands here and reads as a conversion error. Named
-        # separately from `models_missing` because the fixes differ: one is "install it", the
-        # other is "this document broke the converter".
         traceback.print_exc(file=sys.stderr)
         name = type(exc).__name__
+        text = f"{name}: {exc}"
+
+        # A FAILED MODEL FETCH IS A SETUP PROBLEM, NOT A BROKEN DOCUMENT.
+        #
+        # Found by running it: docling installs fine and then downloads its layout and OCR
+        # weights from HuggingFace on first conversion. When that download fails — no network,
+        # a proxy, or a connection reset mid-transfer — the exception surfaces HERE, during
+        # conversion, long after the import that `models_missing` was guarding.
+        #
+        # Classified wrongly it is a disaster of degree: `extract_crashed` is TRANSIENT, so a
+        # hundred-document batch would retry each file three times against a download that
+        # cannot succeed, and then report a hundred broken documents. It is one missing
+        # install. `models_missing` is permanent and says so once, per file, with the fix.
+        if _is_model_fetch_failure(exc, text):
+            return _answer({
+                "ok": False,
+                "kind": "models_missing",
+                "error": (
+                    "docling's models are not downloaded — run "
+                    "`ingest/.venv/Scripts/python.exe -m ingest.receipts.fetch_models` once, "
+                    f"then re-run this document ({name})"
+                ),
+            })
+
         return _answer({
             "ok": False,
             "kind": "extract_crashed",
-            "error": f"docling could not convert this document ({name}: {exc})"[:500],
+            "error": f"docling could not convert this document ({text})"[:500],
         })
 
     text = (markdown or "").strip()
