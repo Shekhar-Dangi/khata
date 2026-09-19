@@ -196,35 +196,26 @@ export const SEGMENTS: { state: RecordState; title: string; unit: string; blurb:
     state: "matched",
     title: "Matched to your bank",
     unit: "records",
-    blurb:
-      "A bank row of the same amount, within a few days. Check a couple — that is how you " +
-      "come to trust the rest. Any of them can be unlinked.",
+    blurb: "Same amount, within a few days. Any can be unlinked.",
   },
   {
     state: "near",
     title: "Same amount, different day",
     unit: "records",
-    blurb:
-      "Exact on amount and direction, but the date sits outside the window the matcher will " +
-      "accept on its own. One click if the suggestion is right; find another if it is not.",
+    blurb: "Right amount, but outside the date window.",
   },
   {
     state: "conflicted",
     title: "Found it — but you explained that row",
     unit: "records",
-    blurb:
-      "A bank row of exactly this amount, on a plausible date, that you have already " +
-      "explained yourself. The matcher never overwrites your own decision, so it stopped and " +
-      "left it here. You can link it anyway — doing so replaces what you wrote, and that " +
-      "cannot be undone.",
+    // The one warning kept whole: linking here destroys something, and cannot be undone.
+    blurb: "Matches a row you explained yourself. Linking replaces that, and can't be undone.",
   },
   {
     state: "unmatched",
     title: "Still looking for a payment",
     unit: "records",
-    blurb:
-      "No bank row of this amount was found on a nearby date. Pick the payment — or " +
-      "payments — it went out as. The totals do not have to agree exactly.",
+    blurb: "No bank row nearby. Pick the payment — or payments.",
   },
 ];
 

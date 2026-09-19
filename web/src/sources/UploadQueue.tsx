@@ -3,15 +3,15 @@ import { useEffect, useRef, useState } from "react";
 import { errorText, mutate } from "../shared/api";
 import { groupFromFilename } from "./sources";
 
-// Bringing 252 files in, four at a time, with the progress said out loud.
+// Bringing a few hundred files in, four at a time, with the progress said out loud.
 //
-// WHY NOT ONE REQUEST. All 252 in a single call runs about seven
-// minutes inside one HTTP request: proxies time out, there is no progress, it is not
-// resumable, and one credit note at file 173 rolls back the 172 that already worked. A
-// rollback of seven minutes of correct work is a worse outcome than the failure that caused it.
+// WHY NOT ONE REQUEST. A few hundred in a single call runs for minutes inside one HTTP
+// request: proxies time out, there is no progress, it is not resumable, and one credit note
+// near the end rolls back everything before it that already worked. A
+// rollback of minutes of correct work is a worse outcome than the failure that caused it.
 //
-// WHY NOT ALL AT ONCE. 252 parallel uploads spawn 252 Python interpreters against a connection
-// pool of ten.
+// WHY NOT ALL AT ONCE. Hundreds of parallel uploads spawn as many Python interpreters against a
+// connection pool of ten.
 //
 // So: four at a time, ONE TRANSACTION PER FILE on the server. The bottleneck is Python startup
 // (~1.6s, mostly importing pdfplumber), so four-way reaches roughly two minutes, and each file
@@ -19,11 +19,11 @@ import { groupFromFilename } from "./sources";
 // order — never "the drop".
 //
 // AND IT IS RESUMABLE, which is why nothing here blocks a re-drop. The server dedupes on the
-// content hash, so interrupting at file 100 and dropping all 252 again skips the first 100
+// content hash, so interrupting at file 100 and dropping the whole folder again skips the first 100
 // almost instantly. An interface that refused the second drop would be protecting the person
 // from the recovery path.
 
-/** Four. See — chosen against Python startup cost and a ten-connection pool, not tuned. */
+/** Four — chosen against Python startup cost and a ten-connection pool, not tuned. */
 const CONCURRENCY = 4;
 
 /** How the server answers an upload. A 202 ("stored, nothing reads it yet") is a success. */
@@ -34,7 +34,7 @@ type ImportAck = {
   imported?: { rows?: number };
 };
 
-/** What became of one file. Kept per file because "230 of 252" is not an account of anything. */
+/** What became of one file. Kept per file because "230 of 250" is not an account of anything. */
 export type Outcome = {
   name: string;
   /** The request itself succeeded. Says nothing about whether anything could parse the file. */
@@ -46,7 +46,7 @@ export type Outcome = {
   duplicate: boolean;
 };
 
-/** Held = stored, but nothing can post it yet. A state, per, and never an error. */
+/** Held = stored, but nothing can post it yet. A state, and never an error. */
 function isHeld(o: Outcome): boolean {
   return o.ok && (o.status === "unsupported" || o.status === "failed");
 }
@@ -101,7 +101,7 @@ export default function UploadQueue({
   //
   // StrictMode runs every effect twice in development — mount, clean up, mount again — and an
   // effect that UPLOADS is not idempotent the way an effect that fetches is. Without this
-  // guard a drop of 252 files is sent 504 times in dev. Keyed on the array's identity because
+  // guard a drop of 250 files is sent 500 times in dev. Keyed on the array's identity because
   // `files` is handed down once per drop and never mutated, so "same array" is exactly "same
   // batch"; a length or a name would call two identical drops one.
   const startedFor = useRef<File[] | null>(null);
@@ -156,7 +156,7 @@ export default function UploadQueue({
       </div>
 
       {/* A determinate bar, unlike the .busybar everywhere else on this screen: there IS a
-          denominator here, and "112 of 252" is the only thing that makes a two-minute wait
+          denominator here, and "112 of 250" is the only thing that makes a two-minute wait
           bearable. Same hairline geometry, so it still reads as the same system. */}
       <div className="up-track" aria-hidden="true">
         <i style={{ width: `${pct}%` }} />
@@ -169,7 +169,7 @@ export default function UploadQueue({
         {held > 0 && (
           <span className="soft">
             {" · "}
-            {held} held
+            {held} need the local model
           </span>
         )}
         {duplicates > 0 && (
@@ -179,24 +179,13 @@ export default function UploadQueue({
           </span>
         )}
         {failed > 0 && <span className="flag">{` · ${failed} could not be sent`}</span>}
-        <span className="soft">
-          {running
-            ? " · four at a time, so nothing waits on everything else"
-            : " · nothing is on your ledger yet"}
-        </span>
       </p>
 
-      {/* Said while it is still true, not afterwards as an apology. Stopping and re-dropping is
-          the documented recovery path, so the interface has to say it is one. */}
-      <p className="soft up-note">
-        {running
-          ? "You can stop at any point. Dropping the same files again picks up where this left off — the server recognises bytes it already has."
-          : failed > 0
-            ? "Drop the same files again to retry the ones that did not send; the ones that landed are skipped."
-            : held > 0
-              ? `Everything a parser could read is waiting below for you to confirm. The ${held} held ${held === 1 ? "one has" : "ones have"} no parser yet — the local model can read ${held === 1 ? "it" : "them"}, just below.`
-              : "Everything that could be read is waiting below for you to confirm."}
-      </p>
+      {/* Only the one note that asks something of a person. The rest — resumability, what
+          "held" means — is a tooltip or is said by the card below it. */}
+      {!running && failed > 0 && (
+        <p className="soft up-note">Drop them again to retry — the ones that landed are skipped.</p>
+      )}
 
       {done.length > 0 && (
         <details className="fold" open={!running && (held > 0 || failed > 0)}>
@@ -243,6 +232,7 @@ export default function UploadQueue({
         {running ? (
           <button
             className="btn-secondary"
+            title="Dropping the same files again picks up where this left off"
             onClick={() => {
               stopped.current = true;
             }}
