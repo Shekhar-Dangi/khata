@@ -12,3 +12,8 @@ __pycache__/
 
 # Refactor safety net — regenerated on demand, never committed.
 .snapshots/
+
+# Working notes, kept out of this repo: the design notes and the assistant's project file.
+docs/
+CLAUDE.md
+.claude/
