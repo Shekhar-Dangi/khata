@@ -11,6 +11,7 @@ import ReportsView from "./reports/ReportsView";
 import CategoriesView from "./categories/CategoriesView";
 import ItemsView from "./items/ItemsView";
 import SourcesView from "./sources/SourcesView";
+import { ReadingCount } from "./sources/ModelReadPanel";
 
 type View =
   | "transactions"
@@ -63,6 +64,7 @@ function App() {
                 onClick={() => setView(t.key)}
               >
                 {t.label}
+                {t.key === "sources" && <ReadingCount />}
               </button>
             ))}
           </nav>

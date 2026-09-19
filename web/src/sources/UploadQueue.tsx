@@ -193,7 +193,9 @@ export default function UploadQueue({
           ? "You can stop at any point. Dropping the same files again picks up where this left off — the server recognises bytes it already has."
           : failed > 0
             ? "Drop the same files again to retry the ones that did not send; the ones that landed are skipped."
-            : "Everything that could be read is waiting below for you to confirm."}
+            : held > 0
+              ? `Everything a parser could read is waiting below for you to confirm. The ${held} held ${held === 1 ? "one has" : "ones have"} no parser yet — the local model can read ${held === 1 ? "it" : "them"}, just below.`
+              : "Everything that could be read is waiting below for you to confirm."}
       </p>
 
       {done.length > 0 && (

@@ -7,6 +7,7 @@ import Pager from "../shared/Pager";
 import EvidenceDrop from "./EvidenceDrop";
 import ImportBatchPanel from "./ImportBatchPanel";
 import ImportReceipt from "./ImportReceipt";
+import ModelReadPanel from "./ModelReadPanel";
 import StagedReview from "./StagedReview";
 import UploadQueue from "./UploadQueue";
 import { groupFromFilename, type ImportBatch, type ImportResponse } from "./sources";
@@ -249,6 +250,13 @@ export default function SourcesView() {
                 />
               )}
 
+              {/* BETWEEN the upload and the inbox, because that is the order things happen in:
+                  files arrive, the ones no parser read are offered to the model, and what it
+                  reads lands in the inbox. It re-reads when the upload finishes (the queue
+                  bumps the ledger version), so the offer counts the final set rather than a
+                  number that climbs while files are still landing. */}
+              <ModelReadPanel />
+
               <StagedReview />
             </>
           ) : (
@@ -285,6 +293,11 @@ export default function SourcesView() {
               )}
 
               {imports.error !== null && <p className="note">{imports.error}</p>}
+
+              {/* In BOTH modes of this page, so a batch started here is visible whichever way
+                  you come back to it — it runs for minutes to hours, and "always visible" is
+                  the requirement. Renders nothing when there is nothing to offer or watch. */}
+              <ModelReadPanel />
 
               {/* The inbox sits ABOVE the imports: it is the newest work and the only work
                   with nothing on the ledger behind it yet. It renders nothing at all when
