@@ -17,9 +17,9 @@ import {
 // inside the panel rather than trailing off the end of the row. RecordTable is the sibling; this
 // is the same screen one phase earlier, before anything is on the ledger.
 //
-// THE MATCH IS ON THE ROW, not inside the panel. the design calls "will attach to
-// Card −₹120.00 on 08 Aug" the single most useful line on the screen, and a fact you have to
-// open something to see is a fact most people will confirm without.
+// THE MATCH IS ON THE ROW, not inside the panel. "Will attach to Card −₹120.00 on 08 Aug" is the
+// single most useful line on the screen, and a fact you have to open something to see is a fact
+// most people will confirm without.
 
 export default function StagedOrder({
   order,
@@ -94,8 +94,8 @@ export default function StagedOrder({
  * What confirming this order will attach it to.
  *
  * Three answers, and only one of them is work. "No bank row yet" is not a failure — the
- * commonest reason is that the statement covering that month has not been imported (
- * measured exactly this), and `POST /evidence/rematch` finds it later without anyone
+ * commonest reason is that the statement covering that month has not been imported (real data
+ * showed exactly this), and `POST /evidence/rematch` finds it later without anyone
  * re-uploading. So it is said in ink, and only the ambiguous case takes the flag colour.
  */
 function Attaches({ match, open }: { match: StagedMatch; open: boolean }) {
@@ -113,10 +113,13 @@ function Attaches({ match, open }: { match: StagedMatch; open: boolean }) {
       </span>
     );
   }
+  // Attaching is done in ONE place — the confirmed list, with the same picker Splitwise uses —
+  // so the inbox says where rather than offering a second way to do it.
+  const where = "Confirm it, then pick the payment under “on your ledger”";
   if (match.kind === "ambiguous") {
-    return <span className="flag">more than one match{caret}</span>;
+    return <span className="flag" title={where}>more than one match{caret}</span>;
   }
-  return <span className="soft">no bank row{caret}</span>;
+  return <span className="soft" title={where}>no bank row{caret}</span>;
 }
 
 /**
@@ -174,15 +177,15 @@ function Lines({
         </tbody>
       </table>
 
-      {/* The arithmetic that decides whether the parse is trustworthy at all. makes the
-          reconcile gate the strongest thing these invoices give us, and a line total that does
+      {/* The arithmetic that decides whether the parse is trustworthy at all. The reconcile
+          gate is the strongest thing these invoices give us, and a line total that does
           not reach the order total is the visible half of it — so it is stated rather than
           assumed, and stated as a difference rather than as a pass. */}
       <div className="editor-foot">
         <span className="soft linked-note">
           {order.lines.length} lines · <b className="mono">{rupees(lineTotal)}</b>
-          {/* One order is N invoices —. Said here rather than on the row, because it
-              explains the line count and explains nothing about the money. */}
+          {/* One order is N invoices, one per legal seller. Said here rather than on the row,
+              because it explains the line count and explains nothing about the money. */}
           {order.invoice_count > 1 && ` · across ${order.invoice_count} invoices`}
           {lineTotal !== order.total_paise && (
             <span className="flag">
