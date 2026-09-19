@@ -22,6 +22,7 @@ import {
   splitProportionally,
 } from "./evidence-match.ts";
 import { dayGap } from "./transfers.ts";
+import { applyRules } from "./rules-apply.ts";
 
 const SOURCE = "splitwise";
 
@@ -53,6 +54,14 @@ export type MatchSummary = {
   conflicted: number;
   /** Rule guesses (including bulk-confirmed ones) this evidence outranked and removed. */
   displaced: number;
+  /**
+   * Rule allocations the engine wrote back over the remainder the displacement left.
+   *
+   * The other half of `displaced`, and the reason displacing is no longer a net loss:
+   * the design. Reported so a preview can show the WHOLE trade rather
+   * than only its cost — "removed 32, refilled 30" is a different sentence from "removed 32".
+   */
+  backfilled: number;
   /** Held back only by the date rule — waiting for a human (see listNearMisses). */
   nearMissed: number;
   conflicts: { externalRef: string; transactionId: string; reason: string }[];
@@ -117,6 +126,8 @@ async function loadCandidates(client: PoolClient): Promise<Candidate[]> {
 type ApplyResult = {
   conflict?: string;
   displaced: number;
+  /** Rule rows the engine refilled the remainder with afterwards. See the design. */
+  backfilled: number;
   /** Of those, how many a PERSON had authored. Only ever non-zero on a manual link. */
   displacedAuthored: number;
   allocationsWritten: number;
@@ -163,10 +174,10 @@ async function applyMatch(
   const costPaise = Number(ev.amount_paise);
   const expected = expectedCash(ev.payload.kind, costPaise, netPaise);
   if (expected === null) {
-    return { conflict: "this record expects no cash of ours", displaced: 0, displacedAuthored: 0, allocationsWritten: 0, partial: false };
+    return { conflict: "this record expects no cash of ours", displaced: 0, displacedAuthored: 0, backfilled: 0, allocationsWritten: 0, partial: false };
   }
   if (transactionIds.length === 0) {
-    return { conflict: "no transaction selected", displaced: 0, displacedAuthored: 0, allocationsWritten: 0, partial: false };
+    return { conflict: "no transaction selected", displaced: 0, displacedAuthored: 0, backfilled: 0, allocationsWritten: 0, partial: false };
   }
 
   // Precedence is judged per transaction, and ANY refusal refuses the whole link. A partial
@@ -184,7 +195,7 @@ async function applyMatch(
   // ends up carrying Rs 500. So a conflict means write NOTHING and leave the record unlinked,
   // so it stays visible as work to do rather than silently half-applied.
   if (decision.action === "conflict") {
-    return { conflict: decision.reason, displaced: 0, displacedAuthored: 0, allocationsWritten: 0, partial: false };
+    return { conflict: decision.reason, displaced: 0, displacedAuthored: 0, backfilled: 0, allocationsWritten: 0, partial: false };
   }
 
   // Replace this record's own previous work, then the guesses it outranks.
@@ -286,9 +297,21 @@ async function applyMatch(
     }
   }
 
+  // REFILL WHAT THE DISPLACEMENT LEFT, in this same transaction.
+  //
+  // The symmetric half of the invoice path's `rederiveAndBackfill`. A settlement explains the
+  // shared slice and, where the source map can answer, our own — never necessarily the whole
+  // bank row. Whatever is left was explained by the rule this link just deleted, and without
+  // this it goes back to reading as unexplained until somebody runs the engine by hand.
+  //
+  // Evidence rows count against the engine's remainder budget, so it can only take what is
+  // genuinely spare. the design.
+  const backfilled = (await applyRules(client, null, transactionIds)).created;
+
   return {
     displaced,
     displacedAuthored,
+    backfilled,
     allocationsWritten: written,
     partial: ev.payload.kind === "expense" && categoryId === null && ourShare !== 0,
     scaledDown,
@@ -307,7 +330,7 @@ export async function matchSplitwiseEvidence(
   const summary: MatchSummary = {
     considered: 0, matched: 0, ambiguous: 0, noCandidate: 0,
     noCashExpected: 0, allocationsWritten: 0, partiallyAllocated: 0,
-    conflicted: 0, displaced: 0, nearMissed: 0, conflicts: [], pairs: [],
+    conflicted: 0, displaced: 0, backfilled: 0, nearMissed: 0, conflicts: [], pairs: [],
   };
 
   const ctx = await loadContext(client, me);
@@ -363,6 +386,7 @@ export async function matchSplitwiseEvidence(
     }
     summary.matched++;
     summary.displaced += applied.displaced;
+    summary.backfilled += applied.backfilled;
     summary.allocationsWritten += applied.allocationsWritten;
     if (applied.partial) summary.partiallyAllocated++;
 
@@ -452,6 +476,8 @@ export type LinkResult =
       displaced: number;
       /** Of those, how many the person had written themselves — the irreversible part. */
       displacedAuthored: number;
+      /** What the engine refilled the leftover remainder with. See the design. */
+      backfilled: number;
       allocationsWritten: number;
       partial: boolean;
       scaledDown: boolean;
@@ -514,6 +540,7 @@ export async function linkEvidence(
     ok: true,
     displaced: applied.displaced,
     displacedAuthored: applied.displacedAuthored,
+    backfilled: applied.backfilled,
     allocationsWritten: applied.allocationsWritten,
     partial: applied.partial,
     scaledDown: applied.scaledDown ?? false,
@@ -1061,6 +1088,7 @@ export async function categoriseEvidence(
     ok: true,
     displaced: applied.displaced,
     displacedAuthored: applied.displacedAuthored,
+    backfilled: applied.backfilled,
     allocationsWritten: applied.allocationsWritten,
     partial: applied.partial,
     scaledDown: applied.scaledDown ?? false,
@@ -1100,7 +1128,7 @@ export async function rederiveEvidence(
   // Not an error: an unlinked record has no allocations to re-derive, and its consumption was
   // already rebuilt from the map by the caller.
   if (linked.rowCount === 0) {
-    return { ok: true, displaced: 0, displacedAuthored: 0, allocationsWritten: 0, partial: false, scaledDown: false };
+    return { ok: true, displaced: 0, displacedAuthored: 0, backfilled: 0, allocationsWritten: 0, partial: false, scaledDown: false };
   }
 
   const applied = await applyMatch(
@@ -1115,6 +1143,7 @@ export async function rederiveEvidence(
     ok: true,
     displaced: applied.displaced,
     displacedAuthored: applied.displacedAuthored,
+    backfilled: applied.backfilled,
     allocationsWritten: applied.allocationsWritten,
     partial: applied.partial,
     scaledDown: applied.scaledDown ?? false,

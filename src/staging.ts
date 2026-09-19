@@ -12,7 +12,7 @@ import { type Candidate, matchToTransaction } from "./evidence-match.ts";
 import type { MatchSummary } from "./evidence-detect.ts";
 import { canonicalName } from "./items.ts";
 import { itemSummary, previewLine, resolveAndRecord } from "./items-store.ts";
-import { deriveForEvidence } from "./line-allocations.ts";
+import { rederiveAndBackfill } from "./line-allocations.ts";
 import type { ParsedLine, ParsedRecord } from "./pdf-extract.ts";
 
 export type LineResolutionView = {
@@ -451,6 +451,10 @@ export async function confirmOne(
   /** Whether a bank row was recorded as paying for this order. */
   matched: boolean;
   allocations_written: number;
+  /** Rule rows this order displaced, and what the engine then refilled. See DeriveResult. */
+  displaced: number;
+  displaced_paise: number;
+  backfilled: number;
 }> {
   const row = await client.query<{ external_ref: string; source_type: string | null; record: ParsedRecord; parse_status: string }>(
     "SELECT external_ref, source_type, record, parse_status FROM artifacts WHERE id = $1",
@@ -571,7 +575,7 @@ export async function confirmOne(
   // AMBIGUOUS is left unlinked on purpose. Two bank rows fit and only a person can say which;
   // picking one here would be the silent guess on money this codebase refuses everywhere else.
 
-  const derived = await deriveForEvidence(client, evidenceId);
+  const derived = await rederiveAndBackfill(client, evidenceId);
 
   await client.query(
     "UPDATE artifacts SET parse_status = 'parsed', external_ref = $2 WHERE id = $1",
@@ -584,6 +588,9 @@ export async function confirmOne(
     items_resolved: resolved,
     matched,
     allocations_written: derived.allocationsWritten,
+    displaced: derived.displaced,
+    displaced_paise: derived.displacedPaise,
+    backfilled: derived.backfilled,
   };
 }
 
@@ -608,6 +615,7 @@ export async function matchReceiptEvidence(
   const summary: MatchSummary = {
     considered: 0, matched: 0, ambiguous: 0, noCandidate: 0, noCashExpected: 0,
     allocationsWritten: 0, partiallyAllocated: 0, conflicted: 0, displaced: 0, nearMissed: 0,
+    backfilled: 0,
     // Filled as the sweep goes: a preview has to show WHAT matched, not only how many.
     conflicts: [], pairs: [],
   };
@@ -644,7 +652,7 @@ export async function matchReceiptEvidence(
        ON CONFLICT DO NOTHING`,
       [ev.id, outcome.transactionId],
     );
-    const derived = await deriveForEvidence(client, ev.id);
+    const derived = await rederiveAndBackfill(client, ev.id);
     summary.pairs.push({
       evidenceId: ev.id,
       externalRef: ev.external_ref,
@@ -670,6 +678,10 @@ export async function matchReceiptEvidence(
     }
     summary.matched++;
     summary.allocationsWritten += derived.allocationsWritten;
+    // DECLARED SINCE THE FIRST VERSION OF THIS SWEEP AND NEVER ASSIGNED, which is why a dry
+    // run could report `conflicted: 2` while 32 confirmed rows were about to be deleted.
+    summary.displaced += derived.displaced;
+    summary.backfilled += derived.backfilled;
   }
 
   return summary;

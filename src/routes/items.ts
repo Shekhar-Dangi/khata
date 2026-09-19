@@ -2,7 +2,7 @@ import { Router } from "express";
 
 import { pool } from "./../db.ts";
 import { parsePaging } from "./../filters.ts";
-import { rederiveForItems } from "./../line-allocations.ts";
+import { emptyResult, rederiveForItems } from "./../line-allocations.ts";
 import { badRequest, intParam, notFound, route, withTransaction } from "./../http.ts";
 import {
   getItem,
@@ -27,8 +27,8 @@ type CategorySource = (typeof CATEGORY_SOURCES)[number];
 /**
  * GET /items?q=&unclassified=1&limit=&offset=
  *
- * The catalogue. `unclassified=1` is the working list — the design makes
- * partial itemisation a first-class outcome, so an item with no category is normal rather than
+ * The catalogue. `unclassified=1` is the working list — partial itemisation is a
+ * first-class outcome, so an item with no category is normal rather than
  * broken, and this is where a person clears them.
  */
 router.get("/items", route(async (req, res) => {
@@ -61,7 +61,7 @@ router.get("/items/stats", route(async (_req, res) => {
 /**
  * GET /items/proposals?status=open
  *
- * The merge queue — step 3b. Everything the resolver was not confident enough to decide
+ * The merge queue. Everything the resolver was not confident enough to decide
  * lands here, sorted by similarity, because a person reviewing this wants the near-certain
  * ones first.
  */
@@ -189,12 +189,12 @@ router.patch("/items/:id", route(async (req, res) => {
       if (r.rowCount === 0) throw notFound(`no item ${id}`);
     }
 
-    // A CATEGORY CHANGE IS RETROACTIVE. the design: classify a product once
+    // A CATEGORY CHANGE IS RETROACTIVE. Classify a product once
     // and every basket that already contains it has to update, or the catalogue only pays
     // forwards. Same transaction as the write, so the two cannot end up disagreeing.
     const rederived = "category_id" in body
       ? await rederiveForItems(client, [id])
-      : { orders: 0, allocationsWritten: 0, refused: 0 };
+      : emptyResult();
 
     return res.json({ ...(await getItem(client, id)), rederived });
   });
