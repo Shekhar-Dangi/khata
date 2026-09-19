@@ -2,10 +2,13 @@ import express from "express";
 import path from "node:path";
 
 import { errorHandler, notFoundHandler } from "./http.ts";
+import { startWorker } from "./parse-worker.ts";
+import { runLlmReceiptJob } from "./receipt-llm-job.ts";
 import { accounts } from "./routes/accounts.ts";
 import { categories } from "./routes/categories.ts";
 import { evidence } from "./routes/evidence.ts";
 import { items } from "./routes/items.ts";
+import { parse } from "./routes/parse.ts";
 import { reports } from "./routes/reports.ts";
 import { rules } from "./routes/rules.ts";
 import { transactions } from "./routes/transactions.ts";
@@ -91,6 +94,7 @@ app.use(accounts);
 app.use(categories);
 app.use(evidence);
 app.use(items);
+app.use(parse);
 app.use(reports);
 app.use(rules);
 app.use(transactions);
@@ -132,4 +136,25 @@ if (import.meta.filename === process.argv[1]) {
   app.listen(PORT, () => {
     console.log(`listening on http://localhost:${PORT}`);
   });
+
+  // THE PARSE WORKER, started only alongside a real server and never on import.
+  //
+  // It runs in this process on purpose. A separate process would need its own deployment,
+  // its own restart policy and its own copy of the configuration, to drain a queue that is
+  // one document at a time on a single-user machine — and the local model is the bottleneck
+  // either way, so a second process would buy nothing but operational surface.
+  //
+  // Not started in DEMO_MODE: a hosted box has no Ollama and no docling, so every job would
+  // claim, fail with `models_missing` and mark a document unreadable that is merely somewhere
+  // else. The same reasoning already makes /transactions/suggest answer 501 there.
+  if (!DEMO_MODE) {
+    const worker = startWorker({ handler: runLlmReceiptJob });
+    // A restart under --watch kills this process without ceremony; the lease is what makes
+    // that survivable, and `stop()` here is the tidy path for a signal we do get.
+    for (const signal of ["SIGINT", "SIGTERM"] as const) {
+      process.once(signal, () => {
+        void worker.stop().finally(() => process.exit(0));
+      });
+    }
+  }
 }
