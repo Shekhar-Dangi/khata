@@ -6,6 +6,7 @@ import { useLedgerVersion } from "../shared/ledgerVersion";
 import { rupees } from "../shared/format";
 import Pager from "../shared/Pager";
 import AccountIdentifiers from "./AccountIdentifiers";
+import LoadingLine from "../shared/LoadingLine";
 
 type Leg = {
   id: string;
@@ -157,7 +158,7 @@ export default function TransfersView() {
     bump();
   }
 
-  if (loading) return <p className="soft">Loading…</p>;
+  if (loading) return <LoadingLine />;
   if (error) return <p className="soft">{error}</p>;
 
   const counts = data?.counts ?? {};

@@ -7,6 +7,7 @@ import TransactionTable from "../shared/TransactionTable";
 import DateRange, { rangeParams } from "../shared/DateRange";
 import type { Period } from "../reports/reports";
 import { STATE, STATE_KEYS, type TransactionsResponse } from "../shared/transactions";
+import LoadingLine from "../shared/LoadingLine";
 
 type Account = { id: number; name: string };
 
@@ -58,7 +59,7 @@ export default function ConsolidatedView() {
   if (source !== "") params.set("source", source);
   // "Unexplained" is the headline metric made clickable, and that metric is SPEND: not an
   // opening balance, not a transfer. Without this the filter answers a different question
-  // than the number it is named after — 262 rows against a figure computed from 156 — and
+  // than the number it is named after — far more rows than the figure is computed from — and
   // the rows it adds are transfers, which are not money you failed to explain but money
   // that moved between your own accounts.
   if (source === "unexplained") params.set("spend_only", "true");
@@ -87,7 +88,7 @@ export default function ConsolidatedView() {
     // new reference every render and reset the page on each one.
   }, [debouncedQuery, accountId, source, period.from, period.to]);
 
-  if (loading) return <p className="soft">Loading…</p>;
+  if (loading) return <LoadingLine />;
   if (error) return <p className="soft">{error}</p>;
 
   const rows = data?.transactions ?? [];

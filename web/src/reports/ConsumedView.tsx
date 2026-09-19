@@ -1,58 +1,36 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
+import LoadingLine from "../shared/LoadingLine";
 import Pager from "../shared/Pager";
 import { rupees } from "../shared/format";
 import { useFetch } from "../shared/useFetch";
 import { useLedgerVersion } from "../shared/ledgerVersion";
+import { STATE } from "../shared/transactions";
+import type { Consumption, ConsumptionTerms } from "./reports";
 
 // What you actually USED, whoever paid for it — the Consumed side of the Spent | Consumed
-// toggle on "Where it goes". the design.
+// toggle on "Where it goes".
 //
 // IT REPLACES A SECOND TABLE (owner, 2026-09-19). The page used to show spending by category
 // and, below it, consumption by category — the same categories, different money, and nothing
-// saying how one became the other. It also ignored the date range, and folded a large sum of
-// money RECEIVED into the total without a word.
+// saying how one became the other. It also ignored the date range, and folded a sizeable
+// amount of money RECEIVED into the total without a word.
 //
 // So it is one table behind a toggle, and above it the FORMULA that walks the "Money out" tile
-// to "consumed", one named money per line, each with its definition on hover. The gap between
-// spending and consumption — the reason this view exists — is no longer something to infer
-// from two tables; it is written down.
-
-type Terms = {
-  money_out_paise: number;
-  unexplained_paise: number;
-  fronted_paise: number;
-  paid_for_you_paise: number;
-  received_paise: number;
-  consumed_paise: number;
-};
-
-type Row = {
-  id: number;
-  name: string;
-  parent_name: string | null;
-  consumed_paise: number;
-  entries: number;
-};
-
-type Consumption = {
-  categories: Row[];
-  terms: Terms;
-  unaccounted_paise: number;
-  unclassified_paise: number;
-};
-
-type Entry = {
-  date: string;
-  kind: "bank" | "paid_for_you";
-  detail: string | null;
-  consumed_paise: number;
-  account_name: string | null;
-};
+// to "consumed", one named money per line, each with its definition on hover.
+//
+// DRAWN WITH THE SPENT SIDE'S OWN PARTS, so the toggle changes the money and nothing else: the
+// same `.bars` rows, and a drill-down in the same `.peek` frame with the same five columns in
+// the same order — Date · Account · Narration · amount · State. It was a table of its own for
+// one afternoon, 14px against the drill-down's 12.5px, 44px rows against 36px, the columns in
+// another order; the owner saw it at once.
+//
+// The data is fetched by the PAGE, beside the Spent data, so flipping the toggle shows it
+// immediately instead of opening onto an empty space while it loads.
 
 /** The formula, top to bottom. Each line's hover is its definition — said once, here. */
 const LINES: {
-  key: keyof Terms;
+  key: keyof ConsumptionTerms;
   sign: "" | "−" | "+" | "=";
   label: string;
   means: string;
@@ -112,16 +90,20 @@ const LINES: {
   },
 ];
 
-export default function ConsumedView({ baseQuery }: { baseQuery: string }) {
-  const { version } = useLedgerVersion();
+export default function ConsumedView({
+  data,
+  error,
+  baseQuery,
+}: {
+  data: Consumption | null;
+  error: string | null;
+  baseQuery: string;
+}) {
   const [openId, setOpenId] = useState<number | null>(null);
-  const { data, error } = useFetch<Consumption>(
-    `/reports/consumption${baseQuery === "" ? "" : `?${baseQuery}`}`,
-    { keepPreviousData: true, revalidateOn: version },
-  );
 
   if (error) return <p className="note">{error}</p>;
-  if (data === null) return null;
+  // Only on a first visit before the page's prefetch has answered — the same line as everywhere.
+  if (data === null) return <LoadingLine />;
 
   const t = data.terms;
   const max = Math.max(1, ...data.categories.map((r) => Math.abs(r.consumed_paise)));
@@ -160,7 +142,7 @@ export default function ConsumedView({ baseQuery }: { baseQuery: string }) {
       )}
 
       {data.categories.length === 0 ? (
-        <p className="soft">Nothing consumed in this period.</p>
+        <p className="soft">Nothing in this period.</p>
       ) : (
         <div className="bars">
           {data.categories.map((r) => {
@@ -185,7 +167,7 @@ export default function ConsumedView({ baseQuery }: { baseQuery: string }) {
                       <i className="seg-consumed" style={{ width: "100%" }} />
                     </span>
                   </span>
-                  <span className={"barvalue mono " + (r.consumed_paise < 0 ? "credit" : "")}>
+                  <span className={"barvalue mono " + (r.consumed_paise < 0 ? "credit" : "debit")}>
                     {rupees(r.consumed_paise)}
                   </span>
                   <span className="bardelta" />
@@ -204,55 +186,85 @@ export default function ConsumedView({ baseQuery }: { baseQuery: string }) {
   );
 }
 
-const PAGE = 25;
+type Entry = {
+  date: string;
+  kind: "bank" | "paid_for_you";
+  detail: string | null;
+  source: "user" | "rule" | "evidence";
+  consumed_paise: number;
+  account_name: string | null;
+};
 
-/** What is inside one bar: bank rows and what others paid, from the same rows as the total. */
+/** Same page size as TransactionPeek, so both drill-downs are the same height. */
+const PAGE = 10;
+
+/** What is inside one bar — bank rows and what others paid, in the Spent drill-down's frame. */
 function Entries({ categoryId, baseQuery }: { categoryId: number; baseQuery: string }) {
   const { version } = useLedgerVersion();
   const [offset, setOffset] = useState(0);
-  const { data, error, isStale } = useFetch<{ entries: Entry[]; total: number }>(
+  useEffect(() => setOffset(0), [baseQuery]);
+
+  const entries = useFetch<{ entries: Entry[]; total: number }>(
     `/reports/consumption/entries?category_id=${categoryId}&limit=${PAGE}&offset=${offset}` +
       (baseQuery === "" ? "" : `&${baseQuery}`),
     { keepPreviousData: true, revalidateOn: version },
   );
 
-  if (error) return <p className="note">{error}</p>;
-  if (data === null) return null;
+  if (entries.error) return <p className="soft touched-empty">{entries.error}</p>;
+  if (entries.data === null) {
+    return (
+      <div className="peek">
+        <LoadingLine />
+      </div>
+    );
+  }
+  const data = entries.data;
 
   return (
-    <div className={isStale ? "is-stale" : undefined}>
-      <div className="table-scroll short">
-        <table>
-          <colgroup>
-            <col style={{ width: "108px" }} />
-            <col />
-            <col style={{ width: "140px" }} />
-            <col style={{ width: "120px" }} />
-          </colgroup>
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>What</th>
-              <th>Paid from</th>
-              <th className="r">Consumed</th>
+    <div className={"peek" + (entries.isStale ? " is-stale" : "")}>
+      <table>
+        {/* The Spent drill-down's columns, widths and order, so the toggle moves nothing. */}
+        <colgroup>
+          <col style={{ width: "110px" }} />
+          <col style={{ width: "130px" }} />
+          <col />
+          <col style={{ width: "140px" }} />
+          <col style={{ width: "120px" }} />
+        </colgroup>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Account</th>
+            <th>Narration</th>
+            <th className="r">Consumed</th>
+            <th className="r">State</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.entries.map((e, i) => (
+            <tr key={`${e.date}-${i}`}>
+              <td className="mono soft">{e.date}</td>
+              <td className="soft">
+                {e.kind === "paid_for_you" ? "paid by others" : (e.account_name ?? "—")}
+              </td>
+              <td className="narration" title={e.detail ?? ""}>{e.detail ?? "—"}</td>
+              <td className={"mono r " + (e.consumed_paise < 0 ? "credit" : "debit")}>
+                {rupees(e.consumed_paise)}
+              </td>
+              <td className="r">
+                {/* The same two words the Spent drill-down uses for the same money. */}
+                {e.source === "rule" ? (
+                  <span className="prov" title="A rule guessed this. Open it on Transactions to confirm.">
+                    {STATE.rule}
+                  </span>
+                ) : (
+                  <span className="credit">{STATE.user}</span>
+                )}
+              </td>
             </tr>
-          </thead>
-          <tbody>
-            {data.entries.map((e, i) => (
-              <tr key={`${e.date}-${i}`}>
-                <td className="mono soft">{e.date}</td>
-                <td className="narration" title={e.detail ?? ""}>{e.detail ?? "—"}</td>
-                <td className="soft">
-                  {e.kind === "paid_for_you" ? "paid by others" : (e.account_name ?? "—")}
-                </td>
-                <td className={"mono r" + (e.consumed_paise < 0 ? " credit" : "")}>
-                  {rupees(e.consumed_paise)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+          ))}
+        </tbody>
+      </table>
       {data.total > PAGE && (
         <Pager
           offset={offset}
@@ -260,8 +272,7 @@ function Entries({ categoryId, baseQuery }: { categoryId: number; baseQuery: str
           total={data.total}
           shown={data.entries.length}
           onOffset={setOffset}
-          unit="entries"
-          busy={false}
+          busy={entries.refreshing}
         />
       )}
     </div>

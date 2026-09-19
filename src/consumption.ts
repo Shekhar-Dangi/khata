@@ -1,7 +1,7 @@
 import { EXPLAINABLE_SPEND } from "./spend.ts";
 
 // What counts as CONSUMPTION — the one definition, the way EXPLAINABLE_SPEND is the one
-// definition of spend. Design in the design.
+// definition of spend.
 //
 // Spend and consumption answer different questions and are allowed to disagree:
 //
@@ -10,8 +10,8 @@ import { EXPLAINABLE_SPEND } from "./spend.ts";
 //
 // A shared bill you paid for three people is 4,000 of spend and 2,000 of consumption. A
 // bill a flatmate paid for you is 0 of spend and 1,500 of consumption — no transaction
-// exists for it at all. In the verified export, 43 of 93 expenses were that second kind,
-// so this is about half the shared data rather than an edge case.
+// exists for it at all. In a real export, close to half the expenses were that second kind,
+// so this is a large share of the shared data rather than an edge case.
 //
 // It is a UNION of two sources, and that is exactly why it lives in one string in one
 // module you have to import. src/spend.ts already makes the argument and it applies here
@@ -20,7 +20,11 @@ import { EXPLAINABLE_SPEND } from "./spend.ts";
 // disagree about what they are talking about."
 //
 // Columns: (consumed_on DATE, category_id BIGINT, amount_paise BIGINT,
-//           account_id BIGINT, kind TEXT, transaction_id BIGINT, evidence_id BIGINT, detail TEXT).
+//           account_id BIGINT, kind TEXT, transaction_id BIGINT, evidence_id BIGINT, detail TEXT,
+//           source TEXT).
+//
+// `source` is who said what the money was — 'user', 'rule' or 'evidence' — so a consumed entry
+// shows the same State (Confirmed / Guessed) the Spent drill-down shows for the same money.
 //
 // The last five exist so the SAME definition answers both "how much" and "which entries" —
 // the totals on the Consumed view and the rows you drill into beneath them. A second query
@@ -36,10 +40,11 @@ export const CONSUMPTION_ROWS = `
     --    excluded_from_spend removes the shared bucket: the part of a bill you fronted
     --    for other people is money that moved, and is not something you consumed. That
     --    flag is why this is a join on categories rather than a hardcoded category name —
-    --    a name matched in code is the "debit" lexical trap.
+    --    a name matched in code is a lexical trap (a category named "debit" matches every
+    --    narration that says "UPI-Debit").
     SELECT t.txn_date AS consumed_on, al.category_id, al.amount_paise,
            t.account_id, 'bank'::text AS kind, t.id AS transaction_id,
-           NULL::bigint AS evidence_id, t.narration AS detail
+           NULL::bigint AS evidence_id, t.narration AS detail, al.source
       FROM allocations al
       JOIN transactions t   ON t.id = al.transaction_id
       JOIN categories cat   ON cat.id = al.category_id
@@ -59,7 +64,7 @@ export const CONSUMPTION_ROWS = `
     --    005_consumption.sql for why a nullable allocations.transaction_id was rejected.
     SELECT con.consumed_on, con.category_id, con.amount_paise,
            NULL::bigint AS account_id, 'paid_for_you'::text AS kind, NULL::bigint AS transaction_id,
-           con.evidence_id, ev.description AS detail
+           con.evidence_id, ev.description AS detail, con.source
       FROM consumption con
       LEFT JOIN evidence ev ON ev.id = con.evidence_id
 `;
@@ -93,8 +98,8 @@ export const CONSUMPTION_ROWS = `
  *   paid_for_you   what flatmates paid for you. Never on your statement
  *   received       credits filed under a spending category, which count AGAINST consumption —
  *                  a refund, or money received that was filed where spending goes. Shown on
- *                  its own line so it is never silent: a sizeable credit filed under a spending category sat in the
- *                  old total unannounced
+ *                  its own line so it is never silent: a sizeable credit filed under a
+ *                  spending category once sat in the old total unannounced
  *   consumed       the result
  *
  * All paise, all magnitudes (positive).

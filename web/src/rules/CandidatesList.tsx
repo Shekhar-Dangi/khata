@@ -2,6 +2,7 @@ import { useFetch } from "../shared/useFetch";
 import CandidateRow from "./CandidateRow";
 import type { Category } from "../shared/transactions";
 import type { CandidatesResponse } from "./rules";
+import LoadingLine from "../shared/LoadingLine";
 
 // Rules that do not exist yet, mined from the narrations of unexplained transactions.
 //
@@ -27,7 +28,7 @@ export default function CandidatesList({
     keepPreviousData: true,
   });
 
-  if (candidates.loading) return <p className="soft">Mining the ledger…</p>;
+  if (candidates.loading) return <LoadingLine />;
   if (candidates.error) return <p className="soft">{candidates.error}</p>;
 
   const data = candidates.data;

@@ -7,11 +7,13 @@ import CategoryBars from "./CategoryBars";
 import MonthTrend from "./MonthTrend";
 import ConsumedView from "./ConsumedView";
 import DateRange, { rangeParams } from "../shared/DateRange";
+import LoadingLine from "../shared/LoadingLine";
 import {
   monthLabel,
   presets,
   previousPeriod,
   type CategoryReport,
+  type Consumption,
   type MonthRow,
   type Period,
 } from "./reports";
@@ -70,14 +72,23 @@ export default function ReportsView() {
     },
   );
 
-  const busy = useBusy(main.refreshing || compared.refreshing);
+  // FETCHED WITH THE PAGE, whichever side of the toggle is showing. It is one small query, and
+  // having it ready is what makes flipping to Consumed instant — it used to open onto an empty
+  // space for as long as the request took. A change of period or account re-reads both sides
+  // together, under the one line below.
+  const consumption = useFetch<Consumption>(
+    `/reports/consumption${query(period, accountId) === "" ? "" : `?${query(period, accountId)}`}`,
+    { keepPreviousData: true, revalidateOn: version },
+  );
+
+  const busy = useBusy(main.refreshing || compared.refreshing || consumption.refreshing);
 
   if (main.error) return <p className="soft">{main.error}</p>;
   // Gate on the DATA, not on `loading`. `?? 0` fallbacks are why a Rs 0 renders for a
   // frame and vanishes: absent data becomes a zero, and a zero is a claim. There is no
   // state in which this page should show a number it has not been told.
   const data = main.data;
-  if (data === null) return <p className="soft">Loading…</p>;
+  if (data === null) return <LoadingLine />;
 
   const rows = data.categories;
   // Income and spending do not belong in one ranked list: a six-figure salary dwarfs
@@ -208,7 +219,7 @@ export default function ReportsView() {
         {trend.data ? (
           <MonthTrend months={trend.data.months} />
         ) : (
-          <p className="soft">{trend.error ?? "Loading…"}</p>
+          trend.error !== null ? <p className="soft">{trend.error}</p> : <LoadingLine />
         )}
 
         {/* ONE TABLE, TWO MONIES (owner, 2026-09-19). Consumption used to be a second table
@@ -250,7 +261,7 @@ export default function ReportsView() {
             )}
           </>
         ) : (
-          <ConsumedView baseQuery={baseQuery} />
+          <ConsumedView data={consumption.data} error={consumption.error} baseQuery={baseQuery} />
         )}
       </div>
     </>

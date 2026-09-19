@@ -3,6 +3,7 @@ import { Fragment, useState } from "react";
 import { useFetch } from "../shared/useFetch";
 import { useLedgerVersion } from "../shared/ledgerVersion";
 import SourceCategoryMap from "./SourceCategoryMap";
+import LoadingLine from "../shared/LoadingLine";
 
 export type CategoryNode = {
   id: number;
@@ -38,7 +39,7 @@ export default function CategoriesView() {
     rules: number;
   } | null>(null);
 
-  if (cats.loading) return <p className="soft">Loading…</p>;
+  if (cats.loading) return <LoadingLine />;
   if (cats.error) return <p className="soft">{cats.error}</p>;
 
   const all = cats.data?.categories ?? [];

@@ -9,6 +9,7 @@ import RuleForm from "./RuleForm";
 import RulesList from "./RulesList";
 import CandidatesList from "./CandidatesList";
 import type { RuleImpact } from "./rules";
+import LoadingLine from "../shared/LoadingLine";
 
 // Composition and one piece of shared data. Everything else has been pushed DOWN into
 // the component that uses it:
@@ -48,7 +49,7 @@ export default function RulesView() {
   // was still there, and the screen said nothing.
   const [writeError, setWriteError] = useState<string | null>(null);
 
-  if (rules.loading) return <p className="soft">Loading…</p>;
+  if (rules.loading) return <LoadingLine />;
   if (rules.error) return <p className="soft">{rules.error}</p>;
 
   // Any change to what a rule MATCHES throws away the allocations it had already

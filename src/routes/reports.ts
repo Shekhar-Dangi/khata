@@ -275,8 +275,8 @@ router.get("/reports/by-month", route(async (req, res) => {
   });
 }));
 
-// What you actually CONSUMED, by category — the second view the design
-// argue for, and deliberately a sibling of /reports/by-category rather than a replacement.
+// What you actually CONSUMED, by category — the second view beside spend, and deliberately a
+// sibling of /reports/by-category rather than a replacement.
 //
 // Spend and consumption answer different questions and are allowed to disagree: a shared
 // bill you fronted for three people is all spend and a third of it consumption, while a bill
@@ -409,7 +409,7 @@ router.get("/reports/consumption/entries", route(async (req, res) => {
   const params = [f.from, f.to, f.accountId, categoryId];
   const rows = await pool.query(
     `WITH rows AS (${CONSUMPTION_ROWS})
-     SELECT rows.consumed_on, rows.kind, rows.detail, -rows.amount_paise AS consumed_paise,
+     SELECT rows.consumed_on, rows.kind, rows.detail, rows.source, -rows.amount_paise AS consumed_paise,
             acc.name AS account_name, rows.transaction_id, rows.evidence_id,
             COUNT(*) OVER () AS total
        FROM rows
@@ -425,6 +425,7 @@ router.get("/reports/consumption/entries", route(async (req, res) => {
       date: r.consumed_on,
       kind: r.kind,
       detail: r.detail,
+      source: r.source,
       consumed_paise: Number(r.consumed_paise),
       account_name: r.account_name,
       transaction_id: r.transaction_id === null ? null : String(r.transaction_id),

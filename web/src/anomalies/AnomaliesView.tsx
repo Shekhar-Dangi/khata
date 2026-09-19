@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useFetch } from "../shared/useFetch";
 import { rupees } from "../shared/format";
 import Pager from "../shared/Pager";
+import LoadingLine from "../shared/LoadingLine";
 
 type Discrepancy = {
   transaction_id: string;
@@ -28,7 +29,7 @@ export default function AnomaliesView() {
     "/anomalies",
   );
 
-  if (loading) return <p className="soft">Loading…</p>;
+  if (loading) return <LoadingLine />;
   if (error) return <p className="soft">{error}</p>;
   if (!data) return null;
   // The best news this screen can give you. As a bare sentence at the top of an

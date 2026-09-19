@@ -3,7 +3,7 @@ import { useState } from "react";
 import Pager from "../shared/Pager";
 import { errorText, mutate } from "../shared/api";
 import { useBusy, useFetch } from "../shared/useFetch";
-import { useReportActivity } from "./pageActivity";
+import LoadingLine from "../shared/LoadingLine";
 import { useLedgerVersion } from "../shared/ledgerVersion";
 import RecordTable, { type Activity } from "./RecordTable";
 import {
@@ -158,8 +158,6 @@ function Segment({
     { keepPreviousData: true, revalidateOn: version },
   );
   const busy = useBusy(refreshing);
-  // The page draws the one loading line; this segment only says it is waiting.
-  useReportActivity(loading, refreshing);
 
   const rows = data?.records ?? [];
   const total = data?.total ?? 0;
@@ -181,14 +179,19 @@ function Segment({
     <>
       <div className="sect">
         <span>{title}</span>
-        <span className="soft">{total}</span>
+        {/* Not "0" while loading — that is a false fact for as long as the request takes. */}
+        {!loading && <span className="soft">{total}</span>}
       </div>
       {/* `.note` is the amber box for problems; a segment's description is not one. */}
       <p className="soft up-note">{blurb}</p>
 
+      {/* A segment only loads because someone OPENED it, so its line is here, under its own
+          heading — not at the top of a page that may be scrolled far away. See LoadingLine. */}
+      <LoadingLine on={loading || refreshing} />
+
       <div className={busy || isStale ? "is-stale" : undefined}>
         {error !== null && <p className="note">{error}</p>}
-        <RecordTable
+        {!loading && <RecordTable
           records={rows}
           state={state}
           expandedId={openId}
@@ -198,7 +201,7 @@ function Segment({
             onChanged(a);
           }}
           showCategory={source === null}
-        />
+        />}
       </div>
 
       {total > PAGE && (

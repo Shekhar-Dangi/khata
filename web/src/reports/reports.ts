@@ -23,6 +23,29 @@ export type CategoryReport = {
   transactions: number;
 };
 
+/** GET /reports/consumption — see ConsumedView and src/consumption.ts. */
+export type ConsumptionTerms = {
+  money_out_paise: number;
+  unexplained_paise: number;
+  fronted_paise: number;
+  paid_for_you_paise: number;
+  received_paise: number;
+  consumed_paise: number;
+};
+
+export type Consumption = {
+  categories: {
+    id: number;
+    name: string;
+    parent_name: string | null;
+    consumed_paise: number;
+    entries: number;
+  }[];
+  terms: ConsumptionTerms;
+  unaccounted_paise: number;
+  unclassified_paise: number;
+};
+
 export type Period = { from: string; to: string; label: string };
 
 // ── date maths on YYYY-MM-DD strings ────────────────────────────────────────

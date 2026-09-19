@@ -5,6 +5,7 @@ import { errorText, mutate } from "../shared/api";
 import { useLedgerVersion } from "../shared/ledgerVersion";
 import { useBusy, useFetch } from "../shared/useFetch";
 import type { MergeProposal, ProposalsResponse } from "./items";
+import LoadingLine from "../shared/LoadingLine";
 
 // THE MERGE QUEUE — pairs the resolver suspects are one product and would not join alone.
 //
@@ -15,7 +16,7 @@ import type { MergeProposal, ProposalsResponse } from "./items";
 //
 // What lands here is specifically a pair the TEXT thinks is one thing and the MERCHANT thinks
 // is two — different skus from the same seller are never auto-linked however similar the
-// wording, which is the rule that stopped four creatine flavours collapsing into one item.
+// wording, which is the rule that stopped four flavours of one supplement collapsing into one item.
 // Most of the queue is therefore the same product in two sizes, and the rest is the reason the
 // rule exists: Coca-Cola and Pepsi are 57% alike as strings and are not the same drink.
 //
@@ -54,7 +55,7 @@ export default function MergeQueue() {
     }
   }
 
-  if (list.loading) return <p className="soft batch-empty">Reading the merge queue…</p>;
+  if (list.loading) return <LoadingLine />;
   if (list.error !== null) return <p className="note">{list.error}</p>;
   if (total === 0) {
     return (

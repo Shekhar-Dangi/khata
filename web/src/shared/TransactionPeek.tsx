@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { useFetch } from "./useFetch";
 import { useLedgerVersion } from "./ledgerVersion";
+import LoadingLine from "./LoadingLine";
 import Pager from "./Pager";
 import TransactionTable from "./TransactionTable";
 import type { TransactionsResponse } from "./transactions";
@@ -48,11 +49,25 @@ export default function TransactionPeek({
     { keepPreviousData: true, revalidateOn: version },
   );
 
-  if (txns.loading) return <p className="soft touched-empty">Loading…</p>;
+  // Inside `.peek`, so the line sits where the table will — the expansion never opens onto a
+  // blank gap, and never onto a sentence. See LoadingLine.
+  if (txns.loading) {
+    return (
+      <div className="peek">
+        <LoadingLine />
+      </div>
+    );
+  }
   if (txns.error) return <p className="soft touched-empty">{txns.error}</p>;
 
   const data = txns.data;
-  if (data === null) return <p className="soft touched-empty">Loading…</p>;
+  if (data === null) {
+    return (
+      <div className="peek">
+        <LoadingLine />
+      </div>
+    );
+  }
 
   const rows = data.transactions;
   if (rows.length === 0 && offset === 0) {

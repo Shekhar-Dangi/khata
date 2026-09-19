@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { errorText, mutate } from "../shared/api";
 import { useFetch } from "../shared/useFetch";
+import LoadingLine from "../shared/LoadingLine";
 
 type Account = { id: number; name: string };
 type Keyword = {
@@ -33,7 +34,7 @@ export default function AccountIdentifiers({ onChanged }: { onChanged: () => voi
   const accounts = useFetch<{ accounts: Account[] }>("/accounts");
   const keywords = useFetch<{ keywords: Keyword[] }>("/keywords");
 
-  if (keywords.loading || accounts.loading) return <p className="soft">Loading…</p>;
+  if (keywords.loading || accounts.loading) return <LoadingLine />;
   if (keywords.error) return <p className="soft">{keywords.error}</p>;
 
   const all = keywords.data?.keywords ?? [];
