@@ -48,12 +48,29 @@ def _answer(payload: dict) -> int:
     return 0
 
 
-def _page_count(data: bytes) -> int | None:
-    """Pages, without decoding the document. None when it cannot be determined cheaply.
+#: A page with fewer extractable characters than this is treated as having no text layer. A
+#: scanned page often carries a few stray characters (a page number stamped by the scanner), so
+#: "any text at all" would call it readable and skip the OCR it needs.
+MIN_TEXT_CHARS_PER_PAGE = 20
 
-    Uses pdfplumber, which is already a dependency and already opens the file lazily — so the
-    page-count guard costs nothing even when docling would take thirty seconds. Checking the
-    limit BEFORE the expensive step is the same discipline extract.py already follows.
+
+def _inspect(data: bytes) -> tuple[int | None, bool]:
+    """(pages, needs_ocr), without running docling. (None, True) when it cannot be determined.
+
+    Uses pdfplumber, which is already a dependency and opens the file lazily, so these guards
+    cost milliseconds even when docling would take thirty seconds. Checking before the expensive
+    step is the same discipline extract.py already follows.
+
+    NEEDS OCR ONLY IF SOME PAGE HAS NO TEXT LAYER. Measured on four real invoices (2026-09-19):
+    OCR off converted in 10-36s per document, OCR on in 30-117s — about 3x slower — and the
+    markdown was identical apart from 23 characters read off the merchant's logo. A PDF that
+    already carries its text gains nothing from reading its own pixels. The spacing artefacts in
+    docling's output ("09 AAFCG 9846 E", "Lay ' s") were present with OCR OFF too, so they come
+    from the PDF parser and OCR does not fix them either.
+
+    ONE scanned page turns OCR on for the whole document. Correctness over speed: skipping OCR
+    on a mixed document would silently drop that page's line items, and a lost line item is
+    money in the wrong category.
     """
     try:
         import io
@@ -61,9 +78,17 @@ def _page_count(data: bytes) -> int | None:
         import pdfplumber
 
         with pdfplumber.open(io.BytesIO(data)) as pdf:
-            return len(pdf.pages)
-    except Exception:  # noqa: BLE001 — a count we could not take is not a failure to report
-        return None
+            pages = len(pdf.pages)
+            if pages > MAX_PAGES:
+                # The caller refuses this anyway. Do not read 200 pages' text to find out.
+                return pages, False
+            needs_ocr = any(
+                len((page.extract_text() or "").strip()) < MIN_TEXT_CHARS_PER_PAGE
+                for page in pdf.pages
+            )
+            return pages, needs_ocr
+    except Exception:  # noqa: BLE001 — unknown means be safe: let docling OCR it
+        return None, True
 
 
 def _is_model_fetch_failure(exc: BaseException, text: str) -> bool:
@@ -100,7 +125,7 @@ def main() -> int:
     if not data:
         return _answer({"ok": False, "kind": "empty", "error": "no bytes on stdin"})
 
-    pages = _page_count(data)
+    pages, needs_ocr = _inspect(data)
     if pages is not None and pages > MAX_PAGES:
         return _answer({
             "ok": False,
@@ -138,7 +163,15 @@ def main() -> int:
     try:
         import io
 
-        converter = DocumentConverter()
+        from docling.datamodel.base_models import InputFormat
+        from docling.datamodel.pipeline_options import PdfPipelineOptions
+        from docling.document_converter import PdfFormatOption
+
+        converter = DocumentConverter(format_options={
+            InputFormat.PDF: PdfFormatOption(
+                pipeline_options=PdfPipelineOptions(do_ocr=needs_ocr),
+            ),
+        })
         # `from_stream`-style input: the bytes never touch the filesystem. A temp file would
         # survive a rolled-back dry run, which is the same argument that put artifact bytes in
         # a BYTEA column rather than on disk.
