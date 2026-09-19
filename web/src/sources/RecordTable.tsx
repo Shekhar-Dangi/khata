@@ -53,12 +53,19 @@ export default function RecordTable({
   expandedId,
   onExpand,
   onChanged,
+  showCategory = true,
 }: {
   records: EvidenceRecord[];
   state: RecordState;
   expandedId: string | null;
   onExpand: (evidenceId: string | null) => void;
   onChanged: (activity: Activity) => void;
+  /**
+   * False for RECEIPTS. A receipt's categories belong to its products, one per line, filed on
+   * the Products page — the order itself has none, so the column was empty on every row
+   * (owner, 2026-09-19: "it makes no sense for it to be there").
+   */
+  showCategory?: boolean;
 }) {
   return (
     <table className="record-table">
@@ -67,7 +74,7 @@ export default function RecordTable({
             which makes every row in the table a different height. */}
         <col style={{ width: "108px" }} />
         <col />
-        <col style={{ width: "158px" }} />
+        {showCategory && <col style={{ width: "158px" }} />}
         <col style={{ width: "120px" }} />
         <col style={{ width: "192px" }} />
       </colgroup>
@@ -75,7 +82,7 @@ export default function RecordTable({
         <tr>
           <th>Date</th>
           <th>Record</th>
-          <th>Category</th>
+          {showCategory && <th>Category</th>}
           <th className="r">Amount</th>
           <th className="r">{state === "matched" ? "Paid by" : "Match"}</th>
         </tr>
@@ -88,6 +95,7 @@ export default function RecordTable({
             expanded={expandedId === r.evidenceId}
             onExpand={onExpand}
             onChanged={onChanged}
+            showCategory={showCategory}
           />
         ))}
       </tbody>
@@ -100,11 +108,13 @@ function Row({
   expanded,
   onExpand,
   onChanged,
+  showCategory,
 }: {
   record: EvidenceRecord;
   expanded: boolean;
   onExpand: (evidenceId: string | null) => void;
   onChanged: (activity: Activity) => void;
+  showCategory: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -211,9 +221,11 @@ function Row({
             anyone answers a catch-all by hand, and a column still reading "General" over a
             row now filed under Groceries would report finished work as outstanding. The
             source category is still on screen: the expanded panel names both. */}
-        <td className={record.needsCategory ? "flag" : "soft"}>
-          {record.needsCategory ? `${record.sourceCategory} — none` : (record.categoryName ?? record.sourceCategory)}
-        </td>
+        {showCategory && (
+          <td className={record.needsCategory ? "flag" : "soft"}>
+            {record.needsCategory ? `${record.sourceCategory} — none` : (record.categoryName ?? record.sourceCategory)}
+          </td>
+        )}
         <td className="mono r debit">{rupees(record.expectedPaise)}</td>
         <td className="r nowrap">
           <Verdict record={record} open={expanded} />
@@ -222,10 +234,11 @@ function Row({
 
       {expanded && (
         <tr className="txn-detail">
-          <td colSpan={5}>
+          <td colSpan={showCategory ? 5 : 4}>
             {record.state === "matched" ? (
               <Linked
                 record={record}
+                showCategory={showCategory}
                 onCategorise={(id, name) => void categorise(id, name)}
                 linked={record.linked}
                 busy={busy}
@@ -320,8 +333,10 @@ function Linked({
   onCategorise,
   onUnlink,
   onClose,
+  showCategory,
 }: {
   record: EvidenceRecord;
+  showCategory: boolean;
   linked: LinkedTransaction[];
   busy: boolean;
   error: string | null;
@@ -367,16 +382,18 @@ function Linked({
 
       {/* Between the rows and the actions: it is about the money in the table above, and it
           is a decision, so it sits with the decisions rather than under them. */}
-      <CategoryChoice
-        sourceCategory={record.sourceCategory}
-        categoryName={record.categoryName}
-        categoryId={record.categoryId}
-        canChoose={record.canChoose}
-        needsCategory={record.needsCategory}
-        sharePaise={record.expectedPaise}
-        busy={busy}
-        onSave={onCategorise}
-      />
+      {showCategory && (
+        <CategoryChoice
+          sourceCategory={record.sourceCategory}
+          categoryName={record.categoryName}
+          categoryId={record.categoryId}
+          canChoose={record.canChoose}
+          needsCategory={record.needsCategory}
+          sharePaise={record.expectedPaise}
+          busy={busy}
+          onSave={onCategorise}
+        />
+      )}
 
       <div className="editor-foot">
         <span className="soft linked-note">

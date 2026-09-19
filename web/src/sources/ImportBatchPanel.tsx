@@ -197,6 +197,7 @@ function Segment({
             setOpenId(null);
             onChanged(a);
           }}
+          showCategory={source === null}
         />
       </div>
 
