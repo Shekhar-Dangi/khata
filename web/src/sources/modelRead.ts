@@ -97,7 +97,10 @@ export function useParseProgress() {
     // six days of continuous reading — and a collision would cost one skipped refresh.
     revalidateOn: version * 100_000 + tick,
   });
-  const live = (progress.data?.batches ?? []).some((b) => !b.finished);
+  // Consented AND unfinished. An unconsented batch changes nothing between polls — the worker
+  // cannot claim it — so polling for it would be a request every five seconds for the life of
+  // the tab, which is the thing this gate exists to prevent.
+  const live = (progress.data?.batches ?? []).some((b) => !b.finished && b.consented);
 
   useEffect(() => {
     if (!live) return;

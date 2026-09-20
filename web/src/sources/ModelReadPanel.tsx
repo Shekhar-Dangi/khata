@@ -23,6 +23,13 @@ import { useReportActivity } from "./pageActivity";
 //             Nothing runs until a person presses the button: on a CPU this is minutes per
 //             document, and spending an hour of the machine because a file was dropped is the
 //             difference between a tool and a surprise.
+//   WAITING   queued, but the consent that starts it never reached the server. Rare, and it
+//             used to be a DEAD END: the batch counted as in flight, so the screen said
+//             "Reading 0 of 1" forever, the offer stayed hidden because something was
+//             "running", and the document could not be offered again because a job was
+//             outstanding on it. Nothing was running at all — the worker cannot see an
+//             unconsented batch. So it is its own state now, with the button that finishes
+//             what was started.
 //   READING   a batch in flight. Polled while it runs and never otherwise. Says WHICH document
 //             it is on, because a bar that sits still for four minutes reads as a hang.
 //   RESULT    a batch that finished in the last hour — how many landed in the inbox below, and
@@ -39,7 +46,11 @@ export default function ModelReadPanel() {
   const { version, bump } = useLedgerVersion();
   const { progress } = useParseProgress();
   const batches = progress.data?.batches ?? [];
-  const live = batches.filter((b) => !b.finished);
+  // CONSENTED is what makes a batch live. Unfinished alone is not: a batch whose consent never
+  // landed sits at zero forever, and counting it as in flight is what hid the only button that
+  // could move it.
+  const live = batches.filter((b) => !b.finished && b.consented);
+  const waiting = batches.filter((b) => !b.finished && !b.consented);
 
   // Candidates re-read whenever the ledger moves (an upload finishing, a batch advancing) AND
   // whenever the batch list changes shape — a document leaves the candidate set the moment it
@@ -79,7 +90,10 @@ export default function ModelReadPanel() {
         // file that arrived between the list and the click is not one of them.
         body: JSON.stringify({ artifact_ids: ids }),
       });
-      await mutate(`/evidence/llm-parse/${created.batch_id}/consent`, { method: "POST" });
+      // Retried across a restart, unlike the enqueue above: consent answers `already` rather
+      // than doing anything twice, and it is the half that must not be lost — a batch queued
+      // without it is work a person asked for that never runs.
+      await start(created.batch_id);
       // Wakes the progress poll (it listens to the ledger version) and re-reads the offer,
       // which must now be empty — everything it listed is queued.
       bump();
@@ -90,8 +104,27 @@ export default function ModelReadPanel() {
     }
   }
 
-  const showOffer = fresh.length > 0 && live.length === 0 && !snoozed;
-  if (live.length === 0 && finished.length === 0 && !showOffer && failedBefore.length === 0 && error === null) {
+  /** Finish what the button started: the consent that turns a queued batch into a running one. */
+  async function start(batchId: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      await mutate(`/evidence/llm-parse/${batchId}/consent`, { method: "POST" }, { idempotent: true });
+      bump();
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Offered only when nothing is queued: the waiting batch already holds the documents this
+  // would list, and offering them again would ask for work that is one button away.
+  const showOffer = fresh.length > 0 && live.length === 0 && waiting.length === 0 && !snoozed;
+  if (
+    live.length === 0 && waiting.length === 0 && finished.length === 0 &&
+    !showOffer && failedBefore.length === 0 && error === null
+  ) {
     return null;
   }
 
@@ -99,6 +132,15 @@ export default function ModelReadPanel() {
     <div className="model-read">
       {live.map((b) => (
         <Reading key={b.batchId} batch={b} />
+      ))}
+
+      {waiting.map((b) => (
+        <Waiting
+          key={b.batchId}
+          batch={b}
+          busy={busy}
+          onStart={() => void start(b.batchId)}
+        />
       ))}
 
       {finished.map((b) => (
@@ -178,7 +220,7 @@ function Offer({
         <b>{describeCandidates(fresh)}</b>
         <span className="soft">
           {" · no parser yet"}
-          {estimate !== null && ` · ${roughly(estimate)}`}
+          {estimate !== null && estimate > 0 && ` · ${roughly(estimate)}`}
         </span>
       </p>
 
@@ -204,6 +246,41 @@ function Offer({
         <summary>Which files</summary>
         <FileList files={fresh} />
       </details>
+    </div>
+  );
+}
+
+/**
+ * Queued, and nothing is running: the consent that starts a batch never reached the server.
+ *
+ * Drawn as the OFFER it really is, not as progress — the work has not begun, and a bar at zero
+ * would say it had. The count comes from the jobs rather than the batch's own `total`, because
+ * what is waiting is what was written, whatever the request asked for.
+ */
+function Waiting({ batch, busy, onStart }: { batch: Batch; busy: boolean; onStart: () => void }) {
+  const held = Math.max(batch.queued, 1);
+  return (
+    <div className="receipt upload">
+      <p className="up-line">
+        <b>{held === 1 ? "1 document is queued" : `${held} documents are queued`}</b>
+        <span className="soft">
+          {" · not started"}
+          {/* Zero means "nothing has been timed yet", not "no time at all". */}
+          {batch.estimate_seconds !== null && batch.estimate_seconds > 0 &&
+            ` · ${roughly(batch.estimate_seconds)}`}
+        </span>
+      </p>
+
+      <div className="preview-actions">
+        <button
+          className="btn"
+          disabled={busy}
+          title="Queued earlier, but the go-ahead never reached the server, so nothing ran."
+          onClick={onStart}
+        >
+          {busy ? "Starting…" : "Start reading"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -346,7 +423,9 @@ function FailureTable({ rows }: { rows: BatchFailure[] }) {
  */
 export function ReadingCount() {
   const { progress } = useParseProgress();
-  const live = (progress.data?.batches ?? []).filter((b) => !b.finished);
+  // Only what is actually being read: a queued-but-unstarted batch put "reading 0/1" on the tab
+  // of every screen, for a model that was never asked to read anything.
+  const live = (progress.data?.batches ?? []).filter((b) => !b.finished && b.consented);
   if (live.length === 0) return null;
   const finished = live.reduce((a, b) => a + b.done + b.failed, 0);
   const total = live.reduce((a, b) => a + b.total, 0);

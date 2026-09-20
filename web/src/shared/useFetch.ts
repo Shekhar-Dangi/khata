@@ -112,7 +112,7 @@ export function useFetch<T>(
  * landed in that window used to put "request failed: 502" on screen over data that was fine a
  * moment later, and only a manual refresh cleared it.
  */
-const RESTART_RETRY_MS = [300, 800, 1500];
+export const RESTART_RETRY_MS = [300, 800, 1500];
 
 /**
  * `fetch`, retried across an API restart — for READS only.
