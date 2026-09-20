@@ -23,9 +23,9 @@
 
 import { spawn } from "node:child_process";
 
-import { pythonBin, repoRoot } from "./pdf-extract.ts";
-import type { ErrorKind } from "./parse-queue-policy.ts";
-import { RECEIPT_LLM } from "./llm-config.ts";
+import { pythonBin, repoRoot } from "../pdf-extract.ts";
+import type { ErrorKind } from "./queue-policy.ts";
+import { RECEIPT_LLM } from "../../llm/config.ts";
 
 /**
  * How long docling may run before it is killed.

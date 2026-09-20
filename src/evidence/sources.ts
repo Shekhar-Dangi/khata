@@ -22,8 +22,8 @@
 
 import type { PoolClient } from "pg";
 
-import { type MatchSummary, matchSplitwiseEvidence } from "./evidence-detect.ts";
-import { matchReceiptEvidence } from "./staging.ts";
+import { type MatchSummary, matchSplitwiseEvidence } from "./detect.ts";
+import { matchReceiptEvidence } from "../receipts/staging.ts";
 
 export type EvidenceSource = {
   /** Matches `evidence.source_type`. */

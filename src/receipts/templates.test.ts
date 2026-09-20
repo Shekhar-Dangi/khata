@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
 
-import { detectReceiptTemplate } from "./receipt-templates.ts";
+import { detectReceiptTemplate } from "./templates.ts";
 
 // The fixtures are the REAL structure of the four sample invoices with the identity scrubbed
 // out (ingest/receipts/make_fixtures.py). Reading them here is the point of generating them:
@@ -12,7 +12,7 @@ import { detectReceiptTemplate } from "./receipt-templates.ts";
 type Fixture = { page_count: number; char_count: number; pages: { text: string }[] };
 
 function fixture(name: string): Fixture {
-  const file = path.resolve(import.meta.dirname, "fixtures", "receipts", `${name}.json`);
+  const file = path.resolve(import.meta.dirname, "..", "fixtures", "receipts", `${name}.json`);
   return JSON.parse(readFileSync(file, "utf8")) as Fixture;
 }
 

@@ -10,13 +10,13 @@
 
 import { readFileSync } from "node:fs";
 
-import { RECEIPT_LLM } from "../src/llm-config.ts";
-import { extractMarkdown } from "../src/markdown-extract.ts";
-import { extractPdf } from "../src/pdf-extract.ts";
-import { LlmParseFailure, readInvoice } from "../src/receipt-llm.ts";
-import { verify } from "../src/receipt-verify.ts";
-import { detectReceiptTemplate } from "../src/receipt-templates.ts";
-import { merchantSlug } from "../src/receipt-llm-job.ts";
+import { RECEIPT_LLM } from "../src/llm/config.ts";
+import { extractMarkdown } from "../src/receipts/model/markdown-extract.ts";
+import { extractPdf } from "../src/receipts/pdf-extract.ts";
+import { LlmParseFailure, readInvoice } from "../src/receipts/model/read.ts";
+import { verify } from "../src/receipts/model/verify.ts";
+import { detectReceiptTemplate } from "../src/receipts/templates.ts";
+import { merchantSlug } from "../src/receipts/model/job.ts";
 
 const path = process.argv.slice(2).find((a) => !a.startsWith("--"));
 if (!path) throw new Error("usage: check-llm-read.ts <invoice.pdf> [--pdfplumber]");

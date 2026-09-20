@@ -1,10 +1,10 @@
 import { Router } from "express";
 
-import { pool } from "./../db.ts";
-import { intParam, route } from "./../http.ts";
-import { isIsoDate, isSpendOnly, parseFilters, parsePaging } from "./../filters.ts";
-import { EXPLAINABLE_SPEND } from "./../spend.ts";
-import { CONSUMPTION_ROWS, type ConsumptionTerms, unaccounted } from "./../consumption.ts";
+import { pool } from "../db.ts";
+import { intParam, route } from "../http.ts";
+import { isIsoDate, isSpendOnly, parseFilters, parsePaging } from "../filters.ts";
+import { EXPLAINABLE_SPEND } from "../spend.ts";
+import { CONSUMPTION_ROWS, type ConsumptionTerms, unaccounted } from "../consumption.ts";
 
 const router = Router();
 export { router as reports };

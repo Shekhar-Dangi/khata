@@ -17,7 +17,7 @@
 import { pool } from "../src/db.ts";
 import {
   claimNext, complete, consent, enqueueBatch, fail, listActiveBatches, reclaimExpired,
-} from "../src/parse-queue.ts";
+} from "../src/receipts/model/queue.ts";
 
 const ok = (label: string, cond: boolean, extra = "") =>
   console.log(`${cond ? "PASS" : "FAIL"}  ${label}${extra ? "  — " + extra : ""}`);

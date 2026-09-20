@@ -18,13 +18,13 @@
 
 import type { PoolClient } from "pg";
 
-import type { ParsedLine, ParsedRecord } from "./pdf-extract.ts";
-import { ParseFailure } from "./parse-worker.ts";
-import type { ClaimedJob } from "./parse-queue.ts";
+import type { ParsedLine, ParsedRecord } from "../pdf-extract.ts";
+import { ParseFailure } from "./worker.ts";
+import type { ClaimedJob } from "./queue.ts";
 import { extractMarkdown } from "./markdown-extract.ts";
-import { LlmParseFailure, type LlmRecord, readInvoice } from "./receipt-llm.ts";
-import { detectReceiptTemplate } from "./receipt-templates.ts";
-import { verify } from "./receipt-verify.ts";
+import { LlmParseFailure, type LlmRecord, readInvoice } from "./read.ts";
+import { detectReceiptTemplate } from "../templates.ts";
+import { verify } from "./verify.ts";
 
 /**
  * Read one artifact with the model and stage the result.

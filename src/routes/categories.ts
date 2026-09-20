@@ -1,7 +1,7 @@
 import { Router } from "express";
 
-import { pool } from "./../db.ts";
-import { badRequest, conflict, intParam, isUniqueViolation, notFound, route, withTransaction } from "./../http.ts";
+import { pool } from "../db.ts";
+import { badRequest, conflict, intParam, isUniqueViolation, notFound, route, withTransaction } from "../http.ts";
 
 const router = Router();
 export { router as categories };

@@ -24,9 +24,9 @@
 
 import { createHash } from "node:crypto";
 
-import type { ErrorKind } from "./parse-queue-policy.ts";
-import { RECEIPT_LLM, type ReceiptLlmConfig, ollamaRequestBase } from "./llm-config.ts";
-import { diagnoseOllamaRefusal } from "./ollama.ts";
+import type { ErrorKind } from "./queue-policy.ts";
+import { RECEIPT_LLM, type ReceiptLlmConfig, ollamaRequestBase } from "../../llm/config.ts";
+import { diagnoseOllamaRefusal } from "../../llm/ollama.ts";
 
 /** Bump to discard every cached answer produced by an older prompt. Same rule as `llm.ts`. */
 export const RECEIPT_PROMPT_VERSION = "r1";

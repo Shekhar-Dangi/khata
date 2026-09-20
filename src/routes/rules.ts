@@ -1,13 +1,13 @@
 import { Router } from "express";
 
-import { pool } from "./../db.ts";
-import { badRequest, conflict, intParam, isUniqueViolation, notFound, route, withTransaction } from "./../http.ts";
-import { accountExists } from "./../accounts.ts";
-import { EXPLAINABLE_SPEND } from "./../spend.ts";
-import { applyRules } from "./../rules-apply.ts";
-import { mineCandidates } from "./../mining.ts";
-import type { MineableTxn } from "./../mining.ts";
-import { isIsoDate } from "./../filters.ts";
+import { pool } from "../db.ts";
+import { badRequest, conflict, intParam, isUniqueViolation, notFound, route, withTransaction } from "../http.ts";
+import { accountExists } from "../accounts.ts";
+import { EXPLAINABLE_SPEND } from "../spend.ts";
+import { applyRules } from "../rules/apply.ts";
+import { mineCandidates } from "../rules/mining.ts";
+import type { MineableTxn } from "../rules/mining.ts";
+import { isIsoDate } from "../filters.ts";
 import {
   MATCH_MODES,
   OPS_BY_FIELD,
@@ -17,7 +17,7 @@ import {
   isRuleField,
   isRuleOp,
   matches,
-} from "./../rules.ts";
+} from "../rules/rules.ts";
 
 const router = Router();
 export { router as rules };

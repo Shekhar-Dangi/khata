@@ -10,7 +10,7 @@ import type { PoolClient } from "pg";
 
 import { setParseStatus } from "./artifacts.ts";
 import { type ParsedRecord, extractPdf } from "./pdf-extract.ts";
-import { PARSERS_AVAILABLE, type ReceiptTemplate, detectReceiptTemplate } from "./receipt-templates.ts";
+import { PARSERS_AVAILABLE, type ReceiptTemplate, detectReceiptTemplate } from "./templates.ts";
 
 /**
  * How a template is named to a person. Separate from the internal id because "a amazon

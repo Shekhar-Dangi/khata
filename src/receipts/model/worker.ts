@@ -14,7 +14,7 @@
 
 import type { PoolClient } from "pg";
 
-import { pool } from "./db.ts";
+import { pool } from "../../db.ts";
 import {
   type ClaimedJob,
   LEASE_MS,
@@ -22,8 +22,8 @@ import {
   complete,
   fail,
   reclaimExpired,
-} from "./parse-queue.ts";
-import { type ErrorKind, isErrorKind } from "./parse-queue-policy.ts";
+} from "./queue.ts";
+import { type ErrorKind, isErrorKind } from "./queue-policy.ts";
 
 /** Quiet-queue poll interval. Short enough to feel immediate, long enough to be invisible. */
 const IDLE_POLL_MS = 2_000;

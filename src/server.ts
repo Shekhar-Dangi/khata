@@ -2,8 +2,8 @@ import express from "express";
 import path from "node:path";
 
 import { errorHandler, notFoundHandler } from "./http.ts";
-import { startWorker } from "./parse-worker.ts";
-import { runLlmReceiptJob } from "./receipt-llm-job.ts";
+import { startWorker } from "./receipts/model/worker.ts";
+import { runLlmReceiptJob } from "./receipts/model/job.ts";
 import { accounts } from "./routes/accounts.ts";
 import { categories } from "./routes/categories.ts";
 import { evidence } from "./routes/evidence.ts";

@@ -5,7 +5,7 @@
 // receipt-llm.ts), and two copies of "what does a 500 from Ollama mean" is how one of them comes
 // to say "the model answered 500" while the other says "lower the window".
 
-import type { LlmProfile } from "./llm-config.ts";
+import type { LlmProfile } from "./config.ts";
 
 export type OllamaDiagnosis = {
   /**

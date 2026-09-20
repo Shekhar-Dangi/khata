@@ -6,7 +6,7 @@
 // confirmed receipt that is already matched, and changes nothing that survives the run.
 
 import { pool } from "../src/db.ts";
-import { linkReceipt, listReceiptRecords, unlinkReceipt } from "../src/receipt-records.ts";
+import { linkReceipt, listReceiptRecords, unlinkReceipt } from "../src/receipts/records.ts";
 
 const ok = (label: string, cond: boolean, extra = "") =>
   console.log(`${cond ? "PASS" : "FAIL"}  ${label}${extra ? "  — " + extra : ""}`);

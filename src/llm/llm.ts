@@ -22,7 +22,7 @@
 
 import { createHash } from "node:crypto";
 
-import { CATEGORY_LLM, ollamaRequestBase } from "./llm-config.ts";
+import { CATEGORY_LLM, ollamaRequestBase } from "./config.ts";
 import { diagnoseOllamaRefusal } from "./ollama.ts";
 
 // The model, host, timeout, thinking flag and every Ollama option come from the CATEGORY_LLM_*

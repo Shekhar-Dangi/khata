@@ -30,7 +30,7 @@
 
 import type { PoolClient } from "pg";
 
-import { EXPLAINABLE_SPEND } from "./spend.ts";
+import { EXPLAINABLE_SPEND } from "../spend.ts";
 import { decideAllocation, sameAllocation } from "./rules.ts";
 import type { ApplicableRule } from "./rules.ts";
 

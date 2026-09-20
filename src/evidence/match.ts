@@ -17,7 +17,7 @@
 // rather than broken by a tiebreak.
 
 import { narrationIdentifies } from "./merchants.ts";
-import { dayGap } from "./transfers.ts";
+import { dayGap } from "../transfers/transfers.ts";
 
 /** A bank row a match could land on. Mirrors the columns the DB half selects. */
 export type Candidate = {

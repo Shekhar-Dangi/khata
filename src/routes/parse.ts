@@ -10,11 +10,11 @@
 
 import { Router } from "express";
 
-import { pool } from "./../db.ts";
-import { badRequest, intParam, notFound, route, withTransaction } from "./../http.ts";
-import { consent, enqueueBatch, listActiveBatches } from "./../parse-queue.ts";
-import { explain, isErrorKind } from "./../parse-queue-policy.ts";
-import { RECEIPT_LLM } from "./../llm-config.ts";
+import { pool } from "../db.ts";
+import { badRequest, intParam, notFound, route, withTransaction } from "../http.ts";
+import { consent, enqueueBatch, listActiveBatches } from "../receipts/model/queue.ts";
+import { explain, isErrorKind } from "../receipts/model/queue-policy.ts";
+import { RECEIPT_LLM } from "../llm/config.ts";
 
 const router = Router();
 export { router as parse };

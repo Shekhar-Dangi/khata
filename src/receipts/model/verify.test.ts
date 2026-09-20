@@ -1,8 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import type { LlmRecord } from "./receipt-llm.ts";
-import { COVERAGE_FLOOR, coverageOf, verify } from "./receipt-verify.ts";
+import type { LlmRecord } from "./read.ts";
+import { COVERAGE_FLOOR, coverageOf, verify } from "./verify.ts";
 
 // A document that says what the record below claims. Amounts printed as they would be.
 const DOC = `
@@ -186,8 +186,8 @@ describe("coverage", () => {
   });
 });
 
-import { merchantSlug } from "./receipt-llm-job.ts";
-import { detectReceiptTemplate } from "./receipt-templates.ts";
+import { merchantSlug } from "./job.ts";
+import { detectReceiptTemplate } from "../templates.ts";
 
 describe("which merchant a model-read document belongs to", () => {
   it("is the template's key when a template recognises the document", () => {

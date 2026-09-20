@@ -8,9 +8,9 @@ import {
   type ReceiptLlmConfig,
   ollamaRequestBase,
   parseLlmConfig,
-} from "./llm-config.ts";
+} from "./config.ts";
 import { diagnoseOllamaRefusal } from "./ollama.ts";
-import { buildRequest, classifyHttpFailure } from "./receipt-llm.ts";
+import { buildRequest, classifyHttpFailure } from "../receipts/model/read.ts";
 
 const parsed = (env: Record<string, string>) => {
   const r = parseLlmConfig(env);

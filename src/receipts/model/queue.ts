@@ -12,8 +12,8 @@
 
 import type { PoolClient } from "pg";
 
-import { pool } from "./db.ts";
-import { type ErrorKind, isTransient } from "./parse-queue-policy.ts";
+import { pool } from "../../db.ts";
+import { type ErrorKind, isTransient } from "./queue-policy.ts";
 
 /** How long a worker may hold a job before another may take it. See `reclaimExpired`. */
 export const LEASE_MS = 5 * 60_000;

@@ -6,10 +6,10 @@ import {
   listReceiptImports,
   listReceiptRecords,
   unlinkReceipt,
-} from "./../receipt-records.ts";
+} from "../receipts/records.ts";
 
-import { pool } from "./../db.ts";
-import { badRequest, intParam, route, withTransaction } from "./../http.ts";
+import { pool } from "../db.ts";
+import { badRequest, intParam, route, withTransaction } from "../http.ts";
 import {
   type RecordState,
   categoriseEvidence,
@@ -21,8 +21,8 @@ import {
   matchSplitwiseEvidence,
   rederiveEvidence,
   unlinkEvidence,
-} from "./../evidence-detect.ts";
-import { detectSource, importEvidenceFile } from "./../evidence-import.ts";
+} from "../evidence/detect.ts";
+import { detectSource, importEvidenceFile } from "../evidence/import.ts";
 import {
   type ParseStatus,
   type StoredArtifact,
@@ -31,19 +31,19 @@ import {
   setParseStatus,
   sniffMime,
   storeArtifact,
-} from "./../artifacts.ts";
-import { isKnownSource, rematchEvidence } from "./../evidence-sources.ts";
-import { intakePdf } from "./../receipt-intake.ts";
+} from "../receipts/artifacts.ts";
+import { isKnownSource, rematchEvidence } from "../evidence/sources.ts";
+import { intakePdf } from "../receipts/intake.ts";
 import {
   type ConfirmOverride, type ConfirmResult, confirmOne, listStaged, listStagedItems,
-} from "./../staging.ts";
+} from "../receipts/staging.ts";
 import {
   evidenceNeedingRederive,
   listSourceCategories,
   remapSourceCategory,
-} from "./../source-categories.ts";
-import { normaliseGroup } from "./../splitwise-plan.ts";
-import { parsePaging } from "./../filters.ts";
+} from "../splitwise/source-categories.ts";
+import { normaliseGroup } from "../splitwise/plan.ts";
+import { parsePaging } from "../filters.ts";
 
 const router = Router();
 export { router as evidence };

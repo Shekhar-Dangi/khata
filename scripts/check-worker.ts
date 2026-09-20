@@ -7,8 +7,8 @@
 // touches ONLY parse_batches / parse_jobs — never an artifact, never the ledger.
 
 import { pool } from "../src/db.ts";
-import { consent, enqueueBatch, listActiveBatches } from "../src/parse-queue.ts";
-import { ParseFailure, startWorker } from "../src/parse-worker.ts";
+import { consent, enqueueBatch, listActiveBatches } from "../src/receipts/model/queue.ts";
+import { ParseFailure, startWorker } from "../src/receipts/model/worker.ts";
 
 const ok = (label: string, cond: boolean, extra = "") =>
   console.log(`${cond ? "PASS" : "FAIL"}  ${label}${extra ? "  — " + extra : ""}`);

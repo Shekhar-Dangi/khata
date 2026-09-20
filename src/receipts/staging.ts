@@ -8,11 +8,11 @@
 
 import type { PoolClient } from "pg";
 
-import { type Candidate, matchToTransaction } from "./evidence-match.ts";
-import type { MatchSummary } from "./evidence-detect.ts";
-import { canonicalName } from "./items.ts";
-import { itemSummary, previewLine, resolveAndRecord } from "./items-store.ts";
-import { rederiveAndBackfill } from "./line-allocations.ts";
+import { type Candidate, matchToTransaction } from "../evidence/match.ts";
+import type { MatchSummary } from "../evidence/detect.ts";
+import { canonicalName } from "../items/items.ts";
+import { itemSummary, previewLine, resolveAndRecord } from "../items/store.ts";
+import { rederiveAndBackfill } from "../evidence/line-allocations.ts";
 import type { ParsedLine, ParsedRecord } from "./pdf-extract.ts";
 
 export type LineResolutionView = {

@@ -28,8 +28,8 @@
 
 import type { PoolClient } from "pg";
 
-import { type ExistingAllocation, resolvePrecedence } from "./evidence-match.ts";
-import { applyRules } from "./rules-apply.ts";
+import { type ExistingAllocation, resolvePrecedence } from "./match.ts";
+import { applyRules } from "../rules/apply.ts";
 
 /** What one re-derivation did, so a route can say it rather than leaving it to be guessed. */
 export type DeriveResult = {

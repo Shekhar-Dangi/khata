@@ -12,8 +12,8 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import { pool } from "../src/db.ts";
-import { parseSplitwiseExport } from "../src/splitwise.ts";
-import { type CategoryMap, planImport } from "../src/splitwise-plan.ts";
+import { parseSplitwiseExport } from "../src/splitwise/splitwise.ts";
+import { type CategoryMap, planImport } from "../src/splitwise/plan.ts";
 
 const SOURCE = "splitwise";
 

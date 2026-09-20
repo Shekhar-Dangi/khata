@@ -26,7 +26,7 @@ import {
   matchToTransaction,
   nearMisses,
   resolvePrecedence,
-} from "./evidence-match.ts";
+} from "../evidence/match.ts";
 import type {
   EvidenceRecord,
   ImportBatch,
@@ -34,11 +34,11 @@ import type {
   LinkedTransaction,
   RecordState,
   UnlinkResult,
-} from "./evidence-detect.ts";
-import { rederiveAndBackfill } from "./line-allocations.ts";
-import { applyRules } from "./rules-apply.ts";
+} from "../evidence/detect.ts";
+import { rederiveAndBackfill } from "../evidence/line-allocations.ts";
+import { applyRules } from "../rules/apply.ts";
 import { loadCandidates } from "./staging.ts";
-import { dayGap } from "./transfers.ts";
+import { dayGap } from "../transfers/transfers.ts";
 
 /**
  * The one source that is NOT a receipt. Every other source_type in `evidence` is an order — a

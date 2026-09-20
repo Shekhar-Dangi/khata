@@ -10,8 +10,8 @@
 // compares the ANSWER against the DOCUMENT, and what comes out is a named reason a person can
 // act on rather than a number nobody can interpret.
 
-import type { ErrorKind } from "./parse-queue-policy.ts";
-import type { LlmRecord } from "./receipt-llm.ts";
+import type { ErrorKind } from "./queue-policy.ts";
+import type { LlmRecord } from "./read.ts";
 
 export type Verdict =
   | { ok: true; warnings: string[] }

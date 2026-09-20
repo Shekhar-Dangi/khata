@@ -20,9 +20,9 @@ import {
   nearMisses,
   resolvePrecedence,
   splitProportionally,
-} from "./evidence-match.ts";
-import { dayGap } from "./transfers.ts";
-import { applyRules } from "./rules-apply.ts";
+} from "./match.ts";
+import { dayGap } from "../transfers/transfers.ts";
+import { applyRules } from "../rules/apply.ts";
 
 const SOURCE = "splitwise";
 

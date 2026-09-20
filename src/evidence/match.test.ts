@@ -12,7 +12,7 @@ import {
   nearMisses,
   resolvePrecedence,
   splitProportionally,
-} from "./evidence-match.ts";
+} from "./match.ts";
 
 const txn = (id: string, txn_date: string, amount_paise: number, narration = ""): Candidate =>
   ({ id, txn_date, amount_paise, narration });

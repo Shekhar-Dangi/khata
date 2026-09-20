@@ -130,8 +130,8 @@ export function pythonBin(): string {
 }
 
 export function repoRoot(): string {
-  // src/ -> the repo. The child must run from here for `-m ingest.receipts.cli` to resolve.
-  return path.resolve(import.meta.dirname, "..");
+  // src/receipts/ -> the repo. The child must run from here for `-m ingest.receipts.cli` to resolve.
+  return path.resolve(import.meta.dirname, "../..");
 }
 
 /**

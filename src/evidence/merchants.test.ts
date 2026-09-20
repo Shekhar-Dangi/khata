@@ -1,7 +1,7 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 
-import { type Candidate, matchToTransaction, nearMisses } from "./evidence-match.ts";
+import { type Candidate, matchToTransaction, nearMisses } from "./match.ts";
 import { normaliseNarration, narrationIdentifies } from "./merchants.ts";
 
 // Narration shapes below are the REAL formats in the ledger with the digits changed. All 11

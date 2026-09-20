@@ -7,7 +7,7 @@
 // first could not.
 
 import { pool } from "../src/db.ts";
-import { matchSplitwiseEvidence } from "../src/evidence-detect.ts";
+import { matchSplitwiseEvidence } from "../src/evidence/detect.ts";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);

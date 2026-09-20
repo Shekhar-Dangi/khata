@@ -1,10 +1,10 @@
 import { Router } from "express";
 
-import { pool } from "./../db.ts";
-import { HttpError, intParam, notFound, route, withTransaction } from "./../http.ts";
-import { accountExists, transactionHash } from "./../accounts.ts";
-import { reconcileAccount } from "./../reconcile.ts";
-import { ALLOWED_TYPES } from "./../spend.ts";
+import { pool } from "../db.ts";
+import { HttpError, intParam, notFound, route, withTransaction } from "../http.ts";
+import { accountExists, transactionHash } from "../accounts.ts";
+import { reconcileAccount } from "../transfers/reconcile.ts";
+import { ALLOWED_TYPES } from "../spend.ts";
 
 const router = Router();
 export { router as accounts };

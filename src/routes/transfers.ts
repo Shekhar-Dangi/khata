@@ -1,11 +1,11 @@
 import { Router } from "express";
 
-import { pool } from "./../db.ts";
-import { intParam, notFound, route, withTransaction } from "./../http.ts";
-import { accountExists } from "./../accounts.ts";
-import { detectTransfers } from "./../detect.ts";
-import { parsePaging } from "./../filters.ts";
-import { KEYWORD_KINDS, TRANSFER_STATUSES } from "./../spend.ts";
+import { pool } from "../db.ts";
+import { intParam, notFound, route, withTransaction } from "../http.ts";
+import { accountExists } from "../accounts.ts";
+import { detectTransfers } from "../transfers/detect.ts";
+import { parsePaging } from "../filters.ts";
+import { KEYWORD_KINDS, TRANSFER_STATUSES } from "../spend.ts";
 
 const router = Router();
 export { router as transfers };

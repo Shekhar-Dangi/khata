@@ -1,4 +1,4 @@
-import { pool } from "./db.ts";
+import { pool } from "../db.ts";
 
 // A single balance disagreement: what our ledger computed vs what the bank stated.
 // `transaction_id` stays a STRING — it is a BIGINT, and Number() would silently lose

@@ -1,9 +1,9 @@
 import { Router } from "express";
 
-import { pool } from "./../db.ts";
-import { parsePaging } from "./../filters.ts";
-import { emptyResult, rederiveForItems } from "./../line-allocations.ts";
-import { badRequest, intParam, notFound, route, withTransaction } from "./../http.ts";
+import { pool } from "../db.ts";
+import { parsePaging } from "../filters.ts";
+import { emptyResult, rederiveForItems } from "../evidence/line-allocations.ts";
+import { badRequest, intParam, notFound, route, withTransaction } from "../http.ts";
 import {
   getItem,
   getProposal,
@@ -15,7 +15,7 @@ import {
   resolveAndRecord,
   setCategoryForMany,
   setItemCategory,
-} from "./../items-store.ts";
+} from "../items/store.ts";
 
 const router = Router();
 export { router as items };

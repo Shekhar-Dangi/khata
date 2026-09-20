@@ -83,7 +83,7 @@ var notFoundHandler = (_req, res) => {
   res.status(404).json({ error: "not found" });
 };
 
-// src/parse-queue-policy.ts
+// src/receipts/model/queue-policy.ts
 var ERROR_KINDS = [
   // -- reading the file at all
   "empty",
@@ -221,7 +221,7 @@ function explain(kind) {
   }
 }
 
-// src/parse-queue.ts
+// src/receipts/model/queue.ts
 var LEASE_MS = 5 * 6e4;
 var MAX_ATTEMPTS = 3;
 async function enqueueBatch(client, kind, artifactIds) {
@@ -379,7 +379,7 @@ async function listActiveBatches(limit = 10) {
   }));
 }
 
-// src/parse-worker.ts
+// src/receipts/model/worker.ts
 var IDLE_POLL_MS = 2e3;
 var HEARTBEAT_MS = Math.floor(LEASE_MS / 3);
 var ParseFailure = class extends Error {
@@ -486,10 +486,10 @@ async function withClient(fn) {
   }
 }
 
-// src/markdown-extract.ts
+// src/receipts/model/markdown-extract.ts
 import { spawn as spawn2 } from "node:child_process";
 
-// src/pdf-extract.ts
+// src/receipts/pdf-extract.ts
 import { spawn } from "node:child_process";
 import path from "node:path";
 var EXTRACT_TIMEOUT_MS = 2e4;
@@ -500,7 +500,7 @@ function pythonBin() {
   return process.platform === "win32" ? path.join(root, "ingest", ".venv", "Scripts", "python.exe") : path.join(root, "ingest", ".venv", "bin", "python");
 }
 function repoRoot() {
-  return path.resolve(import.meta.dirname, "..");
+  return path.resolve(import.meta.dirname, "../..");
 }
 function extractPdf(bytes, timeoutMs = EXTRACT_TIMEOUT_MS) {
   return new Promise((resolve) => {
@@ -595,7 +595,7 @@ function extractPdf(bytes, timeoutMs = EXTRACT_TIMEOUT_MS) {
   });
 }
 
-// src/llm-config.ts
+// src/llm/config.ts
 var CHARS_PER_TOKEN = 2.9;
 var PROMPT_OVERHEAD_TOKENS = 300;
 var MIN_MARKDOWN_CHARS = 2e3;
@@ -761,7 +761,7 @@ function ollamaRequestBase(p) {
   return body;
 }
 
-// src/markdown-extract.ts
+// src/receipts/model/markdown-extract.ts
 var EXTRACT_MARKDOWN_TIMEOUT_MS = RECEIPT_LLM.extractTimeoutMs;
 var MAX_OUTPUT_BYTES2 = 8 * 1024 * 1024;
 var PYTHON_KINDS = /* @__PURE__ */ new Set([
@@ -869,10 +869,10 @@ function extractMarkdown(bytes, timeoutMs = EXTRACT_MARKDOWN_TIMEOUT_MS) {
   });
 }
 
-// src/receipt-llm.ts
+// src/receipts/model/read.ts
 import { createHash } from "node:crypto";
 
-// src/ollama.ts
+// src/llm/ollama.ts
 function diagnoseOllamaRefusal(status, body, p) {
   if (status === 404 || /model ['"]?[^'"]*['"]? not found/i.test(body)) {
     return {
@@ -899,7 +899,7 @@ function diagnoseOllamaRefusal(status, body, p) {
   };
 }
 
-// src/receipt-llm.ts
+// src/receipts/model/read.ts
 var RECEIPT_PROMPT_VERSION = "r1";
 var SCHEMA = {
   type: "object",
@@ -1090,7 +1090,7 @@ function coerce(value) {
   };
 }
 
-// src/receipt-templates.ts
+// src/receipts/templates.ts
 var SIGNATURES = [
   {
     template: "blinkit",
@@ -1128,7 +1128,7 @@ var PARSERS_AVAILABLE = {
   amazon: true
 };
 
-// src/receipt-verify.ts
+// src/receipts/model/verify.ts
 var COVERAGE_FLOOR = 0.3;
 function normalise(s) {
   return s.toLowerCase().replace(/[​-‍﻿]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
@@ -1213,7 +1213,7 @@ function paise(n) {
   return "Rs " + (n / 100).toFixed(2);
 }
 
-// src/receipt-llm-job.ts
+// src/receipts/model/job.ts
 async function runLlmReceiptJob(client, job) {
   const row = await client.query(
     "SELECT bytes, mime, parse_status FROM artifacts WHERE id = $1",
@@ -1321,7 +1321,7 @@ function transactionHash(accountId, t) {
   return createHash2("sha256").update(key2).digest("hex");
 }
 
-// src/reconcile.ts
+// src/transfers/reconcile.ts
 async function fetchTransactionsByAccount(accountId) {
   return pool.query(
     "SELECT * FROM transactions WHERE account_id = $1 ORDER BY txn_date, statement_id, statement_seq",
@@ -1796,7 +1796,7 @@ router2.delete("/categories/:id", route(async (req, res) => {
 // src/routes/evidence.ts
 import { Router as Router3 } from "express";
 
-// src/merchants.ts
+// src/evidence/merchants.ts
 function normaliseNarration(narration) {
   if (narration === null) return "";
   return narration.replace(/[​-‍﻿]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
@@ -1818,7 +1818,7 @@ function narrationIdentifies(narration, sourceType) {
   return tokens.some((t) => text.includes(t));
 }
 
-// src/transfers.ts
+// src/transfers/transfers.ts
 var REFERENCE_RE = /(?<![0-9A-Za-z])[0-9]{12}(?![0-9A-Za-z])/g;
 function extractReferences(narration) {
   if (narration === null) return [];
@@ -1853,7 +1853,7 @@ function indexByReference(rows) {
   return index;
 }
 
-// src/evidence-match.ts
+// src/evidence/match.ts
 var DEFAULT_WINDOW_DAYS = 3;
 function matchToTransaction(request, candidates, windowDays = DEFAULT_WINDOW_DAYS) {
   const hits = candidates.filter(
@@ -1940,7 +1940,7 @@ function expectedCash(kind, costPaise, netPaise) {
   return -costPaise;
 }
 
-// src/rules.ts
+// src/rules/rules.ts
 var RULE_FIELDS = ["narration", "amount_paise", "txn_date"];
 var RULE_OPS = ["contains", "equals", "lt", "gt"];
 var MATCH_MODES = ["all", "any"];
@@ -2070,7 +2070,7 @@ function sameAllocation(existing, desired) {
   return existing.category_id === desired.category_id && existing.amount_paise === desired.amount_paise && existing.rule_id === desired.rule_id && existing.confidence === desired.confidence;
 }
 
-// src/rules-apply.ts
+// src/rules/apply.ts
 async function applyRules(client, accountId, transactionIds = null) {
   const ruleResult = await client.query(
     `SELECT id, conditions, match_mode, category_id, priority, enabled
@@ -2187,7 +2187,7 @@ async function applyRules(client, accountId, transactionIds = null) {
   };
 }
 
-// src/line-allocations.ts
+// src/evidence/line-allocations.ts
 async function deriveForEvidence(client, evidenceId) {
   const none = {
     orders: 0,
@@ -2342,7 +2342,7 @@ async function collectTransactionIds(client, evidenceId) {
   return linked.rows.map((r) => r.transaction_id);
 }
 
-// src/items.ts
+// src/items/items.ts
 function stripMerchantNoise(description) {
   return description.replace(/\r/g, "").replace(/\bHSN\s*[:\-]\s*\d{4,8}\b/gi, " ").replace(/\(\s*HSN[-:\s]*\d{4,8}\s*\)/gi, " ").replace(/\|\s*B0[A-Z0-9]{8}\s*\(?[^)]*\)?\s*$/i, " ").replace(/\bB0[A-Z0-9]{8}\b/g, " ").replace(/\(\s*\)/g, " ").replace(/\s+/g, " ").trim();
 }
@@ -2428,7 +2428,7 @@ function resolveLine(aliasHit, candidates, canon) {
   };
 }
 
-// src/items-store.ts
+// src/items/store.ts
 var CANDIDATE_LIMIT = 5;
 async function findAlias(client, line, canon) {
   if (line.sku?.value) {
@@ -2756,7 +2756,7 @@ async function itemStats(client) {
   };
 }
 
-// src/staging.ts
+// src/receipts/staging.ts
 async function loadCandidates(client) {
   const rows = await client.query(
     `SELECT t.id, t.txn_date::text, t.amount_paise, t.narration, acc.name AS account_name
@@ -3175,7 +3175,7 @@ async function matchReceiptEvidence(client, sourceType) {
   return summary;
 }
 
-// src/receipt-records.ts
+// src/receipts/records.ts
 var SPLITWISE = "splitwise";
 async function isReceipt(client, evidenceId) {
   const r = await client.query(
@@ -3402,7 +3402,7 @@ async function unlinkReceipt(client, evidenceId) {
   };
 }
 
-// src/evidence-detect.ts
+// src/evidence/detect.ts
 var SOURCE = "splitwise";
 var EVIDENCE_COLUMNS = `id, external_ref, description, evidence_date::text, amount_paise, payload`;
 var UNLINKED = `NOT EXISTS (
@@ -3916,7 +3916,7 @@ async function rederiveEvidence(client, evidenceId, me) {
   };
 }
 
-// src/splitwise.ts
+// src/splitwise/splitwise.ts
 var FIXED_COLUMNS = ["Date", "Description", "Category", "Cost", "Currency"];
 var PERSON_COLUMN_START = FIXED_COLUMNS.length;
 var PAYMENT_CATEGORY = "payment";
@@ -4115,7 +4115,7 @@ function parseSplitwiseExport(csv, me) {
   return { ok: true, data: { people, rows, balances, warnings } };
 }
 
-// src/splitwise-plan.ts
+// src/splitwise/plan.ts
 var MAX_GROUP_LENGTH = 64;
 function normaliseGroup(raw) {
   const cleaned = raw.normalize("NFC").replace(new RegExp("\\p{Cc}", "gu"), "").replace(/\|/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
@@ -4195,7 +4195,7 @@ function planImport(rows, group, map) {
   return plan;
 }
 
-// src/evidence-import.ts
+// src/evidence/import.ts
 var SOURCE2 = "splitwise";
 function detectSource(text) {
   const firstLine = text.replace(/^﻿/, "").split(/\r?\n/, 1)[0] ?? "";
@@ -4277,7 +4277,7 @@ async function importEvidenceFile(client, text, opts) {
   };
 }
 
-// src/artifacts.ts
+// src/receipts/artifacts.ts
 import { createHash as createHash3 } from "node:crypto";
 function sha256Hex(bytes) {
   return createHash3("sha256").update(bytes).digest("hex");
@@ -4367,7 +4367,7 @@ async function listArtifacts(client, opts) {
   return { rows: rows.rows, total: Number(total.rows[0].count) };
 }
 
-// src/evidence-sources.ts
+// src/evidence/sources.ts
 var splitwise = {
   sourceType: "splitwise",
   label: "Splitwise",
@@ -4407,7 +4407,7 @@ function isKnownSource(sourceType) {
   return EVIDENCE_SOURCES.some((s) => s.sourceType === sourceType);
 }
 
-// src/receipt-intake.ts
+// src/receipts/intake.ts
 var LABELS = {
   blinkit: "a Blinkit invoice",
   amazon: "an Amazon invoice"
@@ -4501,7 +4501,7 @@ async function stageRecord(client, artifactId, template, record) {
   );
 }
 
-// src/source-categories.ts
+// src/splitwise/source-categories.ts
 var SOURCE3 = "splitwise";
 async function listSourceCategories(client, me) {
   const result = await client.query(
@@ -5943,7 +5943,7 @@ function consumptionFilters(query) {
 // src/routes/rules.ts
 import { Router as Router7 } from "express";
 
-// src/mining.ts
+// src/rules/mining.ts
 var STOPWORDS = /* @__PURE__ */ new Set([
   "upi",
   "imps",
@@ -6462,7 +6462,7 @@ router7.post("/rules/preview", route(async (req, res) => {
 // src/routes/transactions.ts
 import { Router as Router8 } from "express";
 
-// src/llm.ts
+// src/llm/llm.ts
 import { createHash as createHash4 } from "node:crypto";
 var LLM_MODEL = CATEGORY_LLM.model;
 var PROMPT_VERSION = "v2";
@@ -6821,7 +6821,7 @@ router8.post("/transactions/confirm", route(async (req, res) => {
 // src/routes/transfers.ts
 import { Router as Router9 } from "express";
 
-// src/detect.ts
+// src/transfers/detect.ts
 var TRANSFER_WINDOW_DAYS = 2;
 var noCounts = () => ({
   resolved: 0,

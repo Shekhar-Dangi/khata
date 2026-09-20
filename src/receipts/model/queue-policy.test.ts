@@ -11,7 +11,7 @@ import {
   isSettled,
   isTransient,
   retryPolicy,
-} from "./parse-queue-policy.ts";
+} from "./queue-policy.ts";
 
 const counts = (o: Partial<Counts>): Counts => ({
   total: 0, queued: 0, running: 0, done: 0, failed: 0, ...o,

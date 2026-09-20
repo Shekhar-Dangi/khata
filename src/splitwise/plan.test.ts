@@ -10,10 +10,10 @@ import {
   externalRef,
   normaliseGroup,
   planImport,
-} from "./splitwise-plan.ts";
+} from "./plan.ts";
 
 const FIXTURE = readFileSync(
-  path.join(import.meta.dirname, "fixtures", "splitwise-sample.csv"),
+  path.join(import.meta.dirname, "..", "fixtures", "splitwise-sample.csv"),
   "utf8",
 );
 const ME = "Test User Three";

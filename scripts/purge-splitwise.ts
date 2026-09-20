@@ -7,7 +7,7 @@
 // allocation a human made.
 
 import { pool } from "../src/db.ts";
-import { normaliseGroup } from "../src/splitwise-plan.ts";
+import { normaliseGroup } from "../src/splitwise/plan.ts";
 
 const SOURCE = "splitwise";
 

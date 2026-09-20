@@ -7,8 +7,8 @@
 
 import type { PoolClient } from "pg";
 
-import { parseSplitwiseExport } from "./splitwise.ts";
-import { type CategoryMap, planImport } from "./splitwise-plan.ts";
+import { parseSplitwiseExport } from "../splitwise/splitwise.ts";
+import { type CategoryMap, planImport } from "../splitwise/plan.ts";
 
 const SOURCE = "splitwise";
 

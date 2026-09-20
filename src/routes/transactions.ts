@@ -1,12 +1,12 @@
 import { Router } from "express";
 
-import { pool } from "./../db.ts";
-import { badRequest, intParam, notFound, route, withTransaction } from "./../http.ts";
-import { isIsoDate, isSpendOnly, parseFilters, parsePaging } from "./../filters.ts";
-import { EXPLAINABLE_SPEND } from "./../spend.ts";
-import { merchantHint } from "./../mining.ts";
-import { LLM_MODEL, LlmUnavailable, suggestCategories } from "./../llm.ts";
-import { DEMO_MODE } from "./../server.ts";
+import { pool } from "../db.ts";
+import { badRequest, intParam, notFound, route, withTransaction } from "../http.ts";
+import { isIsoDate, isSpendOnly, parseFilters, parsePaging } from "../filters.ts";
+import { EXPLAINABLE_SPEND } from "../spend.ts";
+import { merchantHint } from "../rules/mining.ts";
+import { LLM_MODEL, LlmUnavailable, suggestCategories } from "../llm/llm.ts";
+import { DEMO_MODE } from "../server.ts";
 
 const router = Router();
 export { router as transactions };
