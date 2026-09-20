@@ -15,6 +15,7 @@ import { badRequest, intParam, notFound, route, withTransaction } from "../http.
 import { consent, enqueueBatch, listActiveBatches } from "../receipts/model/queue.ts";
 import { explain, isErrorKind } from "../receipts/model/queue-policy.ts";
 import { RECEIPT_LLM } from "../llm/config.ts";
+import { DEMO_MODE } from "../server.ts";
 
 const router = Router();
 export { router as parse };
@@ -50,6 +51,16 @@ const CANDIDATE_SQL = `
  * copies of "what counts as a candidate" is how a dialog comes to promise 80 and run 74.
  */
 router.get("/evidence/llm-parse/candidates", route(async (_req, res) => {
+  // Nothing to offer where nothing can run. Answering the real list would put a button on the
+  // demo that refuses the moment it is pressed, and a button that exists to say no is worse
+  // than no button.
+  if (DEMO_MODE) {
+    return res.json({
+      candidates: [], total: 0, fresh: 0, retryable: 0,
+      model: RECEIPT_LLM.model, median_seconds: null, estimate_seconds: null,
+    });
+  }
+
   const rows = await pool.query<{
     id: string; original_name: string | null; byte_size: number;
     parse_status: string; parse_error: string | null; source_type: string | null;
@@ -128,6 +139,19 @@ router.get("/evidence/llm-parse/candidates", route(async (_req, res) => {
  * an unconsented batch — so the estimate can be shown and declined without anything having run.
  */
 router.post("/evidence/llm-parse", route(async (req, res) => {
+  // A hosted deployment runs no worker: `server.ts` starts it only outside DEMO_MODE, because
+  // there is no Ollama and no docling on that box and never will be. Queueing here would
+  // write jobs nothing can ever claim, and the screen would sit at "Reading 0 of 1" for as
+  // long as the demo exists. Refuse where the request is made, the same way category
+  // suggestions do.
+  if (DEMO_MODE) {
+    return res.status(501).json({
+      error:
+        "Reading documents with a model runs on YOUR machine — that is the privacy design, " +
+        "so it is unavailable in the hosted demo. Run Khata locally with Ollama to try it.",
+    });
+  }
+
   const body = req.body ?? {};
   const wantsAll = body.all === true;
   const ids = body.artifact_ids;

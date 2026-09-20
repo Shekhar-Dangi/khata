@@ -516,3 +516,68 @@ CREATE INDEX IF NOT EXISTS evidence_lines_item_idx ON evidence_lines (item_id);
 COMMENT ON TABLE evidence_lines IS
   'Which catalogue item each confirmed invoice line resolved to. The handle that makes a '
   'category retroactive: filing a product re-derives every order containing it.';
+
+-- ---------------------------------------------------------------------------------------
+-- The parse queue: reading documents with a local model, durably.
+--
+-- A hundred invoices at 20-60s each is under an hour of work and nowhere near a request, so
+-- it has to outlive the request that asked for it, and it has to outlive the PROCESS: `npm
+-- run dev` restarts on every file change, and a restart must cost one document rather than
+-- the batch.
+--
+-- The batch exists so consent has somewhere to live. Nothing runs until `consented_at` is
+-- set, which is what makes the estimate showable and declinable.
+-- ---------------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS parse_batches (
+  id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  kind         TEXT NOT NULL CHECK (kind IN ('llm_receipt')),
+  total        INTEGER NOT NULL CHECK (total > 0),
+  consented_at TIMESTAMPTZ,
+  finished_at  TIMESTAMPTZ,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS parse_jobs (
+  id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  artifact_id  BIGINT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
+  batch_id     BIGINT NOT NULL REFERENCES parse_batches(id) ON DELETE CASCADE,
+
+  state        TEXT NOT NULL DEFAULT 'queued'
+               CHECK (state IN ('queued', 'running', 'done', 'failed')),
+  -- Incremented when a worker CLAIMS the job, not when it fails. A process killed mid-read
+  -- leaves no failure behind to count, and a job that can be reclaimed without cost is a job
+  -- that retries forever.
+  attempts     INTEGER NOT NULL DEFAULT 0,
+  -- The lease. A claim with a heartbeat, so a worker that dies is noticed by its silence.
+  claimed_at   TIMESTAMPTZ,
+
+  -- WHY it failed, as a closed vocabulary rather than prose. A worker that reports "failed"
+  -- is a worker nobody trusts, and the kind is what decides whether a retry is worth
+  -- anything: some are transient and retrying fixes them, some are deterministic and
+  -- retrying spends three minutes to be told the same thing.
+  error_kind   TEXT,
+  error_detail TEXT,
+
+  started_at   TIMESTAMPTZ,
+  finished_at  TIMESTAMPTZ,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  CONSTRAINT parse_jobs_claim_check
+    CHECK ((state = 'running') = (claimed_at IS NOT NULL)),
+  CONSTRAINT parse_jobs_finished_check
+    CHECK ((state IN ('done', 'failed')) = (finished_at IS NOT NULL))
+);
+
+-- One outstanding job per document, enforced rather than remembered: two workers reading the
+-- same invoice would spend twice the time to write the same row.
+CREATE UNIQUE INDEX IF NOT EXISTS parse_jobs_one_outstanding
+  ON parse_jobs (artifact_id) WHERE state IN ('queued', 'running');
+CREATE INDEX IF NOT EXISTS parse_jobs_claimable
+  ON parse_jobs (created_at) WHERE state = 'queued';
+CREATE INDEX IF NOT EXISTS parse_jobs_leases
+  ON parse_jobs (claimed_at) WHERE state = 'running';
+CREATE INDEX IF NOT EXISTS parse_jobs_batch_idx ON parse_jobs (batch_id, state);
+
+COMMENT ON TABLE parse_jobs IS
+  'One document to read with the model. Durable because the work outlives both the request '
+  'that asked for it and the process that runs it.';

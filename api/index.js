@@ -5398,6 +5398,17 @@ var CANDIDATE_SQL = `
       WHERE j.artifact_id = a.id AND j.state IN ('queued', 'running')
    )`;
 router5.get("/evidence/llm-parse/candidates", route(async (_req, res) => {
+  if (DEMO_MODE) {
+    return res.json({
+      candidates: [],
+      total: 0,
+      fresh: 0,
+      retryable: 0,
+      model: RECEIPT_LLM.model,
+      median_seconds: null,
+      estimate_seconds: null
+    });
+  }
   const rows = await pool.query(
     // THE LAST ATTEMPT, per document. A failed job leaves the artifact's own status exactly as
     // it was — `unsupported` stays `unsupported` — so without this a document the model just
@@ -5456,6 +5467,11 @@ router5.get("/evidence/llm-parse/candidates", route(async (_req, res) => {
   });
 }));
 router5.post("/evidence/llm-parse", route(async (req, res) => {
+  if (DEMO_MODE) {
+    return res.status(501).json({
+      error: "Reading documents with a model runs on YOUR machine \u2014 that is the privacy design, so it is unavailable in the hosted demo. Run Khata locally with Ollama to try it."
+    });
+  }
   const body = req.body ?? {};
   const wantsAll = body.all === true;
   const ids = body.artifact_ids;

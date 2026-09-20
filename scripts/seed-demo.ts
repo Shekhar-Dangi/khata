@@ -22,6 +22,17 @@ import path from "node:path";
 import { pool } from "../src/db.ts";
 
 const FORCE = process.argv.includes("--force");
+/**
+ * Drop the schema and build it again from db/schema.sql.
+ *
+ * WHY IT HAS TO EXIST. Seeding only applies the schema to a database that has no tables, so a
+ * deployment seeded months ago keeps whatever schema it was born with. Every table added
+ * since then is simply missing, and the endpoints that need one answer 500: that is exactly
+ * what happened to the hosted demo, which was seeded before the catalogue, the artifact store
+ * and the queue existed. Migrations are the route for a database holding real data. A demo
+ * holds generated data, so the honest fix is to build it again.
+ */
+const REBUILD = process.argv.includes("--rebuild");
 const HERE = import.meta.dirname;
 const sqlFile = (name: string) => path.resolve(HERE, "..", "db", name);
 
@@ -37,7 +48,12 @@ async function tableExists(name: string): Promise<boolean> {
 }
 
 async function main() {
-  const fresh = !(await tableExists("transactions"));
+  let fresh = !(await tableExists("transactions"));
+
+  if (REBUILD && !FORCE) {
+    console.error("\n--rebuild DROPS every table. It needs --force as well.\n");
+    process.exit(1);
+  }
 
   if (!fresh) {
     const { rows } = await pool.query("SELECT COUNT(*)::int AS n FROM transactions");
@@ -54,6 +70,15 @@ async function main() {
     }
   }
 
+  if (REBUILD && !fresh) {
+    // The whole schema, not table by table: the point is to end up with exactly what
+    // schema.sql describes, and a list of DROPs maintained by hand is a list that goes stale
+    // the same way the schema it is trying to replace did.
+    console.log("  --rebuild given; dropping the schema");
+    await pool.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
+    fresh = true;
+  }
+
   console.log(fresh ? "fresh database — applying schema" : "existing schema — reseeding data");
   if (fresh) await run("schema.sql");
 
@@ -67,9 +92,20 @@ async function main() {
   // where the model has three.
   await run("demo-unexplained.sql");
   await run("rules.sql");
+  // AFTER the transactions, because the orders in it are attached to rows mock.sql inserts.
+  await run("demo-evidence.sql");
 
-  const { rows } = await pool.query("SELECT COUNT(*)::int AS n FROM transactions");
-  console.log(`\nseeded: ${rows[0].n} transactions\n`);
+  const counts = await pool.query(
+    `SELECT (SELECT COUNT(*) FROM transactions) AS txns,
+            (SELECT COUNT(*) FROM items)        AS items,
+            (SELECT COUNT(*) FROM evidence)     AS evidence,
+            (SELECT COUNT(*) FROM artifacts WHERE parse_status = 'staged') AS staged`,
+  );
+  const c = counts.rows[0];
+  console.log(
+    `\nseeded: ${c.txns} transactions, ${c.items} products, ${c.evidence} records, ` +
+      `${c.staged} orders waiting in the inbox\n`,
+  );
   await pool.end();
 }
 

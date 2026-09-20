@@ -25,6 +25,9 @@ services:
         value: "1"
       - key: SERVE_WEB          # this process also serves web/dist
         value: "1"
+      - key: SPLITWISE_ME       # which column in a Splitwise export means you. The demo's
+        value: "You"            # generated shared expenses use this name; without it the
+                                # Sources screen refuses rather than guessing whose share is whose
       - key: NODE_VERSION       # load-bearing: the app runs TypeScript with no build step
         value: "24"
 

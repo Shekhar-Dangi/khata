@@ -284,15 +284,27 @@ One process serves the API and the built frontend, so a deployment is one servic
 database:
 
 ```sh
-DEMO_MODE=1     # banner on, local-model endpoint answers 501
-SERVE_WEB=1     # this process also serves web/dist
-DATABASE_URL=…  # provided by the host
+DEMO_MODE=1        # banner on, local-model endpoints answer 501
+SERVE_WEB=1        # this process also serves web/dist
+SPLITWISE_ME=You   # the column in a Splitwise export that means you
+DATABASE_URL=…     # provided by the host
 
 npm ci && npm ci --prefix web && npm run build --prefix web
 npm run seed:demo      # refuses to run against a database that already holds data
 npm run start:demo
 BASE=$URL npm run demo:activity   # applies rules, then confirms a slice
 ```
+
+Seeding applies the schema only to an empty database, so a deployment seeded months ago keeps
+the schema it was born with and every table added since is missing. To bring one up to date,
+drop and build it again:
+
+```sh
+DATABASE_URL=… npm run seed:demo -- --force --rebuild
+```
+
+That is for a demo, which holds generated data. A database holding real statements is what
+`db/migrations/` and `npm run migrate` are for.
 
 `demo:activity` exists so the demo shows all three states instead of two. A freshly seeded
 database has unexplained rows and rule guesses but nothing confirmed, because confirming is a

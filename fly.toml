@@ -13,6 +13,8 @@ primary_region = "sin"          # closest region to the intended audience
 [env]
   DEMO_MODE = "1"               # banner on; the local-model endpoint answers 501 honestly
   SERVE_WEB = "1"               # this process also serves web/dist
+  SPLITWISE_ME = "You"          # the column in a Splitwise export that means you, which the
+                                # generated shared expenses are written under
   PORT = "8080"
 
 [http_service]
