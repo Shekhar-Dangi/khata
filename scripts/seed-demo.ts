@@ -32,7 +32,19 @@ const FORCE = process.argv.includes("--force");
  * and the queue existed. Migrations are the route for a database holding real data. A demo
  * holds generated data, so the honest fix is to build it again.
  */
-const REBUILD = process.argv.includes("--rebuild");
+const REBUILD = process.argv.some((a) => a === "--rebuild" || a.startsWith("--rebuild="));
+/**
+ * The database name typed after `--rebuild=`, which must match the one actually connected to.
+ *
+ * WHY A PASSWORD FOR THE DOOR. `--rebuild` drops every table, and the only thing deciding
+ * WHICH database that happens to is a connection string passed on a command line. Setting it
+ * to the wrong one is not a hypothetical: it destroyed a real ledger, because nothing in the
+ * output named the target until after the tables were gone. Typing the name is a second,
+ * independent statement of intent that a copied command cannot make for you.
+ */
+const REBUILD_NAME = process.argv
+  .find((a) => a.startsWith("--rebuild="))
+  ?.slice("--rebuild=".length);
 const HERE = import.meta.dirname;
 const sqlFile = (name: string) => path.resolve(HERE, "..", "db", name);
 
@@ -48,10 +60,27 @@ async function tableExists(name: string): Promise<boolean> {
 }
 
 async function main() {
+  // WHERE, before anything else and whatever the outcome. A destructive command that does not
+  // say what it is about to destroy leaves the person running it checking the wrong thing.
+  const target = new URL(process.env.DATABASE_URL ?? "postgres://unset/unset");
+  const dbName = decodeURIComponent(target.pathname.replace(/^\//, ""));
+  console.log(`target: ${target.username}@${target.hostname}:${target.port || "5432"}/${dbName}\n`);
+
   let fresh = !(await tableExists("transactions"));
 
   if (REBUILD && !FORCE) {
     console.error("\n--rebuild DROPS every table. It needs --force as well.\n");
+    process.exit(1);
+  }
+
+  if (REBUILD && REBUILD_NAME !== dbName) {
+    console.error(
+      `\nRefusing to rebuild: name the database you mean.\n\n` +
+        `  --rebuild=${dbName}\n\n` +
+        `This connection points at ${dbName} on ${target.hostname}. Every table in it would be\n` +
+        `dropped. If that is a database holding statements you care about, the answer is no:\n` +
+        `db/migrations and \`npm run migrate\` are how a real database moves forward.\n`,
+    );
     process.exit(1);
   }
 
