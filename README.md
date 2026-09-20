@@ -272,6 +272,8 @@ properly. Its limits are deliberate:
   may be reset without warning. Do not put real financial details into it.
 * No local model, since that runs on your machine by design. That one endpoint answers 501 and
   says why.
+* No invoice reading either. Parsing a PDF shells out to Python, and the container ships only
+  the Node runtime, so an upload there reports that it cannot start the extractor.
 * Everything else is the real app: import, transfers, rules, mining, bulk confirm, reports.
 
 The app says all of this in a banner rather than letting you find out.
