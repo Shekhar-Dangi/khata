@@ -75,7 +75,25 @@ async function main() {
     // schema.sql describes, and a list of DROPs maintained by hand is a list that goes stale
     // the same way the schema it is trying to replace did.
     console.log("  --rebuild given; dropping the schema");
-    await pool.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
+    try {
+      await pool.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
+    } catch (e) {
+      // Managed Postgres often hands you a role that OWNS the tables without owning the
+      // schema they sit in, and dropping a schema you do not own is refused however much
+      // you are allowed to do inside it. Dropping the tables themselves needs only what
+      // that role already has.
+      if (!(e instanceof Error) || !/must be owner|permission denied/i.test(e.message)) throw e;
+      console.log(`  cannot drop the schema (${e.message}); dropping its tables instead`);
+      await pool.query(`
+        DO $$
+        DECLARE t RECORD;
+        BEGIN
+          FOR t IN SELECT tablename FROM pg_tables WHERE schemaname = 'public'
+          LOOP
+            EXECUTE format('DROP TABLE IF EXISTS public.%I CASCADE', t.tablename);
+          END LOOP;
+        END $$;`);
+    }
     fresh = true;
   }
 
